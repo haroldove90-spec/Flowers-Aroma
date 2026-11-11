@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Aroma Flower - Sistema de Gestión de Invernadero</title>
+    <meta name="description" content="Sistema integral de gestión de invernadero florícola Aroma Flower: producción, sanidad vegetal, riego, cosecha, ventas y finanzas." />
+    <meta name="theme-color" content="#5C1125" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Aroma Flower" />
+    <link rel="apple-touch-icon" href="/aromaflowericono.png" />
+    <link rel="icon" type="image/png" href="/aromaflowericono.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <meta property="og:title" content="Aroma Flower - Sistema de Gestión de Invernadero" />
+    <meta property="og:description" content="Sistema integral de gestión de invernadero florícola Aroma Flower." />
+    <meta property="og:image" content="https://daloocomercializadora.com.mx/aromaflowerlogo.png" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <style>
+      /* Fallback brand splash before React mounts */
+      #app-init-splash {
+        position: fixed;
+        inset: 0;
+        background-color: #000000;
+        background-image: radial-gradient(circle at center, #5C1125 0%, #000000 80%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+        color: #ffffff;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      .splash-logo {
+        max-width: 220px;
+        width: 65vw;
+        height: auto;
+        object-fit: contain;
+        filter: drop-shadow(0 10px 25px rgba(0,0,0,0.5));
+      }
+      .splash-bar {
+        width: 140px;
+        height: 3px;
+        background: rgba(195, 162, 93, 0.25);
+        border-radius: 9999px;
+        margin-top: 28px;
+        overflow: hidden;
+        position: relative;
+      }
+      .splash-bar::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 50%;
+        background: #C3A25D;
+        border-radius: 9999px;
+        animation: splashSlide 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      @keyframes splashSlide {
+        0% { left: -50%; }
+        100% { left: 100%; }
+      }
+    </style>
+  </head>
+  <body class="bg-[#FAF8F5] text-stone-900 antialiased selection:bg-[#C3A25D]/30 selection:text-[#5C1125]">
+    <div id="root">
+      <div id="app-init-splash">
+        <img
+          src="https://daloocomercializadora.com.mx/aromaflowerlogo.png"
+          alt="Aroma Flower"
+          class="splash-logo"
+          onerror="this.src='/aromaflowerlogo.png'"
+        />
+        <div class="splash-bar"></div>
+        <p style="margin-top: 14px; font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: #C3A25D; font-weight: 600;">
+          Invernadero Florícola
+        </p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

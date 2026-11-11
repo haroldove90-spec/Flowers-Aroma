@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --color-af-wine: #5C1125;
+  --color-af-wine-dark: #3f0918;
+  --color-af-wine-light: #7c1934;
+  --color-af-wine-50: #fbf2f4;
+  --color-af-wine-100: #f5e4e8;
+  --color-af-wine-200: #ebccd4;
+  
+  --color-af-olive: #535B28;
+  --color-af-olive-dark: #3b411c;
+  --color-af-olive-light: #6c7734;
+  --color-af-olive-50: #f7f8f2;
+  --color-af-olive-100: #edf1df;
+  --color-af-olive-200: #dce4bf;
+  
+  --color-af-gold: #C3A25D;
+  --color-af-gold-dark: #9f8241;
+  --color-af-gold-light: #d6be83;
+  --color-af-gold-50: #fcfaf4;
+  --color-af-gold-100: #f8f2e2;
+  --color-af-gold-200: #efe1c2;
+
+  --color-af-black: #000000;
+}
+
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+  -webkit-tap-highlight-color: transparent;
+  background-color: #FAF8F5;
+}
+
+/* Safe area inset for modern mobile browsers */
+.safe-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(195, 162, 93, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(92, 17, 37, 0.5);
+}

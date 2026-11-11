@@ -1,0 +1,8 @@
+{
+  "name": "Aroma Flower",
+  "description": "Sistema integral de gestión de invernadero florícola Aroma Flower para alta dirección, operaciones, agronomía, empaque y comercialización.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
