@@ -426,45 +426,29 @@ export const AromaFlowersRoleView: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 self-start md:self-auto bg-black/30 p-2.5 rounded-xl border border-white/10">
-            <User className="w-4 h-4 text-[#C3A25D]" />
-            <div className="text-left text-xs">
-              <span className="text-stone-400 block text-[10px] uppercase font-semibold">Responsable</span>
-              <span className="font-bold text-white">{responsable}</span>
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+            <div className="lg:hidden">
+              <select
+                value={currentModuleId}
+                onChange={(e) => setActiveView(e.target.value)}
+                aria-label="Seleccionar módulo"
+                className="px-3 py-2 rounded-xl bg-black/40 border border-[#C3A25D]/40 text-xs font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-[#C3A25D]"
+              >
+                {MODULES_CONFIG.map((mod) => (
+                  <option key={mod.id} value={mod.id} className="bg-[#5C1125] text-white">
+                    {mod.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2 bg-black/30 p-2.5 rounded-xl border border-white/10">
+              <User className="w-4 h-4 text-[#C3A25D]" />
+              <div className="text-left text-xs">
+                <span className="text-stone-400 block text-[10px] uppercase font-semibold">Responsable</span>
+                <span className="font-bold text-white">{responsable}</span>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Module Selector (7 Excel Sheets) */}
-      <div className="bg-white p-2 rounded-2xl border border-stone-200 shadow-xs overflow-x-auto">
-        <div className="flex items-center gap-1.5 min-w-max">
-          {MODULES_CONFIG.map((mod) => {
-            const Icon = mod.icon;
-            const isSelected = mod.id === currentModuleId;
-            const count = aromaSheets.filter((s) => s.moduleType === mod.id).length;
-            return (
-              <button
-                key={mod.id}
-                onClick={() => setActiveView(mod.id)}
-                className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-[#5C1125] text-white shadow-md border border-[#C3A25D]/40'
-                    : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${isSelected ? 'text-[#C3A25D]' : 'text-stone-400'}`} />
-                <span>{mod.title}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                    isSelected ? 'bg-[#C3A25D] text-[#000000]' : 'bg-stone-200 text-stone-700'
-                  }`}
-                >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
         </div>
       </div>
 
