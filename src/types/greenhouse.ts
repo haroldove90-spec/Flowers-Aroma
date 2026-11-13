@@ -14,6 +14,7 @@ export interface RoleConfig {
   badge: string;
   color: string;
   iconName: string;
+  enabled?: boolean;
 }
 
 export const ROLES: RoleConfig[] = [
@@ -24,6 +25,7 @@ export const ROLES: RoleConfig[] = [
     badge: 'Producción, Empaque y Ventas Excel',
     color: 'wine',
     iconName: 'PackageCheck',
+    enabled: true,
   },
   {
     id: 'director',
@@ -32,6 +34,7 @@ export const ROLES: RoleConfig[] = [
     badge: 'Administración y Alta Dirección',
     color: 'emerald',
     iconName: 'Building2',
+    enabled: false,
   },
   {
     id: 'operaciones',
@@ -40,6 +43,7 @@ export const ROLES: RoleConfig[] = [
     badge: 'Gestión de Recursos y Producción',
     color: 'blue',
     iconName: 'Settings',
+    enabled: false,
   },
   {
     id: 'agronomo',
@@ -48,6 +52,7 @@ export const ROLES: RoleConfig[] = [
     badge: 'Cultivo, Riego y Fitoprotección',
     color: 'teal',
     iconName: 'Sprout',
+    enabled: false,
   },
   {
     id: 'cosecha',
@@ -56,6 +61,7 @@ export const ROLES: RoleConfig[] = [
     badge: 'Corte, Selección y Calidad',
     color: 'rose',
     iconName: 'Flower2',
+    enabled: false,
   },
   {
     id: 'ventas',
@@ -64,6 +70,7 @@ export const ROLES: RoleConfig[] = [
     badge: 'Ventas, Clientes y Cobranza',
     color: 'amber',
     iconName: 'TrendingUp',
+    enabled: false,
   },
   {
     id: 'sistema',
@@ -72,6 +79,7 @@ export const ROLES: RoleConfig[] = [
     badge: 'Operación Ágil y Tecnología',
     color: 'purple',
     iconName: 'Tablet',
+    enabled: false,
   },
 ];
 

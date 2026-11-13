@@ -36,7 +36,7 @@ export const Header: React.FC = () => {
           {/* Brand Logo & System Name - Clean Unencapsulated Presentation */}
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setActiveView('principal')}
+              onClick={() => setActiveView(activeRole === 'aroma_flowers' ? 'fi_general' : 'principal')}
               className="flex items-center gap-2.5 hover:opacity-95 transition text-left group cursor-pointer"
               title="Aroma Flower - Inicio de Módulo"
             >

@@ -12,13 +12,14 @@ import { HarvestView } from './components/harvest/HarvestView';
 import { SalesView } from './components/sales/SalesView';
 import { SystemView } from './components/system/SystemView';
 import { AromaFlowersRoleView } from './components/aroma_flowers/AromaFlowersRoleView';
+import { ROLES } from './types/greenhouse';
 
 const MainAppLayout: React.FC = () => {
   const { activeRole, activeView, isOnline } = useGreenhouse();
+  const activeRoleConfig = ROLES.find((r) => r.id === activeRole);
 
-  // If no active role is selected, show the clean Role Selector on Home
-  // (Cuadrícula 2 col móvil / 4 col escritorio, sin header, sin descripciones, logo sin encapsular)
-  if (!activeRole) {
+  // If no active role is selected or the role is disabled, show the clean Role Selector on Home
+  if (!activeRole || activeRoleConfig?.enabled === false) {
     return <RoleSelector />;
   }
 

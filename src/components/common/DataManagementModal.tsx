@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Trash2,
   Database,
@@ -11,6 +11,8 @@ import {
   X,
   ShieldCheck,
   Server,
+  CloudUpload,
+  PlugZap,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 
@@ -27,7 +29,12 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
     neverShowDemoAgain,
     setNeverShowDemoAgain,
     supabaseConfig,
+    supabaseStatus,
+    supabaseMessage,
+    isSyncingSupabase,
     saveSupabaseConfig,
+    testSupabase,
+    syncAllToSupabase,
     generateSupabaseSql,
     generateSupabaseCleanupSql,
     exportDataJson,
@@ -41,6 +48,12 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+
+  useEffect(() => {
+    setSupabaseUrl(supabaseConfig.url || '');
+    setSupabaseKey(supabaseConfig.anonKey || '');
+  }, [supabaseConfig.url, supabaseConfig.anonKey]);
 
   if (!isOpen) return null;
 
@@ -63,11 +76,54 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
     setTimeout(() => setActionMessage(null), 3000);
   };
 
-  const handleSaveSupabase = (e: React.FormEvent) => {
+  const handleSaveSupabase = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
     saveSupabaseConfig(supabaseUrl, supabaseKey);
-    setActionMessage('Configuración de conexión Supabase guardada.');
-    setTimeout(() => setActionMessage(null), 3000);
+    setIsTesting(true);
+    const res = await testSupabase(supabaseUrl, supabaseKey);
+    setIsTesting(false);
+    if (res.ok && res.tablesReady) {
+      setActionMessage(res.message);
+    } else if (res.ok && !res.tablesReady) {
+      setActionMessage(res.message);
+    } else {
+      setErrorMessage(res.message);
+    }
+    setTimeout(() => {
+      setActionMessage(null);
+      setErrorMessage(null);
+    }, 5000);
+  };
+
+  const handleTestConnection = async () => {
+    setErrorMessage(null);
+    setIsTesting(true);
+    const res = await testSupabase(supabaseUrl, supabaseKey);
+    setIsTesting(false);
+    if (res.ok) {
+      setActionMessage(res.message);
+    } else {
+      setErrorMessage(res.message);
+    }
+    setTimeout(() => {
+      setActionMessage(null);
+      setErrorMessage(null);
+    }, 5000);
+  };
+
+  const handleSyncAll = async () => {
+    setErrorMessage(null);
+    const res = await syncAllToSupabase();
+    if (res.ok) {
+      setActionMessage(res.message);
+    } else {
+      setErrorMessage(res.message);
+    }
+    setTimeout(() => {
+      setActionMessage(null);
+      setErrorMessage(null);
+    }, 5000);
   };
 
   const handleDownloadBackup = () => {
@@ -261,6 +317,48 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
 
           {activeTab === 'supabase' && (
             <div className="space-y-5">
+              {/* Live status indicator */}
+              <div
+                className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${
+                  supabaseStatus === 'connected'
+                    ? 'bg-[#f7f8f2] border-[#dce4bf] text-[#535B28]'
+                    : supabaseStatus === 'missing_tables'
+                    ? 'bg-[#fbf7eb] border-[#e7d4a5] text-[#7c5b16]'
+                    : supabaseStatus === 'error'
+                    ? 'bg-[#fbf2f4] border-[#ebccd4] text-[#5C1125]'
+                    : 'bg-stone-50 border-stone-200 text-stone-600'
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <Server className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold">
+                      {supabaseStatus === 'connected'
+                        ? 'Supabase Conectado y Operativo'
+                        : supabaseStatus === 'missing_tables'
+                        ? 'Proyecto Vinculado (Tablas SQL Pendientes)'
+                        : supabaseStatus === 'connecting'
+                        ? 'Verificando conexión con Supabase...'
+                        : supabaseStatus === 'error'
+                        ? 'Error de Conexión'
+                        : 'Sin verificar'}
+                    </p>
+                    <p className="text-[11px] opacity-90 mt-0.5">
+                      {supabaseMessage || 'Proyecto: syrchvrxkkwvwynvtzfq'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSyncAll}
+                  disabled={isSyncingSupabase || !supabaseConfig.isConnected}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#535B28] text-white font-semibold hover:bg-[#3e441d] disabled:opacity-50 transition cursor-pointer shrink-0"
+                >
+                  <CloudUpload className="w-3.5 h-3.5 text-[#C3A25D]" />
+                  {isSyncingSupabase ? 'Sincronizando...' : 'Subir Datos a Supabase'}
+                </button>
+              </div>
+
               <form onSubmit={handleSaveSupabase} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-stone-700 mb-1">
@@ -268,7 +366,7 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
                   </label>
                   <input
                     type="url"
-                    placeholder="https://xyzcompany.supabase.co"
+                    placeholder="https://syrchvrxkkwvwynvtzfq.supabase.co"
                     value={supabaseUrl}
                     onChange={(e) => setSupabaseUrl(e.target.value)}
                     className="w-full px-3 py-2 text-xs sm:text-sm border border-stone-300 rounded-lg focus:ring-2 focus:ring-[#5C1125] focus:outline-hidden"
@@ -277,26 +375,30 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
 
                 <div>
                   <label className="block text-xs font-semibold text-stone-700 mb-1">
-                    Supabase Anon Public Key
+                    Supabase Publishable / Anon Key
                   </label>
                   <input
                     type="password"
-                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    placeholder="sb_publishable_..."
                     value={supabaseKey}
                     onChange={(e) => setSupabaseKey(e.target.value)}
                     className="w-full px-3 py-2 text-xs sm:text-sm border border-stone-300 rounded-lg focus:ring-2 focus:ring-[#5C1125] focus:outline-hidden"
                   />
                 </div>
 
-                <div className="flex items-center justify-between pt-1">
-                  <div className="flex items-center gap-2">
-                    <Server className={`w-4 h-4 ${supabaseConfig.isConnected ? 'text-[#535B28]' : 'text-stone-400'}`} />
-                    <span className="text-xs text-stone-500">
-                      {supabaseConfig.isConnected ? 'Credenciales configuradas' : 'Sin vincular'}
-                    </span>
-                  </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={isTesting}
+                    className="flex items-center gap-1.5 px-3 py-2 border border-stone-300 bg-white text-stone-700 rounded-lg text-xs font-semibold hover:bg-stone-50 transition cursor-pointer"
+                  >
+                    <PlugZap className="w-3.5 h-3.5 text-[#C3A25D]" />
+                    {isTesting ? 'Probando...' : 'Probar Conexión'}
+                  </button>
                   <button
                     type="submit"
+                    disabled={isTesting}
                     className="px-4 py-2 bg-[#5C1125] text-white rounded-lg text-xs font-semibold hover:bg-[#430c1b] transition cursor-pointer"
                   >
                     Guardar Conexión
@@ -306,26 +408,33 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
 
               {/* SQL Generation Scripts */}
               <div className="space-y-3 pt-3 border-t border-slate-200">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-xs text-stone-700">
-                    1. Script SQL para Crear Tablas en Supabase:
-                  </span>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="font-semibold text-xs text-stone-700 block">
+                      1. Script SQL Completo para Crear las 16 Tablas y Políticas RLS:
+                    </span>
+                    <span className="text-[11px] text-stone-500">
+                      Incluye aroma_flower_sheets (7 módulos Excel) + módulos, riego, cosecha, ventas y finanzas.
+                    </span>
+                  </div>
                   <button
+                    type="button"
                     onClick={() => handleCopy(generateSupabaseSql(), 'schema')}
-                    className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#5C1125] bg-[#fbf2f4] border border-[#ebccd4] rounded-md hover:bg-[#f5e4e8] cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-[#5C1125] bg-[#fbf2f4] border border-[#ebccd4] rounded-md hover:bg-[#f5e4e8] cursor-pointer shrink-0"
                   >
                     {copiedType === 'schema' ? <Check className="w-3.5 h-3.5 text-[#535B28]" /> : <Copy className="w-3.5 h-3.5 text-[#C3A25D]" />}
                     {copiedType === 'schema' ? 'Copiado' : 'Copiar Esquema SQL'}
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-xs text-stone-700">
                     2. Script SQL de Limpieza Supabase (Borrar registros de prueba):
                   </span>
                   <button
+                    type="button"
                     onClick={() => handleCopy(generateSupabaseCleanupSql(), 'clean')}
-                    className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#5C1125] bg-[#fbf2f4] border border-[#ebccd4] rounded-md hover:bg-[#f5e4e8] cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-[#5C1125] bg-[#fbf2f4] border border-[#ebccd4] rounded-md hover:bg-[#f5e4e8] cursor-pointer shrink-0"
                   >
                     {copiedType === 'clean' ? <Check className="w-3.5 h-3.5 text-[#535B28]" /> : <Copy className="w-3.5 h-3.5 text-[#C3A25D]" />}
                     {copiedType === 'clean' ? 'Copiado' : 'Copiar Limpieza SQL'}
