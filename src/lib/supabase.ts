@@ -661,7 +661,10 @@ export interface RemoteSnapshot {
   auditLogs?: AuditLogEntry[];
 }
 
-export async function fetchAllFromSupabase(client: SupabaseClient): Promise<RemoteSnapshot> {
+export async function fetchAllFromSupabase(
+  client: SupabaseClient,
+  onlyAromaFlowers = false
+): Promise<RemoteSnapshot> {
   const check = await client.from('aroma_flower_sheets').select('*');
   if (check.error) {
     if (
@@ -672,6 +675,13 @@ export async function fetchAllFromSupabase(client: SupabaseClient): Promise<Remo
       return { status: 'missing_tables' };
     }
     return { status: 'error' };
+  }
+
+  if (onlyAromaFlowers) {
+    return {
+      status: 'connected',
+      aromaSheets: check.data?.length ? check.data.map(mapAromaSheetFromDb) : undefined,
+    };
   }
 
   const [
@@ -750,26 +760,29 @@ export interface LocalStateSnapshot {
 
 export async function pushAllLocalToSupabase(
   client: SupabaseClient,
-  state: LocalStateSnapshot
+  state: LocalStateSnapshot,
+  onlyAromaFlowers = false
 ): Promise<{ ok: boolean; syncedCount: number; status: SupabaseSyncStatus; message: string }> {
-  const batches: Array<{ table: string; rows: Record<string, any>[] }> = [
-    { table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) },
-    { table: 'modules', rows: state.modules.map(mapModuleToDb) },
-    { table: 'cultural_tasks', rows: state.tasks.map(mapTaskToDb) },
-    { table: 'irrigation_logs', rows: state.irrigation.map(mapIrrigationToDb) },
-    { table: 'pest_monitoring', rows: state.pestMonitoring.map(mapPestToDb) },
-    { table: 'phytosanitary_applications', rows: state.applications.map(mapApplicationToDb) },
-    { table: 'harvest_records', rows: state.harvest.map(mapHarvestToDb) },
-    { table: 'inventory_items', rows: state.inventory.map(mapInventoryToDb) },
-    { table: 'equipment_assets', rows: state.equipment.map(mapEquipmentToDb) },
-    { table: 'workers', rows: state.workers.map(mapWorkerToDb) },
-    { table: 'customers', rows: state.customers.map(mapCustomerToDb) },
-    { table: 'sales_orders', rows: state.orders.map(mapOrderToDb) },
-    { table: 'bank_accounts', rows: state.bankAccounts.map(mapAccountToDb) },
-    { table: 'financial_movements', rows: state.movements.map(mapMovementToDb) },
-    { table: 'active_loans', rows: state.loans.map(mapLoanToDb) },
-    { table: 'audit_logs', rows: state.auditLogs.map(mapAuditToDb) },
-  ];
+  const batches: Array<{ table: string; rows: Record<string, any>[] }> = onlyAromaFlowers
+    ? [{ table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) }]
+    : [
+        { table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) },
+        { table: 'modules', rows: state.modules.map(mapModuleToDb) },
+        { table: 'cultural_tasks', rows: state.tasks.map(mapTaskToDb) },
+        { table: 'irrigation_logs', rows: state.irrigation.map(mapIrrigationToDb) },
+        { table: 'pest_monitoring', rows: state.pestMonitoring.map(mapPestToDb) },
+        { table: 'phytosanitary_applications', rows: state.applications.map(mapApplicationToDb) },
+        { table: 'harvest_records', rows: state.harvest.map(mapHarvestToDb) },
+        { table: 'inventory_items', rows: state.inventory.map(mapInventoryToDb) },
+        { table: 'equipment_assets', rows: state.equipment.map(mapEquipmentToDb) },
+        { table: 'workers', rows: state.workers.map(mapWorkerToDb) },
+        { table: 'customers', rows: state.customers.map(mapCustomerToDb) },
+        { table: 'sales_orders', rows: state.orders.map(mapOrderToDb) },
+        { table: 'bank_accounts', rows: state.bankAccounts.map(mapAccountToDb) },
+        { table: 'financial_movements', rows: state.movements.map(mapMovementToDb) },
+        { table: 'active_loans', rows: state.loans.map(mapLoanToDb) },
+        { table: 'audit_logs', rows: state.auditLogs.map(mapAuditToDb) },
+      ];
 
   let syncedCount = 0;
   for (const batch of batches) {

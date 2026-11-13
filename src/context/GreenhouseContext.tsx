@@ -17,6 +17,7 @@ import {
   ActiveLoan,
   AuditLogEntry,
   AromaFlowerSheetEntry,
+  ROLES,
 } from '../types/greenhouse';
 import {
   INITIAL_MODULES,
@@ -291,8 +292,13 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
+  const onlyAromaFlowers = ROLES.every(
+    (r) => r.id === 'aroma_flowers' || r.enabled === false
+  );
+
   const pushUpsertToSupabase = (table: string, payload: Record<string, any>) => {
     if (!supabaseConfig.isConnected) return;
+    if (onlyAromaFlowers && table !== 'aroma_flower_sheets') return;
     if (!isOnline) {
       enqueueOfflineOp({ table, op: 'upsert', payload });
       return;
@@ -313,6 +319,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const pushDeleteToSupabase = (table: string, recordId: string) => {
     if (!supabaseConfig.isConnected) return;
+    if (onlyAromaFlowers && table !== 'aroma_flower_sheets') return;
     if (!isOnline) {
       enqueueOfflineOp({ table, op: 'delete', recordId });
       return;
@@ -338,7 +345,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     let cancelled = false;
     setSupabaseStatus('connecting');
-    fetchAllFromSupabase(client).then((snap) => {
+    fetchAllFromSupabase(client, onlyAromaFlowers).then((snap) => {
       if (cancelled) return;
       setSupabaseStatus(snap.status);
       if (snap.status === 'missing_tables') {
@@ -832,24 +839,28 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     setIsSyncingSupabase(true);
     try {
-      const res = await pushAllLocalToSupabase(client, {
-        aromaSheets,
-        modules,
-        tasks,
-        irrigation,
-        pestMonitoring,
-        applications,
-        harvest,
-        inventory,
-        equipment,
-        workers,
-        customers,
-        orders,
-        bankAccounts,
-        movements,
-        loans,
-        auditLogs,
-      });
+      const res = await pushAllLocalToSupabase(
+        client,
+        {
+          aromaSheets,
+          modules,
+          tasks,
+          irrigation,
+          pestMonitoring,
+          applications,
+          harvest,
+          inventory,
+          equipment,
+          workers,
+          customers,
+          orders,
+          bankAccounts,
+          movements,
+          loans,
+          auditLogs,
+        },
+        onlyAromaFlowers
+      );
       setSupabaseStatus(res.status);
       setSupabaseMessage(res.message);
       if (res.ok) {
@@ -862,6 +873,67 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const generateSupabaseSql = (): string => {
+    if (onlyAromaFlowers) {
+      return `-- ================================================================
+-- AROMA FLOWER - ESQUEMA ACTUALIZADO PARA SUPABASE (ROL ÚNICO ACTIVO)
+-- Proyecto: aromaflowers@appdesignsoftware.com's Project (syrchvrxkkwvwynvtzfq)
+-- ================================================================
+
+-- 1. Eliminar tablas de roles desactivados para que Supabase detecte
+--    únicamente los módulos activos de Aroma Flowers
+DROP TABLE IF EXISTS
+  active_loans,
+  audit_logs,
+  bank_accounts,
+  cultural_tasks,
+  customers,
+  equipment_assets,
+  financial_movements,
+  harvest_records,
+  inventory_items,
+  irrigation_logs,
+  modules,
+  pest_monitoring,
+  phytosanitary_applications,
+  sales_orders,
+  workers
+CASCADE;
+
+-- 2. Tabla única activa: Planillas Aroma Flowers (7 Módulos Excel)
+--    Módulos soportados en module_type:
+--    'fi_general' | 'produccion_aaron' | 'suma_paquetes' |
+--    'resumen_variedades' | 'venta' | 'resumen_venta' | 'matriz_2026'
+CREATE TABLE IF NOT EXISTS aroma_flower_sheets (
+    id TEXT PRIMARY KEY,
+    module_type TEXT NOT NULL,
+    sheet_date TEXT NOT NULL,
+    responsable TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_lar INT NOT NULL DEFAULT 0,
+    total_med INT NOT NULL DEFAULT 0,
+    total_chi INT NOT NULL DEFAULT 0,
+    grand_total INT NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_aroma_sheets_module_date
+  ON aroma_flower_sheets (module_type, sheet_date DESC);
+
+-- 3. Habilitar RLS y política de acceso para la app Aroma Flower
+ALTER TABLE aroma_flower_sheets ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "aroma_flower_full_access" ON aroma_flower_sheets;
+CREATE POLICY "aroma_flower_full_access"
+  ON aroma_flower_sheets
+  FOR ALL
+  TO anon, authenticated
+  USING (true)
+  WITH CHECK (true);
+`;
+    }
+
     return `-- ================================================================
 -- AROMA FLOWER - ESQUEMA COMPLETO PARA SUPABASE (POSTGRESQL)
 -- Proyecto: aromaflowers@appdesignsoftware.com's Project (syrchvrxkkwvwynvtzfq)
@@ -1175,6 +1247,18 @@ END $$;
   };
 
   const generateSupabaseCleanupSql = (): string => {
+    if (onlyAromaFlowers) {
+      return `-- ================================================================
+-- SCRIPT DE LIMPIEZA DE DATOS SUPABASE (ROL ÚNICO AROMA FLOWERS)
+-- Invernadero Aroma Flower
+-- ================================================================
+BEGIN;
+TRUNCATE TABLE aroma_flower_sheets CASCADE;
+COMMIT;
+-- La tabla aroma_flower_sheets y su política RLS permanecen listas para producción.
+`;
+    }
+
     return `-- ================================================================
 -- SCRIPT DE LIMPIEZA DE DATOS SUPABASE (BORRADO TOTAL DE PRUEBA)
 -- Invernadero Aroma Flower

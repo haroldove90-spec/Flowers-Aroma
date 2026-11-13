@@ -161,13 +161,14 @@ export const AromaFlowersRoleView: React.FC = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Handle cell edits in spreadsheet mode
+  // Handle cell edits in spreadsheet mode (digits only, manual entry)
   const handleCellChange = (
     index: number,
     field: 'lar' | 'med' | 'chi',
     rawValue: string
   ) => {
-    const parsed = rawValue === '' ? 0 : Math.max(0, parseInt(rawValue, 10) || 0);
+    const digitsOnly = rawValue.replace(/\D/g, '');
+    const parsed = digitsOnly === '' ? 0 : Math.max(0, parseInt(digitsOnly, 10) || 0);
     setDraftRows((prev) => {
       const copy = [...prev];
       const target = { ...copy[index] };
@@ -663,30 +664,33 @@ export const AromaFlowersRoleView: React.FC = () => {
                       </td>
                       <td className="py-1 px-2 text-center">
                         <input
-                          type="number"
-                          min="0"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           placeholder="0"
-                          value={row.lar === 0 ? '' : row.lar}
+                          value={row.lar === 0 ? '' : String(row.lar)}
                           onChange={(e) => handleCellChange(idx, 'lar', e.target.value)}
                           className="w-full py-1 text-center font-bold text-stone-900 placeholder:text-stone-300 border border-stone-200 rounded focus:border-[#5C1125] focus:ring-1 focus:ring-[#5C1125] bg-white"
                         />
                       </td>
                       <td className="py-1 px-2 text-center">
                         <input
-                          type="number"
-                          min="0"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           placeholder="0"
-                          value={row.med === 0 ? '' : row.med}
+                          value={row.med === 0 ? '' : String(row.med)}
                           onChange={(e) => handleCellChange(idx, 'med', e.target.value)}
                           className="w-full py-1 text-center font-bold text-stone-900 placeholder:text-stone-300 border border-stone-200 rounded focus:border-[#5C1125] focus:ring-1 focus:ring-[#5C1125] bg-white"
                         />
                       </td>
                       <td className="py-1 px-2 text-center">
                         <input
-                          type="number"
-                          min="0"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           placeholder="0"
-                          value={row.chi === 0 ? '' : row.chi}
+                          value={row.chi === 0 ? '' : String(row.chi)}
                           onChange={(e) => handleCellChange(idx, 'chi', e.target.value)}
                           className="w-full py-1 text-center font-bold text-stone-900 placeholder:text-stone-300 border border-stone-200 rounded focus:border-[#5C1125] focus:ring-1 focus:ring-[#5C1125] bg-white"
                         />
@@ -797,11 +801,12 @@ export const AromaFlowersRoleView: React.FC = () => {
                     Largo (LAR)
                   </label>
                   <input
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     placeholder="0"
                     value={singleLar}
-                    onChange={(e) => setSingleLar(e.target.value)}
+                    onChange={(e) => setSingleLar(e.target.value.replace(/\D/g, ''))}
                     className="w-full px-3 py-2 text-center text-base font-bold placeholder:text-stone-300 bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-[#5C1125]"
                   />
                 </div>
@@ -811,11 +816,12 @@ export const AromaFlowersRoleView: React.FC = () => {
                     Mediano (MED)
                   </label>
                   <input
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     placeholder="0"
                     value={singleMed}
-                    onChange={(e) => setSingleMed(e.target.value)}
+                    onChange={(e) => setSingleMed(e.target.value.replace(/\D/g, ''))}
                     className="w-full px-3 py-2 text-center text-base font-bold placeholder:text-stone-300 bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-[#5C1125]"
                   />
                 </div>
@@ -825,11 +831,12 @@ export const AromaFlowersRoleView: React.FC = () => {
                     Chico (CHI)
                   </label>
                   <input
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     placeholder="0"
                     value={singleChi}
-                    onChange={(e) => setSingleChi(e.target.value)}
+                    onChange={(e) => setSingleChi(e.target.value.replace(/\D/g, ''))}
                     className="w-full px-3 py-2 text-center text-base font-bold placeholder:text-stone-300 bg-white border border-stone-300 rounded-xl focus:ring-2 focus:ring-[#5C1125]"
                   />
                 </div>

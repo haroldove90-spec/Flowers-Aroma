@@ -411,10 +411,10 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <span className="font-semibold text-xs text-stone-700 block">
-                      1. Script SQL Completo para Crear las 16 Tablas y Políticas RLS:
+                      1. Script SQL Actualizado (Solo Rol Activo Aroma Flowers):
                     </span>
                     <span className="text-[11px] text-stone-500">
-                      Incluye aroma_flower_sheets (7 módulos Excel) + módulos, riego, cosecha, ventas y finanzas.
+                      Deja únicamente la tabla aroma_flower_sheets (7 módulos Excel) con RLS y limpia tablas de roles desactivados.
                     </span>
                   </div>
                   <button

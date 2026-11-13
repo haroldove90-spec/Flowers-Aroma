@@ -32,6 +32,18 @@ html, body {
   background-color: #FAF8F5;
 }
 
+/* Remove number input spinner arrows globally so users type numbers manually */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 /* Safe area inset for modern mobile browsers */
 .safe-bottom {
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
