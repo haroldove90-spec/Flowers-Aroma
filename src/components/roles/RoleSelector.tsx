@@ -9,12 +9,17 @@ import {
   ArrowRight,
   ShieldCheck,
   PackageCheck,
+  UserCog,
+  LogOut,
 } from 'lucide-react';
 import { ROLES, UserRole } from '../../types/greenhouse';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { PWAHomeInstallBanner } from '../common/PWAInstallButton';
 
 const ROLE_ICON_MAP: Record<UserRole, React.ComponentType<{ className?: string }>> = {
+  admin: ShieldCheck,
+  produccion: PackageCheck,
+  perfil: UserCog,
   aroma_flowers: PackageCheck,
   director: Building2,
   operaciones: Settings,
@@ -25,23 +30,72 @@ const ROLE_ICON_MAP: Record<UserRole, React.ComponentType<{ className?: string }
 };
 
 export const RoleSelector: React.FC = () => {
-  const { setActiveRole, setActiveView } = useGreenhouse();
-  const activeRoles = ROLES.filter((role) => role.enabled !== false);
+  const { currentUser, canAccessRole, logout, setActiveRole, setActiveView } = useGreenhouse();
+  const activeRoles = ROLES.filter((role) => role.enabled !== false && canAccessRole(role.id));
 
   const handleSelectRole = (roleId: UserRole) => {
     const targetRole = ROLES.find((r) => r.id === roleId);
-    if (!targetRole || targetRole.enabled === false) return;
+    if (!targetRole || targetRole.enabled === false || !canAccessRole(roleId)) return;
     setActiveRole(roleId);
-    if (roleId === 'aroma_flowers') {
+    if (roleId === 'admin') {
+      setActiveView('admin_panel');
+    } else if (roleId === 'produccion' || roleId === 'aroma_flowers') {
       setActiveView('fi_general');
+    } else if (roleId === 'perfil') {
+      setActiveView('mi_perfil');
     } else {
       setActiveView('principal');
     }
   };
 
+  const userInitials = (currentUser?.fullName || 'AF')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0].toUpperCase())
+    .join('');
+
   return (
     <div className="min-h-screen w-full bg-[#FAF8F5] flex flex-col items-center justify-center p-4 sm:p-6 lg:p-10 select-none">
       <div className="w-full max-w-5xl flex flex-col items-center">
+        {/* Top authenticated user session bar */}
+        {currentUser && (
+          <div className="w-full max-w-3xl mb-5 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-2xl bg-white border border-stone-200 shadow-xs">
+            <div className="flex items-center gap-3 min-w-0">
+              {currentUser.avatarUrl ? (
+                <img
+                  src={currentUser.avatarUrl}
+                  alt={currentUser.fullName}
+                  className="w-10 h-10 rounded-full object-cover border border-[#C3A25D]"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-[#5C1125] text-[#C3A25D] flex items-center justify-center font-extrabold text-sm border border-[#C3A25D]/60 shrink-0">
+                  {userInitials}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-[#000000] truncate">{currentUser.fullName}</p>
+                <div className="flex items-center gap-2 text-[11px] text-stone-500">
+                  <span className="font-semibold text-[#535B28]">@{currentUser.username}</span>
+                  <span>&bull;</span>
+                  <span className="px-2 py-0.5 rounded bg-[#fbf2f4] text-[#5C1125] font-bold uppercase text-[10px]">
+                    {currentUser.role === 'admin' ? 'Administrador (Acceso Total)' : 'Producción'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={logout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-[#5C1125] bg-[#FAF8F5] hover:bg-[#fbf2f4] border border-stone-200 hover:border-[#ebccd4] transition cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Cerrar Sesión</span>
+            </button>
+          </div>
+        )}
+
         {/*
           LOGO OFICIAL AROMA FLOWER EN EL HOME ARRIBA DE LOS ROLES.
           Completamente sin encapsular (sin marco blanco, sin tarjeta, sin caja cuadrada).
@@ -50,7 +104,7 @@ export const RoleSelector: React.FC = () => {
           <img
             src="https://daloocomercializadora.com.mx/aromaflowerlogo.png"
             alt="Aroma Flower"
-            className="h-28 sm:h-36 md:h-44 w-auto object-contain transition-transform duration-300 hover:scale-103 drop-shadow-xs"
+            className="h-24 sm:h-32 md:h-40 w-auto object-contain transition-transform duration-300 hover:scale-103 drop-shadow-xs"
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).src = '/aromaflowerlogo.png';
             }}
@@ -61,12 +115,14 @@ export const RoleSelector: React.FC = () => {
           <div className="mt-1 flex items-center gap-2">
             <span className="h-px w-6 sm:w-10 bg-[#C3A25D]/60" />
             <span className="text-[11px] sm:text-xs font-bold tracking-widest text-[#535B28] uppercase">
-              Sistema Integral de Gestión de Invernadero
+              Selección de Rol Operativo
             </span>
             <span className="h-px w-6 sm:w-10 bg-[#C3A25D]/60" />
           </div>
           <p className="mt-2 text-xs sm:text-sm text-stone-600 max-w-md">
-            Accede al módulo operativo de Aroma Flowers para capturar y consultar registros.
+            {currentUser?.role === 'admin'
+              ? 'Tu cuenta Admin tiene acceso completo a Administración, Producción y edición de Perfil.'
+              : 'Selecciona el área de trabajo a la que deseas ingresar.'}
           </p>
         </div>
 
@@ -74,14 +130,16 @@ export const RoleSelector: React.FC = () => {
         <PWAHomeInstallBanner />
 
         {/*
-          Solo roles activos visibles (actualmente Aroma Flowers).
-          Tarjetas limpias con paleta: #5C1125 (vino), #535B28 (olivo), #C3A25D (oro), #000000 (negro).
+          Roles habilitados según los permisos del usuario autenticado.
+          Paleta: #5C1125 (vino), #535B28 (olivo), #C3A25D (oro), #000000 (negro).
         */}
         <div
           className={`w-full grid gap-3.5 sm:gap-5 ${
             activeRoles.length === 1
               ? 'max-w-sm mx-auto grid-cols-1'
-              : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-3'
+              : activeRoles.length === 2
+              ? 'max-w-2xl mx-auto grid-cols-1 sm:grid-cols-2'
+              : 'max-w-4xl mx-auto grid-cols-1 sm:grid-cols-3'
           }`}
         >
           {activeRoles.map((role) => {
@@ -112,7 +170,7 @@ export const RoleSelector: React.FC = () => {
 
                 {/* Bottom enter indicator */}
                 <div className="mt-3 flex items-center gap-1.5 text-xs font-bold text-[#5C1125] group-hover:text-[#C3A25D] transition-colors">
-                  <span>Acceder al Módulo</span>
+                  <span>Acceder al Rol</span>
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </button>
@@ -123,7 +181,7 @@ export const RoleSelector: React.FC = () => {
         {/* Security & footer notice */}
         <div className="mt-8 text-center text-[11px] text-stone-500 flex items-center justify-center gap-2">
           <ShieldCheck className="w-4 h-4 text-[#535B28]" />
-          <span>Aroma Flower &bull; Datos cifrados y sincronización en tiempo real</span>
+          <span>Aroma Flower &bull; Control de acceso por roles y sincronización en la nube</span>
         </div>
       </div>
     </div>

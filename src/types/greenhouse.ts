@@ -1,4 +1,7 @@
 export type UserRole =
+  | 'admin'
+  | 'produccion'
+  | 'perfil'
   | 'director'
   | 'operaciones'
   | 'agronomo'
@@ -6,6 +9,25 @@ export type UserRole =
   | 'ventas'
   | 'sistema'
   | 'aroma_flowers';
+
+export type AppUserRole = 'admin' | 'produccion';
+
+export interface AppUser {
+  id: string;
+  fullName: string;
+  username: string;
+  password: string;
+  role: AppUserRole;
+  avatarUrl?: string;
+  email?: string;
+  phone?: string;
+  jobTitle?: string;
+  department?: string;
+  notes?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
 
 export interface RoleConfig {
   id: UserRole;
@@ -19,13 +41,40 @@ export interface RoleConfig {
 
 export const ROLES: RoleConfig[] = [
   {
+    id: 'admin',
+    title: 'Admin',
+    shortTitle: 'Admin',
+    badge: 'Acceso Total • Admin y Producción',
+    color: 'wine',
+    iconName: 'ShieldCheck',
+    enabled: true,
+  },
+  {
+    id: 'produccion',
+    title: 'Producción',
+    shortTitle: 'Producción',
+    badge: 'Módulos Aroma Flowers',
+    color: 'olive',
+    iconName: 'PackageCheck',
+    enabled: true,
+  },
+  {
+    id: 'perfil',
+    title: 'Perfil',
+    shortTitle: 'Perfil',
+    badge: 'Datos Personales y Fotografía',
+    color: 'gold',
+    iconName: 'UserCog',
+    enabled: true,
+  },
+  {
     id: 'aroma_flowers',
     title: 'Aroma Flowers',
     shortTitle: 'Aroma Flowers',
     badge: 'Producción, Empaque y Ventas Excel',
     color: 'wine',
     iconName: 'PackageCheck',
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'director',

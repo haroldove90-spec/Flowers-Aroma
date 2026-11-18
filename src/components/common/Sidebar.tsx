@@ -25,31 +25,65 @@ import {
   Layers,
   ThermometerSnowflake,
   Package,
+  ShieldCheck,
+  UserCog,
+  PackageCheck,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
+import { UserRole } from '../../types/greenhouse';
+
+const AROMA_MODULE_ITEMS = [
+  { id: 'fi_general', label: '1. FI-General', icon: FileSpreadsheet },
+  { id: 'produccion_aaron', label: '2. Producción Aarón', icon: Boxes },
+  { id: 'suma_paquetes', label: '3. Suma de Paquetes', icon: Package },
+  { id: 'resumen_variedades', label: '4. Resumen Variedades', icon: Layers },
+  { id: 'venta', label: '5. Venta Diaria', icon: TrendingUp },
+  { id: 'resumen_venta', label: '6. Resumen de Venta', icon: Scale },
+  { id: 'matriz_2026', label: '7. Matriz Anual 2026', icon: Sparkles },
+];
 
 export const Sidebar: React.FC = () => {
   const {
+    currentUser,
     activeRole,
     setActiveRole,
     activeView,
     setActiveView,
+    canAccessRole,
+    logout,
   } = useGreenhouse();
 
   const [collapsed, setCollapsed] = useState(false);
 
+  const handleSwitchRole = (role: UserRole) => {
+    if (!canAccessRole(role)) return;
+    setActiveRole(role);
+    if (role === 'admin') {
+      setActiveView('admin_panel');
+    } else if (role === 'produccion' || role === 'aroma_flowers') {
+      setActiveView('fi_general');
+    } else if (role === 'perfil') {
+      setActiveView('mi_perfil');
+    } else {
+      setActiveView('principal');
+    }
+  };
+
   // Return all comprehensive modules for the active role
   const getRoleSpecificMenuItems = () => {
     switch (activeRole) {
-      case 'aroma_flowers':
+      case 'admin':
         return [
-          { id: 'fi_general', label: '1. FI-General', icon: FileSpreadsheet },
-          { id: 'produccion_aaron', label: '2. Producción Aarón', icon: Boxes },
-          { id: 'suma_paquetes', label: '3. Suma de Paquetes', icon: Package },
-          { id: 'resumen_variedades', label: '4. Resumen Variedades', icon: Layers },
-          { id: 'venta', label: '5. Venta Diaria', icon: TrendingUp },
-          { id: 'resumen_venta', label: '6. Resumen de Venta', icon: Scale },
-          { id: 'matriz_2026', label: '7. Matriz Anual 2026', icon: Sparkles },
+          { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
+          ...AROMA_MODULE_ITEMS,
+        ];
+      case 'produccion':
+      case 'aroma_flowers':
+        return AROMA_MODULE_ITEMS;
+      case 'perfil':
+        return [
+          { id: 'mi_perfil', label: 'Datos y Fotografía', icon: UserCog },
         ];
       case 'director':
         return [
@@ -110,7 +144,11 @@ export const Sidebar: React.FC = () => {
       <div className="h-16 flex items-center justify-between px-4 border-b border-stone-800">
         {!collapsed && (
           <span className="text-xs font-bold uppercase tracking-wider text-[#C3A25D]">
-            Módulos del Rol
+            {activeRole === 'admin'
+              ? 'Rol Admin'
+              : activeRole === 'perfil'
+              ? 'Mi Perfil'
+              : 'Rol Producción'}
           </span>
         )}
         <button
@@ -148,41 +186,67 @@ export const Sidebar: React.FC = () => {
           );
         })}
 
-        {/* Global Workflow Pipeline link */}
-        <div className="pt-4 border-t border-stone-800 mt-4">
+        {/* Quick Role Switch Section */}
+        <div className="pt-4 border-t border-stone-800 mt-4 space-y-1.5">
           <div className="text-[10px] font-bold uppercase tracking-wider text-[#535B28] px-3 py-1">
-            {!collapsed && 'Flujo Operativo'}
+            {!collapsed && 'Accesos de Rol'}
           </div>
-          <button
-            onClick={() => setActiveView('workflow')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
-              activeView === 'workflow'
-                ? 'bg-[#5C1125] text-white shadow-md shadow-black/50 border border-[#C3A25D]/50'
-                : 'text-stone-300 hover:bg-stone-900 hover:text-white'
-            }`}
-            title="Flujo de Trabajo Integral"
-          >
-            <GitBranch className={`w-5 h-5 shrink-0 ${activeView === 'workflow' ? 'text-[#C3A25D]' : 'text-[#C3A25D]/80'}`} />
-            {!collapsed && <span className="truncate text-left">Flujo Integral (6 Etapas)</span>}
-          </button>
-        </div>
 
-        {/* Note for the user about session separation */}
-        {!collapsed && (
-          <div className="pt-6 mt-4 border-t border-stone-800/80 px-3">
-            <p className="text-[11px] text-stone-500 leading-relaxed">
-              Para cambiar de rol, cierra la sesión actual desde el botón inferior o cabecera.
-            </p>
-          </div>
-        )}
+          {currentUser?.role === 'admin' && activeRole !== 'admin' && (
+            <button
+              type="button"
+              onClick={() => handleSwitchRole('admin')}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
+              title="Ir a Panel Admin"
+            >
+              <ShieldCheck className="w-5 h-5 shrink-0 text-[#C3A25D]" />
+              {!collapsed && <span className="truncate text-left">Ir a Admin</span>}
+            </button>
+          )}
+
+          {activeRole !== 'produccion' && (
+            <button
+              type="button"
+              onClick={() => handleSwitchRole('produccion')}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
+              title="Ir a Rol Producción"
+            >
+              <PackageCheck className="w-5 h-5 shrink-0 text-[#535B28]" />
+              {!collapsed && <span className="truncate text-left">Ir a Producción</span>}
+            </button>
+          )}
+
+          {activeRole !== 'perfil' && (
+            <button
+              type="button"
+              onClick={() => handleSwitchRole('perfil')}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
+              title="Editar Perfil y Fotografía"
+            >
+              <UserCog className="w-5 h-5 shrink-0 text-[#C3A25D]" />
+              {!collapsed && <span className="truncate text-left">Mi Perfil</span>}
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Sidebar Footer: Logout button */}
-      <div className="p-3 border-t border-stone-800 bg-[#000000]">
+      {/* Sidebar Footer: Switch Role & Logout buttons */}
+      <div className="p-3 border-t border-stone-800 bg-[#000000] space-y-2">
         <button
+          type="button"
           onClick={() => setActiveRole(null)}
-          className="w-full flex items-center justify-center sm:justify-start gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-300 hover:bg-[#5C1125]/30 hover:text-white transition border border-rose-900/30 cursor-pointer"
-          title="Cerrar sesión para cambiar de perfil"
+          className="w-full flex items-center justify-center sm:justify-start gap-3 px-3 py-2 rounded-xl text-xs font-bold text-[#C3A25D] hover:bg-stone-900 hover:text-white transition border border-stone-800 cursor-pointer"
+          title="Volver al selector de roles"
+        >
+          <ArrowLeftRight className="w-4 h-4 shrink-0" />
+          {!collapsed && <span>Cambiar de Rol</span>}
+        </button>
+
+        <button
+          type="button"
+          onClick={logout}
+          className="w-full flex items-center justify-center sm:justify-start gap-3 px-3 py-2 rounded-xl text-xs font-bold text-rose-300 hover:bg-[#5C1125]/30 hover:text-white transition border border-rose-900/30 cursor-pointer"
+          title="Cerrar sesión de usuario"
         >
           <LogOut className="w-4 h-4 shrink-0 text-rose-400" />
           {!collapsed && <span>Cerrar Sesión</span>}

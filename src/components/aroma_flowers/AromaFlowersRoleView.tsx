@@ -103,7 +103,7 @@ const initializeEmptyRows = (): VarietyQuantityRow[] => {
 const getTodayDate = (): string => new Date().toISOString().slice(0, 10);
 
 export const AromaFlowersRoleView: React.FC = () => {
-  const { aromaSheets, saveAromaSheet, deleteAromaSheet, activeView, setActiveView } = useGreenhouse();
+  const { aromaSheets, saveAromaSheet, deleteAromaSheet, activeRole, activeView, setActiveView } = useGreenhouse();
 
   // Active module inside Aroma Flowers
   const currentModuleId: AromaFlowerModuleType = useMemo(() => {
@@ -411,7 +411,7 @@ export const AromaFlowersRoleView: React.FC = () => {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] font-bold uppercase tracking-widest text-[#C3A25D]">
-                  Rol Operativo &bull; Aroma Flowers
+                  {activeRole === 'admin' ? 'Rol Admin • Producción Aroma Flowers' : 'Rol Producción • Aroma Flowers'}
                 </span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#535B28] text-white">
                   7 Módulos Excel

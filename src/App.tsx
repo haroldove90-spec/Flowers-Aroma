@@ -12,24 +12,40 @@ import { HarvestView } from './components/harvest/HarvestView';
 import { SalesView } from './components/sales/SalesView';
 import { SystemView } from './components/system/SystemView';
 import { AromaFlowersRoleView } from './components/aroma_flowers/AromaFlowersRoleView';
+import { LoginView } from './components/auth/LoginView';
+import { AdminRoleView } from './components/admin/AdminRoleView';
+import { ProfileView } from './components/profile/ProfileView';
 import { ROLES } from './types/greenhouse';
 
 const MainAppLayout: React.FC = () => {
-  const { activeRole, activeView, isOnline } = useGreenhouse();
+  const { currentUser, activeRole, activeView, isOnline, canAccessRole } = useGreenhouse();
   const activeRoleConfig = ROLES.find((r) => r.id === activeRole);
 
-  // If no active role is selected or the role is disabled, show the clean Role Selector on Home
-  if (!activeRole || activeRoleConfig?.enabled === false) {
+  // 1. Require authenticated user via LoginView
+  if (!currentUser) {
+    return <LoginView />;
+  }
+
+  // 2. If no active role is selected or the role is disabled/unauthorized, show Role Selector
+  if (!activeRole || activeRoleConfig?.enabled === false || !canAccessRole(activeRole)) {
     return <RoleSelector />;
   }
 
-  // Render current active module view
+  // 3. Render current active role & module view
   const renderRoleView = () => {
     if (activeView === 'workflow') {
       return <WorkflowView />;
     }
 
     switch (activeRole) {
+      case 'perfil':
+        return <ProfileView />;
+      case 'admin':
+        if (activeView === 'admin_panel') {
+          return <AdminRoleView />;
+        }
+        return <AromaFlowersRoleView />;
+      case 'produccion':
       case 'aroma_flowers':
         return <AromaFlowersRoleView />;
       case 'director':

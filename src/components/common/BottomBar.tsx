@@ -17,22 +17,59 @@ import {
   FileSpreadsheet,
   AlertOctagon,
   ThermometerSnowflake,
+  ShieldCheck,
+  UserCog,
+  PackageCheck,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
+import { UserRole } from '../../types/greenhouse';
+
+interface BottomNavItem {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  switchRole?: UserRole;
+}
 
 export const BottomBar: React.FC = () => {
-  const { activeRole, activeView, setActiveView } = useGreenhouse();
+  const { currentUser, activeRole, setActiveRole, activeView, setActiveView, canAccessRole } = useGreenhouse();
+
+  const handleTap = (item: BottomNavItem) => {
+    if (item.switchRole && canAccessRole(item.switchRole)) {
+      setActiveRole(item.switchRole);
+    }
+    setActiveView(item.id);
+  };
 
   // Bottom navigation items according to current role
-  const getBottomItems = () => {
+  const getBottomItems = (): BottomNavItem[] => {
     switch (activeRole) {
+      case 'admin':
+        return [
+          { id: 'admin_panel', label: 'Admin', icon: ShieldCheck },
+          { id: 'fi_general', label: 'FI-General', icon: FileSpreadsheet },
+          { id: 'produccion_aaron', label: 'Aarón', icon: Boxes },
+          { id: 'venta', label: 'Venta', icon: TrendingUp },
+          { id: 'mi_perfil', label: 'Perfil', icon: UserCog, switchRole: 'perfil' },
+        ];
+      case 'produccion':
       case 'aroma_flowers':
         return [
           { id: 'fi_general', label: 'FI-General', icon: FileSpreadsheet },
           { id: 'produccion_aaron', label: 'Aarón', icon: Boxes },
           { id: 'suma_paquetes', label: 'Paquetes', icon: Sparkles },
-          { id: 'resumen_variedades', label: 'Variedades', icon: Flower2 },
           { id: 'venta', label: 'Venta', icon: TrendingUp },
+          ...(currentUser?.role === 'admin'
+            ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]
+            : [{ id: 'mi_perfil', label: 'Perfil', icon: UserCog, switchRole: 'perfil' as UserRole }]),
+        ];
+      case 'perfil':
+        return [
+          { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
+          { id: 'fi_general', label: 'Producción', icon: PackageCheck, switchRole: 'produccion' },
+          ...(currentUser?.role === 'admin'
+            ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]
+            : []),
         ];
       case 'director':
         return [
@@ -93,11 +130,11 @@ export const BottomBar: React.FC = () => {
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#5C1125] border-t border-[#3f0918] px-1.5 py-1.5 shadow-2xl flex items-center justify-around safe-bottom">
       {items.map((item) => {
         const Icon = item.icon;
-        const isActive = activeView === item.id;
+        const isActive = activeView === item.id && !item.switchRole;
         return (
           <button
-            key={item.id}
-            onClick={() => setActiveView(item.id)}
+            key={`${item.id}-${item.label}`}
+            onClick={() => handleTap(item)}
             className={`flex flex-col items-center justify-center py-1.5 px-2 rounded-xl transition-all duration-150 min-w-[55px] cursor-pointer ${
               isActive
                 ? 'bg-[#3f0918] text-[#C3A25D] font-bold ring-1 ring-[#C3A25D]/70 scale-105 shadow-sm'

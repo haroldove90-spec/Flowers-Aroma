@@ -15,6 +15,7 @@ import {
   ActiveLoan,
   AuditLogEntry,
   AromaFlowerSheetEntry,
+  AppUser,
 } from '../types/greenhouse';
 
 export const INITIAL_MODULES: GreenhouseModule[] = [
@@ -1052,4 +1053,53 @@ export const INITIAL_AROMA_FLOWER_SHEETS: AromaFlowerSheetEntry[] = [
     createdAt: '2026-11-09 18:00',
   },
 ];
+
+export const INITIAL_APP_USERS: AppUser[] = [
+  {
+    id: 'usr-haroldo90',
+    fullName: 'Harold Anguiano Morales',
+    username: 'haroldo90',
+    password: 'Chevropar#1970',
+    role: 'admin',
+    jobTitle: 'Administrador General',
+    department: 'Dirección & Administración',
+    email: '',
+    phone: '',
+    notes: 'Acceso completo a Admin y Producción.',
+    active: true,
+    createdAt: '2026-11-18 05:00',
+    updatedAt: '2026-11-18 05:00',
+  },
+  {
+    id: 'usr-admin-1',
+    fullName: 'Admin_1',
+    username: 'Admin_1',
+    password: 'Chevropar#1970',
+    role: 'admin',
+    jobTitle: 'Administrador del Sistema',
+    department: 'Administración',
+    email: '',
+    phone: '',
+    notes: 'Cuenta administrativa principal.',
+    active: true,
+    createdAt: '2026-11-18 05:00',
+    updatedAt: '2026-11-18 05:00',
+  },
+  {
+    id: 'usr-aaron-mena',
+    fullName: 'Aaron Mena',
+    username: 'aaron_mena',
+    password: 'Chevropar#1970',
+    role: 'admin',
+    jobTitle: 'Administrador de Producción',
+    department: 'Producción & Ventas',
+    email: '',
+    phone: '',
+    notes: 'Acceso completo a Admin y Producción.',
+    active: true,
+    createdAt: '2026-11-18 05:00',
+    updatedAt: '2026-11-18 05:00',
+  },
+];
+
 

@@ -411,10 +411,10 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <span className="font-semibold text-xs text-stone-700 block">
-                      1. Script SQL Actualizado (Solo Rol Activo Aroma Flowers):
+                      1. Script SQL Actualizado (Roles Admin, Producción y Perfil):
                     </span>
                     <span className="text-[11px] text-stone-500">
-                      Deja únicamente la tabla aroma_flower_sheets (7 módulos Excel) con RLS y limpia tablas de roles desactivados.
+                      Crea las tablas activas app_users (credenciales y perfiles) y aroma_flower_sheets (7 módulos Excel) con RLS, e incluye las 3 credenciales Admin iniciales.
                     </span>
                   </div>
                   <button

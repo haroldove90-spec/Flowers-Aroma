@@ -17,6 +17,7 @@ import {
   ActiveLoan,
   AuditLogEntry,
   AromaFlowerSheetEntry,
+  AppUser,
   ROLES,
 } from '../types/greenhouse';
 import {
@@ -36,6 +37,7 @@ import {
   INITIAL_LOANS,
   INITIAL_AUDIT_LOGS,
   INITIAL_AROMA_FLOWER_SHEETS,
+  INITIAL_APP_USERS,
 } from '../data/mockData';
 import {
   DEFAULT_SUPABASE_KEY,
@@ -46,6 +48,8 @@ import {
   fetchAllFromSupabase,
   getSupabaseClient,
   mapAccountToDb,
+  mapAppUserFromDb,
+  mapAppUserToDb,
   mapApplicationToDb,
   mapAuditToDb,
   mapAromaSheetToDb,
@@ -82,6 +86,19 @@ interface OfflineOperation {
 }
 
 interface GreenhouseContextType {
+  // Authentication & Users
+  currentUser: AppUser | null;
+  appUsers: AppUser[];
+  login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  logout: () => void;
+  canAccessRole: (role: UserRole) => boolean;
+  saveAppUser: (
+    userInput: Omit<AppUser, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => { ok: boolean; error?: string };
+  updateCurrentProfile: (updates: Partial<AppUser>) => { ok: boolean; error?: string };
+  deleteAppUser: (id: string) => { ok: boolean; error?: string };
+
   // Navigation & Role
   activeRole: UserRole | null;
   setActiveRole: (role: UserRole | null) => void;
@@ -180,9 +197,39 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [demoDataCleared, setDemoDataCleared] = useState<boolean>(storedDemoCleared || storedNeverShow);
   const [neverShowDemoAgain, setNeverShowDemoAgainState] = useState<boolean>(storedNeverShow);
 
+  // Users & Session State (always keeps seeded credentials available even if demo data cleared)
+  const [appUsers, setAppUsers] = useState<AppUser[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}app_users`);
+    let list: AppUser[] = INITIAL_APP_USERS;
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          list = parsed;
+        }
+      } catch {
+        list = INITIAL_APP_USERS;
+      }
+    }
+    // Ensure seeded credentials exist if missing
+    const merged = [...list];
+    INITIAL_APP_USERS.forEach((seedUser) => {
+      if (!merged.some((u) => u.username.toLowerCase() === seedUser.username.toLowerCase())) {
+        merged.push(seedUser);
+      }
+    });
+    return merged;
+  });
+
+  const [currentUserId, setCurrentUserId] = useState<string | null>(() => {
+    return localStorage.getItem(`${STORAGE_KEY_PREFIX}session_user_id`);
+  });
+
+  const currentUser = appUsers.find((u) => u.id === currentUserId && u.active !== false) || null;
+
   // Active Role and View
-  const [activeRole, setActiveRole] = useState<UserRole | null>(null);
-  const [activeView, setActiveView] = useState<string>('principal');
+  const [activeRole, setActiveRoleState] = useState<UserRole | null>(null);
+  const [activeView, setActiveView] = useState<string>('fi_general');
 
   // Network status
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -293,12 +340,16 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const onlyAromaFlowers = ROLES.every(
-    (r) => r.id === 'aroma_flowers' || r.enabled === false
+    (r) =>
+      r.id === 'admin' ||
+      r.id === 'produccion' ||
+      r.id === 'perfil' ||
+      r.enabled === false
   );
 
   const pushUpsertToSupabase = (table: string, payload: Record<string, any>) => {
     if (!supabaseConfig.isConnected) return;
-    if (onlyAromaFlowers && table !== 'aroma_flower_sheets') return;
+    if (onlyAromaFlowers && table !== 'aroma_flower_sheets' && table !== 'app_users') return;
     if (!isOnline) {
       enqueueOfflineOp({ table, op: 'upsert', payload });
       return;
@@ -319,7 +370,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const pushDeleteToSupabase = (table: string, recordId: string) => {
     if (!supabaseConfig.isConnected) return;
-    if (onlyAromaFlowers && table !== 'aroma_flower_sheets') return;
+    if (onlyAromaFlowers && table !== 'aroma_flower_sheets' && table !== 'app_users') return;
     if (!isOnline) {
       enqueueOfflineOp({ table, op: 'delete', recordId });
       return;
@@ -349,17 +400,26 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (cancelled) return;
       setSupabaseStatus(snap.status);
       if (snap.status === 'missing_tables') {
-        setSupabaseMessage('Faltan crear las tablas en Supabase. Ejecuta el Esquema SQL.');
-        return;
-      }
-      if (snap.status === 'error') {
+        setSupabaseMessage('Faltan crear/actualizar las tablas en Supabase. Ejecuta el SQL actualizado.');
+      } else if (snap.status === 'error') {
         setSupabaseMessage('Error al consultar Supabase. Verifica tu conexión o políticas RLS.');
         return;
+      } else {
+        setSupabaseMessage('Conectado a Supabase');
       }
-      setSupabaseMessage('Conectado a Supabase');
       if (snap.aromaSheets) {
         setAromaSheets(snap.aromaSheets);
         saveState('aroma_sheets', snap.aromaSheets);
+      }
+      if (snap.appUsers) {
+        setAppUsers((prev) => {
+          const byId = new Map<string, AppUser>();
+          prev.forEach((u) => byId.set(u.id, u));
+          snap.appUsers?.forEach((u) => byId.set(u.id, u));
+          const merged = Array.from(byId.values());
+          saveState('app_users', merged);
+          return merged;
+        });
       }
       if (snap.modules) {
         setModules(snap.modules);
@@ -726,6 +786,188 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     addAuditLog('Aroma Flowers', `Planilla eliminada (ID: ${id})`);
   };
 
+  // ---------- Authentication, Permissions & User Profile Management ----------
+  const canAccessRole = (role: UserRole): boolean => {
+    if (!currentUser) return false;
+    const cfg = ROLES.find((r) => r.id === role);
+    if (!cfg || cfg.enabled === false) return false;
+    if (role === 'perfil') return true;
+    if (currentUser.role === 'admin') {
+      return role === 'admin' || role === 'produccion';
+    }
+    return role === 'produccion';
+  };
+
+  const setActiveRole = (role: UserRole | null) => {
+    if (role === null) {
+      setActiveRoleState(null);
+      return;
+    }
+    if (!currentUser) return;
+    if (role === 'admin' && currentUser.role !== 'admin') return;
+    setActiveRoleState(role);
+  };
+
+  const login = async (
+    rawUsername: string,
+    rawPassword: string
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const cleanUser = rawUsername.trim();
+    const cleanPass = rawPassword;
+
+    if (!cleanUser || !cleanPass) {
+      return { ok: false, error: 'Ingresa tu usuario y contraseña.' };
+    }
+
+    // Try matching live Supabase user first if online & connected
+    let matchedUser: AppUser | undefined;
+    if (supabaseConfig.isConnected && isOnline) {
+      const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
+      if (client) {
+        const { data, error } = await client
+          .from('app_users')
+          .select('*')
+          .ilike('username', cleanUser)
+          .limit(1);
+        if (!error && data && data.length > 0) {
+          const remoteUser = mapAppUserFromDb(data[0]);
+          if (remoteUser.password === cleanPass) {
+            matchedUser = remoteUser;
+            setAppUsers((prev) => {
+              const exists = prev.some((u) => u.id === remoteUser.id);
+              const updated = exists
+                ? prev.map((u) => (u.id === remoteUser.id ? remoteUser : u))
+                : [remoteUser, ...prev];
+              saveState('app_users', updated);
+              return updated;
+            });
+          } else {
+            return { ok: false, error: 'Usuario o contraseña incorrectos.' };
+          }
+        }
+      }
+    }
+
+    if (!matchedUser) {
+      matchedUser = appUsers.find(
+        (u) =>
+          u.username.trim().toLowerCase() === cleanUser.toLowerCase() &&
+          u.password === cleanPass
+      );
+    }
+
+    if (!matchedUser) {
+      return { ok: false, error: 'Usuario o contraseña incorrectos.' };
+    }
+
+    if (matchedUser.active === false) {
+      return { ok: false, error: 'Esta cuenta se encuentra desactivada. Contacta al Administrador.' };
+    }
+
+    setCurrentUserId(matchedUser.id);
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}session_user_id`, matchedUser.id);
+    setActiveRoleState(null);
+    setActiveView(matchedUser.role === 'admin' ? 'admin_panel' : 'fi_general');
+    addAuditLog('Inicio de Sesión', `Usuario ${matchedUser.username} (${matchedUser.role}) ingresó al sistema`);
+    return { ok: true };
+  };
+
+  const logout = () => {
+    if (currentUser) {
+      addAuditLog('Cierre de Sesión', `Usuario ${currentUser.username} cerró sesión`);
+    }
+    setCurrentUserId(null);
+    setActiveRoleState(null);
+    localStorage.removeItem(`${STORAGE_KEY_PREFIX}session_user_id`);
+  };
+
+  const saveAppUser = (
+    userInput: Omit<AppUser, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): { ok: boolean; error?: string } => {
+    const cleanUsername = userInput.username.trim();
+    if (!cleanUsername || !userInput.fullName.trim() || !userInput.password) {
+      return { ok: false, error: 'Nombre, usuario y contraseña son obligatorio.' };
+    }
+    const duplicate = appUsers.find(
+      (u) =>
+        u.username.toLowerCase() === cleanUsername.toLowerCase() && u.id !== existingId
+    );
+    if (duplicate) {
+      return { ok: false, error: `El usuario "${cleanUsername}" ya existe.` };
+    }
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const existing = existingId ? appUsers.find((u) => u.id === existingId) : undefined;
+    const saved: AppUser = {
+      ...userInput,
+      username: cleanUsername,
+      fullName: userInput.fullName.trim(),
+      id: existingId || `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setAppUsers((prev) => {
+      const updated = existingId
+        ? prev.map((u) => (u.id === existingId ? saved : u))
+        : [...prev, saved];
+      saveState('app_users', updated);
+      return updated;
+    });
+    pushUpsertToSupabase('app_users', mapAppUserToDb(saved));
+    addAuditLog('Gestión de Usuarios', `Usuario ${saved.username} (${saved.role}) guardado`);
+    return { ok: true };
+  };
+
+  const updateCurrentProfile = (
+    updates: Partial<AppUser>
+  ): { ok: boolean; error?: string } => {
+    if (!currentUser) return { ok: false, error: 'No hay sesión activa.' };
+    const nextUsername = (updates.username ?? currentUser.username).trim();
+    const duplicate = appUsers.find(
+      (u) =>
+        u.username.toLowerCase() === nextUsername.toLowerCase() &&
+        u.id !== currentUser.id
+    );
+    if (duplicate) {
+      return { ok: false, error: `El nombre de usuario "${nextUsername}" ya está en uso.` };
+    }
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const updatedUser: AppUser = {
+      ...currentUser,
+      ...updates,
+      username: nextUsername,
+      fullName: (updates.fullName ?? currentUser.fullName).trim(),
+      role: currentUser.role, // users keep their assigned role on self-profile edit
+      updatedAt: now,
+    };
+
+    setAppUsers((prev) => {
+      const updated = prev.map((u) => (u.id === currentUser.id ? updatedUser : u));
+      saveState('app_users', updated);
+      return updated;
+    });
+    pushUpsertToSupabase('app_users', mapAppUserToDb(updatedUser));
+    addAuditLog('Actualización de Perfil', `${updatedUser.username} actualizó sus datos personales`);
+    return { ok: true };
+  };
+
+  const deleteAppUser = (id: string): { ok: boolean; error?: string } => {
+    if (currentUser?.id === id) {
+      return { ok: false, error: 'No puedes eliminar tu propia cuenta activa.' };
+    }
+    setAppUsers((prev) => {
+      const updated = prev.filter((u) => u.id !== id);
+      saveState('app_users', updated);
+      return updated;
+    });
+    pushDeleteToSupabase('app_users', id);
+    addAuditLog('Gestión de Usuarios', `Usuario eliminado (ID: ${id})`);
+    return { ok: true };
+  };
+
   // Demo data wipe function (as requested in the prompt)
   const clearAllDemoData = () => {
     setModules([]);
@@ -843,6 +1085,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         client,
         {
           aromaSheets,
+          appUsers,
           modules,
           tasks,
           irrigation,
@@ -875,12 +1118,13 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const generateSupabaseSql = (): string => {
     if (onlyAromaFlowers) {
       return `-- ================================================================
--- AROMA FLOWER - ESQUEMA ACTUALIZADO PARA SUPABASE (ROL ÚNICO ACTIVO)
+-- AROMA FLOWER - ESQUEMA ACTUALIZADO PARA SUPABASE
+-- Roles Activos: Admin (Admin + Producción), Producción y Perfil
 -- Proyecto: aromaflowers@appdesignsoftware.com's Project (syrchvrxkkwvwynvtzfq)
 -- ================================================================
 
--- 1. Eliminar tablas de roles desactivados para que Supabase detecte
---    únicamente los módulos activos de Aroma Flowers
+-- 1. Eliminar tablas de módulos desactivados para que Supabase detecte
+--    únicamente las tablas actuales del sistema
 DROP TABLE IF EXISTS
   active_loans,
   audit_logs,
@@ -899,10 +1143,41 @@ DROP TABLE IF EXISTS
   workers
 CASCADE;
 
--- 2. Tabla única activa: Planillas Aroma Flowers (7 Módulos Excel)
---    Módulos soportados en module_type:
---    'fi_general' | 'produccion_aaron' | 'suma_paquetes' |
---    'resumen_variedades' | 'venta' | 'resumen_venta' | 'matriz_2026'
+-- 2. Tabla de Usuarios, Credenciales, Roles y Perfil (Fotografía y Datos Personales)
+CREATE TABLE IF NOT EXISTS app_users (
+    id TEXT PRIMARY KEY,
+    full_name TEXT NOT NULL,
+    username TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'produccion' CHECK (role IN ('admin', 'produccion')),
+    avatar_url TEXT,
+    email TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
+    job_title TEXT DEFAULT '',
+    department TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_users_username
+  ON app_users (LOWER(username));
+
+-- Credenciales administrativas iniciales solicitadas
+INSERT INTO app_users (id, full_name, username, password, role, job_title, department, notes, active, created_at)
+VALUES
+  ('usr-haroldo90', 'Harold Anguiano Morales', 'haroldo90', 'Chevropar#1970', 'admin', 'Administrador General', 'Dirección & Administración', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00'),
+  ('usr-admin-1', 'Admin_1', 'Admin_1', 'Chevropar#1970', 'admin', 'Administrador del Sistema', 'Administración', 'Cuenta administrativa principal.', TRUE, '2026-11-18 05:00'),
+  ('usr-aaron-mena', 'Aaron Mena', 'aaron_mena', 'Chevropar#1970', 'admin', 'Administrador de Producción', 'Producción & Ventas', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00')
+ON CONFLICT (username) DO UPDATE SET
+  full_name = EXCLUDED.full_name,
+  password = EXCLUDED.password,
+  role = EXCLUDED.role,
+  active = TRUE;
+
+-- 3. Tabla de Planillas Aroma Flowers (7 Módulos Excel: FI General, Producción Aarón,
+--    Suma de Paquetes, Resumen de Variedades, Venta, Resumen de Venta, Matriz 2026)
 CREATE TABLE IF NOT EXISTS aroma_flower_sheets (
     id TEXT PRIMARY KEY,
     module_type TEXT NOT NULL,
@@ -922,7 +1197,16 @@ CREATE TABLE IF NOT EXISTS aroma_flower_sheets (
 CREATE INDEX IF NOT EXISTS idx_aroma_sheets_module_date
   ON aroma_flower_sheets (module_type, sheet_date DESC);
 
--- 3. Habilitar RLS y política de acceso para la app Aroma Flower
+-- 4. Habilitar RLS y políticas de acceso para Aroma Flower
+ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "aroma_flower_full_access" ON app_users;
+CREATE POLICY "aroma_flower_full_access"
+  ON app_users
+  FOR ALL
+  TO anon, authenticated
+  USING (true)
+  WITH CHECK (true);
+
 ALTER TABLE aroma_flower_sheets ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "aroma_flower_full_access" ON aroma_flower_sheets;
 CREATE POLICY "aroma_flower_full_access"
@@ -1369,6 +1653,14 @@ COMMIT;
   return (
     <GreenhouseContext.Provider
       value={{
+        currentUser,
+        appUsers,
+        login,
+        logout,
+        canAccessRole,
+        saveAppUser,
+        updateCurrentProfile,
+        deleteAppUser,
         activeRole,
         setActiveRole,
         activeView,

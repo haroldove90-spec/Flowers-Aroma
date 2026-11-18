@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
   ActiveLoan,
+  AppUser,
   AromaFlowerSheetEntry,
   AuditLogEntry,
   BankAccount,
@@ -85,13 +86,17 @@ export async function testSupabaseConnection(
   }
 
   try {
-    const { error } = await client.from('aroma_flower_sheets').select('id').limit(1);
+    const [sheetsRes, usersRes] = await Promise.all([
+      client.from('aroma_flower_sheets').select('id').limit(1),
+      client.from('app_users').select('id').limit(1),
+    ]);
+    const error = sheetsRes.error || usersRes.error;
     if (!error) {
       return {
         ok: true,
         tablesReady: true,
         status: 'connected',
-        message: 'Conexión exitosa y tablas listas en Supabase.',
+        message: 'Conexión exitosa y tablas listas en Supabase (aroma_flower_sheets y app_users).',
       };
     }
 
@@ -105,7 +110,7 @@ export async function testSupabaseConnection(
         tablesReady: false,
         status: 'missing_tables',
         message:
-          'Proyecto Supabase conectado, pero faltan crear las tablas. Copia y ejecuta el Esquema SQL en Supabase → SQL Editor.',
+          'Proyecto Supabase conectado, pero falta crear/actualizar las tablas (aroma_flower_sheets y app_users). Copia y ejecuta el SQL en Supabase → SQL Editor.',
       };
     }
 
@@ -607,6 +612,39 @@ export const mapAuditFromDb = (r: any): AuditLogEntry => ({
   details: r.details || '',
 });
 
+export const mapAppUserToDb = (u: AppUser) => ({
+  id: u.id,
+  full_name: u.fullName,
+  username: u.username,
+  password: u.password,
+  role: u.role,
+  avatar_url: u.avatarUrl || null,
+  email: u.email || '',
+  phone: u.phone || '',
+  job_title: u.jobTitle || '',
+  department: u.department || '',
+  notes: u.notes || '',
+  active: u.active !== false,
+  created_at: u.createdAt || '',
+});
+
+export const mapAppUserFromDb = (r: any): AppUser => ({
+  id: String(r.id),
+  fullName: r.full_name || '',
+  username: r.username || '',
+  password: r.password || '',
+  role: r.role === 'admin' ? 'admin' : 'produccion',
+  avatarUrl: r.avatar_url || undefined,
+  email: r.email || '',
+  phone: r.phone || '',
+  jobTitle: r.job_title || '',
+  department: r.department || '',
+  notes: r.notes || '',
+  active: r.active !== false,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
 // ---------- Sync Helpers ----------
 
 export async function upsertRowsToSupabase(
@@ -644,6 +682,7 @@ export async function deleteRowFromSupabase(
 export interface RemoteSnapshot {
   status: SupabaseSyncStatus;
   aromaSheets?: AromaFlowerSheetEntry[];
+  appUsers?: AppUser[];
   modules?: GreenhouseModule[];
   tasks?: CulturalTask[];
   irrigation?: IrrigationLog[];
@@ -665,15 +704,32 @@ export async function fetchAllFromSupabase(
   client: SupabaseClient,
   onlyAromaFlowers = false
 ): Promise<RemoteSnapshot> {
-  const check = await client.from('aroma_flower_sheets').select('*');
-  if (check.error) {
-    if (
-      check.error.code === 'PGRST205' ||
+  const [check, usersRes] = await Promise.all([
+    client.from('aroma_flower_sheets').select('*'),
+    client.from('app_users').select('*'),
+  ]);
+
+  const missingCheck =
+    check.error &&
+    (check.error.code === 'PGRST205' ||
       check.error.code === '42P01' ||
-      check.error.message?.toLowerCase().includes('could not find the table')
-    ) {
-      return { status: 'missing_tables' };
-    }
+      check.error.message?.toLowerCase().includes('could not find the table'));
+
+  const missingUsers =
+    usersRes.error &&
+    (usersRes.error.code === 'PGRST205' ||
+      usersRes.error.code === '42P01' ||
+      usersRes.error.message?.toLowerCase().includes('could not find the table'));
+
+  if (missingCheck || missingUsers) {
+    return {
+      status: 'missing_tables',
+      aromaSheets: !check.error && check.data?.length ? check.data.map(mapAromaSheetFromDb) : undefined,
+      appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
+    };
+  }
+
+  if (check.error) {
     return { status: 'error' };
   }
 
@@ -681,6 +737,7 @@ export async function fetchAllFromSupabase(
     return {
       status: 'connected',
       aromaSheets: check.data?.length ? check.data.map(mapAromaSheetFromDb) : undefined,
+      appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
     };
   }
 
@@ -721,6 +778,7 @@ export async function fetchAllFromSupabase(
   return {
     status: 'connected',
     aromaSheets: check.data?.length ? check.data.map(mapAromaSheetFromDb) : undefined,
+    appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
     modules: modulesRes.data?.length ? modulesRes.data.map(mapModuleFromDb) : undefined,
     tasks: tasksRes.data?.length ? tasksRes.data.map(mapTaskFromDb) : undefined,
     irrigation: irrigationRes.data?.length ? irrigationRes.data.map(mapIrrigationFromDb) : undefined,
@@ -741,6 +799,7 @@ export async function fetchAllFromSupabase(
 
 export interface LocalStateSnapshot {
   aromaSheets: AromaFlowerSheetEntry[];
+  appUsers: AppUser[];
   modules: GreenhouseModule[];
   tasks: CulturalTask[];
   irrigation: IrrigationLog[];
@@ -764,8 +823,12 @@ export async function pushAllLocalToSupabase(
   onlyAromaFlowers = false
 ): Promise<{ ok: boolean; syncedCount: number; status: SupabaseSyncStatus; message: string }> {
   const batches: Array<{ table: string; rows: Record<string, any>[] }> = onlyAromaFlowers
-    ? [{ table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) }]
+    ? [
+        { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
+        { table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) },
+      ]
     : [
+        { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
         { table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) },
         { table: 'modules', rows: state.modules.map(mapModuleToDb) },
         { table: 'cultural_tasks', rows: state.tasks.map(mapTaskToDb) },
