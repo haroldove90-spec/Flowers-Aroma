@@ -10,6 +10,7 @@ import {
   AlertCircle,
   ArrowRight,
   FileSpreadsheet,
+  FileText,
   UserCog,
   KeyRound,
   Eye,
@@ -20,6 +21,10 @@ import {
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AppUser, AppUserRole } from '../../types/greenhouse';
 import { AromaFlowersLogo } from '../common/AromaFlowersLogo';
+import {
+  exportAllAdminRecordsExcel,
+  exportAllAdminRecordsPdf,
+} from '../../utils/exportReports';
 
 export const AdminRoleView: React.FC = () => {
   const {
@@ -87,12 +92,15 @@ export const AdminRoleView: React.FC = () => {
     setErrorMsg(null);
   };
 
-  const handleSaveUser = (e: React.FormEvent) => {
+  const [isSavingUser, setIsSavingUser] = useState(false);
+
+  const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setFeedback(null);
 
-    const res = saveAppUser(
+    setIsSavingUser(true);
+    const res = await saveAppUser(
       {
         fullName,
         username,
@@ -104,29 +112,36 @@ export const AdminRoleView: React.FC = () => {
       },
       editingUserId || undefined
     );
+    setIsSavingUser(false);
 
     if (!res.ok) {
       setErrorMsg(res.error || 'No se pudo guardar el usuario.');
       return;
     }
 
-    setFeedback(
-      editingUserId
-        ? `Usuario "${username}" actualizado correctamente.`
-        : `Usuario "${username}" creado con rol ${role.toUpperCase()}.`
-    );
+    if (res.cloudSynced) {
+      setFeedback(
+        editingUserId
+          ? `Usuario "${username}" actualizado y guardado en Supabase.`
+          : `Usuario "${username}" creado (${role.toUpperCase()}) y guardado en Supabase.`
+      );
+    } else {
+      setErrorMsg(
+        `Usuario guardado localmente, pero pendiente en Supabase: ${res.cloudError || 'Sin conexión'}`
+      );
+    }
     resetForm();
-    setTimeout(() => setFeedback(null), 4000);
+    setTimeout(() => setFeedback(null), 4500);
   };
 
-  const handleDeleteUser = (id: string) => {
-    const res = deleteAppUser(id);
+  const handleDeleteUser = async (id: string) => {
+    const res = await deleteAppUser(id);
     setConfirmDeleteId(null);
     if (!res.ok) {
       setErrorMsg(res.error || 'No se pudo eliminar.');
       return;
     }
-    setFeedback('Usuario eliminado del sistema.');
+    setFeedback('Usuario eliminado del sistema y de Supabase.');
     setTimeout(() => setFeedback(null), 3500);
   };
 
@@ -244,6 +259,45 @@ export const AdminRoleView: React.FC = () => {
           </span>
           <p className="mt-1 text-2xl font-black text-[#000000]">{kpis.totalProd}</p>
           <span className="text-[10px] text-stone-500">Aaron, David y equipo</span>
+        </div>
+      </div>
+
+      {/* Export All Admin Records Bar (Excel & PDF) */}
+      <div className="bg-white rounded-2xl border border-[#C3A25D]/40 shadow-xs p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-sm sm:text-base font-extrabold text-[#000000]">
+            Exportar Todos los Registros (Admin)
+          </h2>
+          <p className="text-xs text-stone-500 mt-0.5">
+            Descarga el historial completo de producción ({dailyProductions.length} planillas), consolidados por fecha, catálogo de productos y usuarios en Excel o PDF.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              exportAllAdminRecordsExcel(dailyProductions, aromaProducts, appUsers);
+              setFeedback('Archivo Excel (.xlsx) con todos los registros descargado.');
+              setTimeout(() => setFeedback(null), 3500);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold shadow-sm transition cursor-pointer"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-[#C3A25D]" />
+            <span>Exportar Todo en Excel (.xlsx)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              exportAllAdminRecordsPdf(dailyProductions, aromaProducts, appUsers);
+              setFeedback('Archivo PDF con todos los registros descargado.');
+              setTimeout(() => setFeedback(null), 3500);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold shadow-sm transition cursor-pointer"
+          >
+            <FileText className="w-4 h-4 text-[#C3A25D]" />
+            <span>Exportar Todo en PDF</span>
+          </button>
         </div>
       </div>
 
@@ -380,10 +434,17 @@ export const AdminRoleView: React.FC = () => {
 
           <button
             type="submit"
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold transition cursor-pointer"
+            disabled={isSavingUser}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold transition cursor-pointer disabled:opacity-60"
           >
             <PlusCircle className="w-4 h-4 text-[#C3A25D]" />
-            <span>{editingUserId ? 'Actualizar Usuario' : 'Guardar Credencial'}</span>
+            <span>
+              {isSavingUser
+                ? 'Guardando en Supabase...'
+                : editingUserId
+                ? 'Actualizar Usuario'
+                : 'Guardar Credencial'}
+            </span>
           </button>
         </form>
 

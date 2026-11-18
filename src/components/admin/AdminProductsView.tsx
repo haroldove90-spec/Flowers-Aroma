@@ -9,10 +9,16 @@ import {
   Flower2,
   ArrowRight,
   Layers,
+  FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AromaProduct, ProductCaptureMode } from '../../types/greenhouse';
 import { AromaFlowersLogo } from '../common/AromaFlowersLogo';
+import {
+  exportProductsCatalogExcel,
+  exportProductsCatalogPdf,
+} from '../../utils/exportReports';
 
 export const AdminProductsView: React.FC = () => {
   const {
@@ -57,7 +63,9 @@ export const AdminProductsView: React.FC = () => {
     setErrorMsg(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setFeedback(null);
@@ -65,7 +73,8 @@ export const AdminProductsView: React.FC = () => {
     const parsedOrder = parseInt(sortOrderText.replace(/[^0-9]/g, ''), 10);
     const sortOrder = Number.isFinite(parsedOrder) && parsedOrder > 0 ? parsedOrder : aromaProducts.length + 1;
 
-    const res = saveAromaProduct(
+    setIsSavingProduct(true);
+    const res = await saveAromaProduct(
       {
         name,
         captureMode,
@@ -74,23 +83,30 @@ export const AdminProductsView: React.FC = () => {
       },
       editingId || undefined
     );
+    setIsSavingProduct(false);
 
     if (!res.ok) {
       setErrorMsg(res.error || 'No se pudo guardar el producto.');
       return;
     }
 
-    setFeedback(
-      editingId
-        ? `Producto "${name.trim().toUpperCase()}" actualizado y sincronizado con Producción.`
-        : `Producto "${name.trim().toUpperCase()}" agregado al catálogo.`
-    );
+    if (res.cloudSynced) {
+      setFeedback(
+        editingId
+          ? `Producto "${name.trim().toUpperCase()}" actualizado en Supabase y sincronizado con Producción.`
+          : `Producto "${name.trim().toUpperCase()}" agregado en Supabase.`
+      );
+    } else {
+      setErrorMsg(
+        `Producto guardado localmente, pero pendiente en Supabase: ${res.cloudError || 'Sin conexión'}`
+      );
+    }
     resetForm();
     setTimeout(() => setFeedback(null), 4000);
   };
 
-  const handleToggleActive = (p: AromaProduct) => {
-    saveAromaProduct(
+  const handleToggleActive = async (p: AromaProduct) => {
+    const res = await saveAromaProduct(
       {
         name: p.name,
         captureMode: p.captureMode,
@@ -99,16 +115,20 @@ export const AdminProductsView: React.FC = () => {
       },
       p.id
     );
-    setFeedback(
-      `${p.name} ${!p.active ? 'activado' : 'desactivado'} para captura de empleados.`
-    );
+    if (res.cloudSynced) {
+      setFeedback(
+        `${p.name} ${!p.active ? 'activado' : 'desactivado'} en Supabase para captura de empleados.`
+      );
+    } else {
+      setErrorMsg(`Cambio guardado localmente. Pendiente en Supabase: ${res.cloudError || 'Sin conexión'}`);
+    }
     setTimeout(() => setFeedback(null), 3000);
   };
 
-  const handleDelete = (id: string) => {
-    deleteAromaProduct(id);
+  const handleDelete = async (id: string) => {
+    await deleteAromaProduct(id);
     setConfirmDeleteId(null);
-    setFeedback('Producto eliminado del catálogo.');
+    setFeedback('Producto eliminado del catálogo y de Supabase.');
     setTimeout(() => setFeedback(null), 3500);
   };
 
@@ -235,10 +255,17 @@ export const AdminProductsView: React.FC = () => {
 
           <button
             type="submit"
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold transition cursor-pointer"
+            disabled={isSavingProduct}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold transition cursor-pointer disabled:opacity-60"
           >
             <PlusCircle className="w-4 h-4 text-[#C3A25D]" />
-            <span>{editingId ? 'Actualizar Producto' : 'Agregar Producto'}</span>
+            <span>
+              {isSavingProduct
+                ? 'Guardando en Supabase...'
+                : editingId
+                ? 'Actualizar Producto'
+                : 'Agregar Producto'}
+            </span>
           </button>
         </form>
 
@@ -256,9 +283,27 @@ export const AdminProductsView: React.FC = () => {
                 </p>
               </div>
             </div>
-            <span className="px-2.5 py-1 rounded-full bg-[#f7f8f2] text-[#535B28] text-xs font-bold border border-[#dce4bf]">
-              {sortedProducts.filter((p) => p.active !== false).length} activos
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-1 rounded-full bg-[#f7f8f2] text-[#535B28] text-xs font-bold border border-[#dce4bf]">
+                {sortedProducts.filter((p) => p.active !== false).length} activos
+              </span>
+              <button
+                type="button"
+                onClick={() => exportProductsCatalogExcel(sortedProducts)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold transition cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-[#C3A25D]" />
+                <span>Excel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => exportProductsCatalogPdf(sortedProducts)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-bold transition cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5 text-[#C3A25D]" />
+                <span>PDF</span>
+              </button>
+            </div>
           </div>
 
           <div className="divide-y divide-stone-100">

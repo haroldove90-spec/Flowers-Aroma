@@ -63,6 +63,7 @@ export const ProfileView: React.FC = () => {
   } = useGreenhouse();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const loadedUserIdRef = useRef<string | null>(null);
 
   const [fullName, setFullName] = useState(currentUser?.fullName || '');
   const [username, setUsername] = useState(currentUser?.username || '');
@@ -77,19 +78,27 @@ export const ProfileView: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  const [isSaving, setIsSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Only hydrate form fields when switching logged-in user (never clobber user typing during 15s polling)
   useEffect(() => {
-    if (!currentUser) return;
-    setFullName(currentUser.fullName || '');
-    setUsername(currentUser.username || '');
-    setEmail(currentUser.email || '');
-    setPhone(currentUser.phone || '');
-    setJobTitle(currentUser.jobTitle || '');
-    setDepartment(currentUser.department || '');
-    setNotes(currentUser.notes || '');
-    setAvatarUrl(currentUser.avatarUrl);
+    if (!currentUser) {
+      loadedUserIdRef.current = null;
+      return;
+    }
+    if (loadedUserIdRef.current !== currentUser.id) {
+      loadedUserIdRef.current = currentUser.id;
+      setFullName(currentUser.fullName || '');
+      setUsername(currentUser.username || '');
+      setEmail(currentUser.email || '');
+      setPhone(currentUser.phone || '');
+      setJobTitle(currentUser.jobTitle || '');
+      setDepartment(currentUser.department || '');
+      setNotes(currentUser.notes || '');
+      setAvatarUrl(currentUser.avatarUrl);
+    }
   }, [currentUser]);
 
   if (!currentUser) return null;
@@ -106,32 +115,58 @@ export const ProfileView: React.FC = () => {
     if (!file) return;
     try {
       setErrorMsg(null);
+      setIsSaving(true);
       const dataUrl = await compressAvatarImage(file);
       setAvatarUrl(dataUrl);
-      const res = updateCurrentProfile({ avatarUrl: dataUrl });
+      const res = await updateCurrentProfile({ avatarUrl: dataUrl });
       if (res.ok) {
-        setSuccessMsg('Fotografía de perfil actualizada.');
-        setTimeout(() => setSuccessMsg(null), 3500);
+        if (res.cloudSynced) {
+          setSuccessMsg('Fotografía de perfil guardada en Supabase.');
+        } else {
+          setErrorMsg(
+            `Fotografía guardada localmente, pero no se sincronizó en Supabase: ${res.cloudError || 'Sin conexión'}`
+          );
+        }
+        setTimeout(() => setSuccessMsg(null), 4000);
+      } else {
+        setErrorMsg(res.error || 'No se pudo guardar la fotografía.');
       }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Error al cargar la fotografía.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleRemovePhoto = () => {
+  const handleRemovePhoto = async () => {
+    setIsSaving(true);
+    setErrorMsg(null);
     setAvatarUrl(undefined);
-    updateCurrentProfile({ avatarUrl: undefined });
-    setSuccessMsg('Fotografía removida.');
-    setTimeout(() => setSuccessMsg(null), 3000);
+    const res = await updateCurrentProfile({ avatarUrl: undefined });
+    setIsSaving(false);
+    if (res.ok && res.cloudSynced) {
+      setSuccessMsg('Fotografía removida y actualizada en Supabase.');
+      setTimeout(() => setSuccessMsg(null), 3500);
+    } else if (res.ok) {
+      setErrorMsg(
+        `Fotografía removida localmente. Pendiente en Supabase: ${res.cloudError || 'Sin conexión'}`
+      );
+    }
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
 
     if (!fullName.trim() || !username.trim()) {
       setErrorMsg('El nombre completo y el usuario son obligatorios.');
+      return;
+    }
+
+    const cleanEmail = email.trim();
+    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setErrorMsg('Ingresa un correo electrónico válido (ej. nombre@dominio.com).');
       return;
     }
 
@@ -152,10 +187,11 @@ export const ProfileView: React.FC = () => {
       nextPassword = newPassword;
     }
 
-    const res = updateCurrentProfile({
+    setIsSaving(true);
+    const res = await updateCurrentProfile({
       fullName: fullName.trim(),
       username: username.trim(),
-      email: email.trim(),
+      email: cleanEmail,
       phone: phone.trim(),
       jobTitle: jobTitle.trim(),
       department: department.trim(),
@@ -163,6 +199,7 @@ export const ProfileView: React.FC = () => {
       avatarUrl,
       password: nextPassword,
     });
+    setIsSaving(false);
 
     if (!res.ok) {
       setErrorMsg(res.error || 'No se pudo actualizar el perfil.');
@@ -172,8 +209,14 @@ export const ProfileView: React.FC = () => {
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
-    setSuccessMsg('Datos personales y fotografía guardados correctamente.');
-    setTimeout(() => setSuccessMsg(null), 4000);
+    if (res.cloudSynced) {
+      setSuccessMsg('Datos personales, correo y fotografía guardados en Supabase correctamente.');
+    } else {
+      setErrorMsg(
+        `Guardado localmente, pero falló la subida a Supabase: ${res.cloudError || 'Sin conexión'}`
+      );
+    }
+    setTimeout(() => setSuccessMsg(null), 5000);
   };
 
   return (
@@ -312,7 +355,10 @@ export const ProfileView: React.FC = () => {
             </p>
             {currentUser.updatedAt && (
               <p>
-                <strong>Última edición:</strong> {currentUser.updatedAt}
+                <strong>Última edición:</strong>{' '}
+                {Number.isNaN(Date.parse(currentUser.updatedAt))
+                  ? currentUser.updatedAt
+                  : new Date(currentUser.updatedAt).toLocaleString('es-MX')}
               </p>
             )}
           </div>
@@ -320,6 +366,7 @@ export const ProfileView: React.FC = () => {
 
         {/* Right Form: Personal Info & Password */}
         <form
+          noValidate
           onSubmit={handleSaveProfile}
           className="lg:col-span-2 bg-white rounded-2xl border border-stone-200 shadow-xs p-6 space-y-5"
         >
@@ -484,10 +531,11 @@ export const ProfileView: React.FC = () => {
           <div className="flex justify-end pt-2">
             <button
               type="submit"
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
+              disabled={isSaving}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40 disabled:opacity-60"
             >
               <Save className="w-4 h-4 text-[#C3A25D]" />
-              <span>Guardar Cambios de Perfil</span>
+              <span>{isSaving ? 'Guardando en Supabase...' : 'Guardar Cambios de Perfil'}</span>
             </button>
           </div>
         </form>

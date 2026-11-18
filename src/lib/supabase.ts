@@ -629,6 +629,7 @@ export const mapAppUserToDb = (u: AppUser) => ({
   notes: u.notes || '',
   active: u.active !== false,
   created_at: u.createdAt || '',
+  updated_at: new Date().toISOString(),
 });
 
 export const mapAppUserFromDb = (r: any): AppUser => ({
@@ -655,6 +656,7 @@ export const mapAromaProductToDb = (p: AromaProduct) => ({
   sort_order: Number(p.sortOrder || 0),
   active: p.active !== false,
   created_at: p.createdAt || '',
+  updated_at: new Date().toISOString(),
 });
 
 export const mapAromaProductFromDb = (r: any): AromaProduct => ({
@@ -680,6 +682,7 @@ export const mapDailyProductionToDb = (d: DailyProductionEntry) => ({
   grand_total: Number(d.grandTotal || 0),
   notes: d.notes || null,
   created_at: d.createdAt || '',
+  updated_at: new Date().toISOString(),
 });
 
 export const mapDailyProductionFromDb = (r: any): DailyProductionEntry => ({
@@ -716,7 +719,90 @@ export async function upsertRowsToSupabase(
   ) {
     return { ok: false, missingTable: true, error: error.message };
   }
+
+  // Fallback for batch sync if unique secondary key differs by id
+  if (error.code === '23505' && (table === 'app_users' || table === 'app_products')) {
+    for (const row of rows) {
+      const singleRes = await upsertSingleRecordToSupabase(client, table, row);
+      if (!singleRes.ok) return singleRes;
+    }
+    return { ok: true };
+  }
+
   return { ok: false, error: error.message };
+}
+
+export async function upsertSingleRecordToSupabase(
+  client: SupabaseClient,
+  table: string,
+  payload: Record<string, any>
+): Promise<{
+  ok: boolean;
+  missingTable?: boolean;
+  error?: string;
+  savedRow?: Record<string, any>;
+}> {
+  const { data, error } = await client
+    .from(table)
+    .upsert(payload, { onConflict: 'id' })
+    .select()
+    .maybeSingle();
+
+  if (!error) {
+    return { ok: true, savedRow: data || payload };
+  }
+
+  if (
+    error.code === 'PGRST205' ||
+    error.code === '42P01' ||
+    error.message?.toLowerCase().includes('could not find the table')
+  ) {
+    return { ok: false, missingTable: true, error: error.message };
+  }
+
+  // Handle unique constraint collision on username/name if DB row had a different id
+  if (error.code === '23505') {
+    if (table === 'app_users' && payload.username) {
+      const { data: existing } = await client
+        .from('app_users')
+        .select('id')
+        .ilike('username', payload.username)
+        .limit(1)
+        .maybeSingle();
+      if (existing?.id) {
+        const { id: _ignoreId, ...rest } = payload;
+        const { data: updatedRow, error: updErr } = await client
+          .from('app_users')
+          .update(rest)
+          .eq('id', existing.id)
+          .select()
+          .maybeSingle();
+        if (!updErr) return { ok: true, savedRow: updatedRow || { ...payload, id: existing.id } };
+        return { ok: false, error: updErr.message };
+      }
+    }
+    if (table === 'app_products' && payload.name) {
+      const { data: existing } = await client
+        .from('app_products')
+        .select('id')
+        .ilike('name', payload.name)
+        .limit(1)
+        .maybeSingle();
+      if (existing?.id) {
+        const { id: _ignoreId, ...rest } = payload;
+        const { data: updatedRow, error: updErr } = await client
+          .from('app_products')
+          .update(rest)
+          .eq('id', existing.id)
+          .select()
+          .maybeSingle();
+        if (!updErr) return { ok: true, savedRow: updatedRow || { ...payload, id: existing.id } };
+        return { ok: false, error: updErr.message };
+      }
+    }
+  }
+
+  return { ok: false, error: `${error.code ? `[${error.code}] ` : ''}${error.message}` };
 }
 
 export async function deleteRowFromSupabase(

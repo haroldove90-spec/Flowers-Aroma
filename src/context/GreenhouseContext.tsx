@@ -55,10 +55,12 @@ import {
   mapAppUserFromDb,
   mapAppUserToDb,
   mapApplicationToDb,
+  mapAromaProductFromDb,
   mapAromaProductToDb,
   mapAuditToDb,
   mapAromaSheetToDb,
   mapCustomerToDb,
+  mapDailyProductionFromDb,
   mapDailyProductionToDb,
   mapEquipmentToDb,
   mapHarvestToDb,
@@ -74,7 +76,7 @@ import {
   normalizeSupabaseUrl,
   pushAllLocalToSupabase,
   testSupabaseConnection,
-  upsertRowsToSupabase,
+  upsertSingleRecordToSupabase,
 } from '../lib/supabase';
 
 interface SupabaseConfig {
@@ -101,9 +103,11 @@ interface GreenhouseContextType {
   saveAppUser: (
     userInput: Omit<AppUser, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
-  ) => { ok: boolean; error?: string };
-  updateCurrentProfile: (updates: Partial<AppUser>) => { ok: boolean; error?: string };
-  deleteAppUser: (id: string) => { ok: boolean; error?: string };
+  ) => Promise<{ ok: boolean; error?: string; cloudSynced?: boolean; cloudError?: string }>;
+  updateCurrentProfile: (
+    updates: Partial<AppUser>
+  ) => Promise<{ ok: boolean; error?: string; cloudSynced?: boolean; cloudError?: string }>;
+  deleteAppUser: (id: string) => Promise<{ ok: boolean; error?: string; cloudSynced?: boolean }>;
 
   // Navigation & Role
   activeRole: UserRole | null;
@@ -139,15 +143,15 @@ interface GreenhouseContextType {
   saveAromaProduct: (
     product: Omit<AromaProduct, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
-  ) => { ok: boolean; error?: string };
-  deleteAromaProduct: (id: string) => void;
+  ) => Promise<{ ok: boolean; error?: string; cloudSynced?: boolean; cloudError?: string }>;
+  deleteAromaProduct: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
 
   dailyProductions: DailyProductionEntry[];
   saveDailyProduction: (
     entry: Omit<DailyProductionEntry, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
-  ) => DailyProductionEntry;
-  deleteDailyProduction: (id: string) => void;
+  ) => Promise<{ entry: DailyProductionEntry; cloudSynced: boolean; cloudError?: string }>;
+  deleteDailyProduction: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
   refreshFromSupabase: () => Promise<boolean>;
 
   // Mutators
@@ -204,7 +208,7 @@ interface GreenhouseContextType {
 
   // Offline
   isOnline: boolean;
-  syncOfflineQueue: () => void;
+  syncOfflineQueue: () => Promise<void>;
 }
 
 const STORAGE_KEY_PREFIX = 'aroma_flowers_';
@@ -387,56 +391,88 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       r.enabled === false
   );
 
-  const pushUpsertToSupabase = (table: string, payload: Record<string, any>) => {
-    if (!supabaseConfig.isConnected) return;
+  const pushUpsertToSupabase = async (
+    table: string,
+    payload: Record<string, any>
+  ): Promise<{ ok: boolean; error?: string; savedRow?: Record<string, any> }> => {
+    if (!supabaseConfig.isConnected) {
+      return { ok: false, error: 'Supabase no está configurado.' };
+    }
     if (
       onlyAromaFlowers &&
       table !== 'app_users' &&
       table !== 'app_products' &&
       table !== 'daily_productions'
     ) {
-      return;
+      return { ok: true };
     }
     if (!isOnline) {
       enqueueOfflineOp({ table, op: 'upsert', payload });
-      return;
+      return { ok: false, error: 'Sin conexión a internet; guardado en cola offline.' };
     }
     const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
-    if (!client) return;
-    upsertRowsToSupabase(client, table, [payload]).then((res) => {
-      if (res.ok) {
-        setSupabaseStatus('connected');
-      } else if (res.missingTable) {
-        setSupabaseStatus('missing_tables');
-        enqueueOfflineOp({ table, op: 'upsert', payload });
-      } else {
-        enqueueOfflineOp({ table, op: 'upsert', payload });
-      }
-    });
+    if (!client) {
+      return { ok: false, error: 'Cliente Supabase inválido.' };
+    }
+    const res = await upsertSingleRecordToSupabase(client, table, payload);
+    if (res.ok) {
+      setSupabaseStatus('connected');
+      setSupabaseMessage('Conectado a Supabase');
+      return { ok: true, savedRow: res.savedRow };
+    }
+    if (res.missingTable) {
+      setSupabaseStatus('missing_tables');
+      setSupabaseMessage(`Falta la tabla "${table}" en Supabase.`);
+    } else {
+      setSupabaseMessage(`Error al guardar en "${table}": ${res.error || 'Error desconocido'}`);
+    }
+    enqueueOfflineOp({ table, op: 'upsert', payload });
+    return { ok: false, error: res.error || 'Error al sincronizar con Supabase.' };
   };
 
-  const pushDeleteToSupabase = (table: string, recordId: string) => {
-    if (!supabaseConfig.isConnected) return;
+  const pushDeleteToSupabase = async (
+    table: string,
+    recordId: string
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (!supabaseConfig.isConnected) {
+      return { ok: false, error: 'Supabase no está configurado.' };
+    }
     if (
       onlyAromaFlowers &&
       table !== 'app_users' &&
       table !== 'app_products' &&
       table !== 'daily_productions'
     ) {
-      return;
+      return { ok: true };
     }
     if (!isOnline) {
       enqueueOfflineOp({ table, op: 'delete', recordId });
-      return;
+      return { ok: false, error: 'Sin conexión; eliminación en cola offline.' };
     }
     const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
-    if (!client) return;
-    deleteRowFromSupabase(client, table, recordId).then((res) => {
-      if (!res.ok) {
-        if (res.missingTable) setSupabaseStatus('missing_tables');
-        enqueueOfflineOp({ table, op: 'delete', recordId });
+    if (!client) return { ok: false, error: 'Cliente Supabase inválido.' };
+    const res = await deleteRowFromSupabase(client, table, recordId);
+    if (!res.ok) {
+      if (res.missingTable) setSupabaseStatus('missing_tables');
+      enqueueOfflineOp({ table, op: 'delete', recordId });
+      return { ok: false, error: res.error };
+    }
+    return { ok: true };
+  };
+
+  const getPendingTables = (): Set<string> => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}offline_queue`);
+    const set = new Set<string>();
+    if (!saved) return set;
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((op: OfflineOperation) => set.add(op.table));
       }
-    });
+    } catch {
+      // ignore
+    }
+    return set;
   };
 
   const applyRemoteSnapshot = (snap: Awaited<ReturnType<typeof fetchAllFromSupabase>>) => {
@@ -449,11 +485,13 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } else {
       setSupabaseMessage('Conectado a Supabase');
     }
+    const pendingTables = getPendingTables();
+
     if (snap.aromaSheets) {
       setAromaSheets(snap.aromaSheets);
       saveState('aroma_sheets', snap.aromaSheets);
     }
-    if (snap.appUsers) {
+    if (snap.appUsers && !pendingTables.has('app_users')) {
       setAppUsers((prev) => {
         const byId = new Map<string, AppUser>();
         prev.forEach((u) => byId.set(u.id, u));
@@ -463,12 +501,12 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return merged;
       });
     }
-    if (snap.aromaProducts && snap.aromaProducts.length > 0) {
+    if (snap.aromaProducts && snap.aromaProducts.length > 0 && !pendingTables.has('app_products')) {
       const sorted = [...snap.aromaProducts].sort((a, b) => a.sortOrder - b.sortOrder);
       setAromaProducts(sorted);
       saveState('app_products', sorted);
     }
-    if (snap.dailyProductions && snap.dailyProductions.length > 0) {
+    if (snap.dailyProductions !== undefined && !pendingTables.has('daily_productions')) {
       setDailyProductions(snap.dailyProductions);
       saveState('daily_productions', snap.dailyProductions);
     }
@@ -534,10 +572,45 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const flushOfflineQueue = async (client: NonNullable<ReturnType<typeof getSupabaseClient>>) => {
+    const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}offline_queue`);
+    if (!raw) return;
+    let queue: OfflineOperation[] = [];
+    try {
+      queue = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!Array.isArray(queue) || queue.length === 0) return;
+
+    const remaining: OfflineOperation[] = [];
+    let synced = 0;
+
+    for (const item of queue) {
+      if (item.op === 'upsert' && item.payload) {
+        const res = await upsertSingleRecordToSupabase(client, item.table, item.payload);
+        if (res.ok) synced++;
+        else remaining.push(item);
+      } else if (item.op === 'delete' && item.recordId) {
+        const res = await deleteRowFromSupabase(client, item.table, item.recordId);
+        if (res.ok) synced++;
+        else remaining.push(item);
+      }
+    }
+
+    setOfflineQueue(remaining);
+    saveState('offline_queue', remaining);
+    if (synced > 0) {
+      setSupabaseStatus('connected');
+      setSupabaseMessage('Conectado a Supabase');
+    }
+  };
+
   const refreshFromSupabase = async (): Promise<boolean> => {
     if (!supabaseConfig.isConnected || !isOnline) return false;
     const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
     if (!client) return false;
+    await flushOfflineQueue(client);
     const snap = await fetchAllFromSupabase(client, onlyAromaFlowers);
     applyRemoteSnapshot(snap);
     return snap.status === 'connected';
@@ -554,17 +627,19 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     let cancelled = false;
     setSupabaseStatus('connecting');
-    fetchAllFromSupabase(client, onlyAromaFlowers).then((snap) => {
-      if (cancelled) return;
-      applyRemoteSnapshot(snap);
-    });
-
-    const intervalId = window.setInterval(() => {
-      fetchAllFromSupabase(client, onlyAromaFlowers).then((snap) => {
-        if (!cancelled && snap.status === 'connected') {
-          applyRemoteSnapshot(snap);
-        }
+    flushOfflineQueue(client)
+      .then(() => fetchAllFromSupabase(client, onlyAromaFlowers))
+      .then((snap) => {
+        if (cancelled) return;
+        applyRemoteSnapshot(snap);
       });
+
+    const intervalId = window.setInterval(async () => {
+      await flushOfflineQueue(client);
+      const snap = await fetchAllFromSupabase(client, onlyAromaFlowers);
+      if (!cancelled && snap.status === 'connected') {
+        applyRemoteSnapshot(snap);
+      }
     }, 15000);
 
     return () => {
@@ -872,10 +947,10 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // ---------- Aroma Products Catalog Mutators (Admin) ----------
-  const saveAromaProduct = (
+  const saveAromaProduct = async (
     productInput: Omit<AromaProduct, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
-  ): { ok: boolean; error?: string } => {
+  ): Promise<{ ok: boolean; error?: string; cloudSynced?: boolean; cloudError?: string }> => {
     const cleanName = productInput.name.trim().toUpperCase();
     if (!cleanName) {
       return { ok: false, error: 'El nombre del producto/variedad es obligatorio.' };
@@ -905,28 +980,38 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       saveState('app_products', sorted);
       return sorted;
     });
-    pushUpsertToSupabase('app_products', mapAromaProductToDb(saved));
+
+    const cloudRes = await pushUpsertToSupabase('app_products', mapAromaProductToDb(saved));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapAromaProductFromDb(cloudRes.savedRow);
+      setAromaProducts((prev) => {
+        const updated = prev.map((p) => (p.id === saved.id ? synced : p));
+        const sorted = [...updated].sort((a, b) => a.sortOrder - b.sortOrder);
+        saveState('app_products', sorted);
+        return sorted;
+      });
+    }
     addAuditLog('Catálogo de Productos', `Producto "${saved.name}" guardado`);
-    return { ok: true };
+    return { ok: true, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
   };
 
-  const deleteAromaProduct = (id: string) => {
+  const deleteAromaProduct = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
     setAromaProducts((prev) => {
       const updated = prev.filter((p) => p.id !== id);
       saveState('app_products', updated);
       return updated;
     });
-    pushDeleteToSupabase('app_products', id);
+    const res = await pushDeleteToSupabase('app_products', id);
     addAuditLog('Catálogo de Productos', `Producto eliminado (ID: ${id})`);
+    return { ok: true, cloudSynced: res.ok };
   };
 
   // ---------- Daily Production Mutators (Empleados + Admin) ----------
-  const saveDailyProduction = (
+  const saveDailyProduction = async (
     entryInput: Omit<DailyProductionEntry, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
-  ): DailyProductionEntry => {
+  ): Promise<{ entry: DailyProductionEntry; cloudSynced: boolean; cloudError?: string }> => {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
-    // Use deterministic ID per date + employee unless editing a specific existingId, or match same employee+date
     const matchedSameDay =
       existingId
         ? dailyProductions.find((d) => d.id === existingId)
@@ -956,22 +1041,32 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       saveState('daily_productions', updated);
       return updated;
     });
-    pushUpsertToSupabase('daily_productions', mapDailyProductionToDb(saved));
+
+    const cloudRes = await pushUpsertToSupabase('daily_productions', mapDailyProductionToDb(saved));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapDailyProductionFromDb(cloudRes.savedRow);
+      setDailyProductions((prev) => {
+        const updated = prev.map((d) => (d.id === saved.id ? synced : d));
+        saveState('daily_productions', updated);
+        return updated;
+      });
+    }
     addAuditLog(
       'Producción del Día',
       `${saved.employeeName} registró ${saved.grandTotal} unidades el ${saved.productionDate}`
     );
-    return saved;
+    return { entry: saved, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
   };
 
-  const deleteDailyProduction = (id: string) => {
+  const deleteDailyProduction = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
     setDailyProductions((prev) => {
       const updated = prev.filter((d) => d.id !== id);
       saveState('daily_productions', updated);
       return updated;
     });
-    pushDeleteToSupabase('daily_productions', id);
+    const res = await pushDeleteToSupabase('daily_productions', id);
     addAuditLog('Producción del Día', `Registro eliminado (ID: ${id})`);
+    return { ok: true, cloudSynced: res.ok };
   };
 
   // ---------- Authentication, Permissions & User Profile Management ----------
@@ -1068,10 +1163,10 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}session_user_id`);
   };
 
-  const saveAppUser = (
+  const saveAppUser = async (
     userInput: Omit<AppUser, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
-  ): { ok: boolean; error?: string } => {
+  ): Promise<{ ok: boolean; error?: string; cloudSynced?: boolean; cloudError?: string }> => {
     const cleanUsername = userInput.username.trim();
     if (!cleanUsername || !userInput.fullName.trim() || !userInput.password) {
       return { ok: false, error: 'Nombre, usuario y contraseña son obligatorio.' };
@@ -1102,14 +1197,23 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       saveState('app_users', updated);
       return updated;
     });
-    pushUpsertToSupabase('app_users', mapAppUserToDb(saved));
+
+    const cloudRes = await pushUpsertToSupabase('app_users', mapAppUserToDb(saved));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapAppUserFromDb(cloudRes.savedRow);
+      setAppUsers((prev) => {
+        const updated = prev.map((u) => (u.id === saved.id ? synced : u));
+        saveState('app_users', updated);
+        return updated;
+      });
+    }
     addAuditLog('Gestión de Usuarios', `Usuario ${saved.username} (${saved.role}) guardado`);
-    return { ok: true };
+    return { ok: true, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
   };
 
-  const updateCurrentProfile = (
+  const updateCurrentProfile = async (
     updates: Partial<AppUser>
-  ): { ok: boolean; error?: string } => {
+  ): Promise<{ ok: boolean; error?: string; cloudSynced?: boolean; cloudError?: string }> => {
     if (!currentUser) return { ok: false, error: 'No hay sesión activa.' };
     const nextUsername = (updates.username ?? currentUser.username).trim();
     const duplicate = appUsers.find(
@@ -1121,12 +1225,17 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return { ok: false, error: `El nombre de usuario "${nextUsername}" ya está en uso.` };
     }
 
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const now = new Date().toISOString();
     const updatedUser: AppUser = {
       ...currentUser,
       ...updates,
       username: nextUsername,
       fullName: (updates.fullName ?? currentUser.fullName).trim(),
+      email: (updates.email ?? currentUser.email ?? '').trim(),
+      phone: (updates.phone ?? currentUser.phone ?? '').trim(),
+      jobTitle: (updates.jobTitle ?? currentUser.jobTitle ?? '').trim(),
+      department: (updates.department ?? currentUser.department ?? '').trim(),
+      notes: (updates.notes ?? currentUser.notes ?? '').trim(),
       role: currentUser.role, // users keep their assigned role on self-profile edit
       updatedAt: now,
     };
@@ -1136,12 +1245,29 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       saveState('app_users', updated);
       return updated;
     });
-    pushUpsertToSupabase('app_users', mapAppUserToDb(updatedUser));
+
+    const cloudRes = await pushUpsertToSupabase('app_users', mapAppUserToDb(updatedUser));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapAppUserFromDb(cloudRes.savedRow);
+      if (synced.id !== currentUser.id) {
+        setCurrentUserId(synced.id);
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}session_user_id`, synced.id);
+      }
+      setAppUsers((prev) => {
+        const updated = prev.map((u) =>
+          u.id === currentUser.id || u.id === synced.id ? synced : u
+        );
+        saveState('app_users', updated);
+        return updated;
+      });
+    }
     addAuditLog('Actualización de Perfil', `${updatedUser.username} actualizó sus datos personales`);
-    return { ok: true };
+    return { ok: true, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
   };
 
-  const deleteAppUser = (id: string): { ok: boolean; error?: string } => {
+  const deleteAppUser = async (
+    id: string
+  ): Promise<{ ok: boolean; error?: string; cloudSynced?: boolean }> => {
     if (currentUser?.id === id) {
       return { ok: false, error: 'No puedes eliminar tu propia cuenta activa.' };
     }
@@ -1150,9 +1276,9 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       saveState('app_users', updated);
       return updated;
     });
-    pushDeleteToSupabase('app_users', id);
+    const res = await pushDeleteToSupabase('app_users', id);
     addAuditLog('Gestión de Usuarios', `Usuario eliminado (ID: ${id})`);
-    return { ok: true };
+    return { ok: true, cloudSynced: res.ok };
   };
 
   // Demo data wipe function (as requested in the prompt)
@@ -1354,6 +1480,15 @@ CREATE TABLE IF NOT EXISTS app_users (
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Garantizar columnas de Perfil en tablas preexistentes
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS job_title TEXT DEFAULT '';
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS department TEXT DEFAULT '';
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '';
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_app_users_username
   ON app_users (LOWER(username));
@@ -1874,31 +2009,10 @@ COMMIT;
   };
 
   const syncOfflineQueue = async () => {
-    if (offlineQueue.length === 0 || !isOnline || !supabaseConfig.isConnected) return;
+    if (!isOnline || !supabaseConfig.isConnected) return;
     const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
     if (!client) return;
-
-    const remaining: OfflineOperation[] = [];
-    let synced = 0;
-
-    for (const item of offlineQueue) {
-      if (item.op === 'upsert' && item.payload) {
-        const res = await upsertRowsToSupabase(client, item.table, [item.payload]);
-        if (res.ok) synced++;
-        else remaining.push(item);
-      } else if (item.op === 'delete' && item.recordId) {
-        const res = await deleteRowFromSupabase(client, item.table, item.recordId);
-        if (res.ok) synced++;
-        else remaining.push(item);
-      }
-    }
-
-    setOfflineQueue(remaining);
-    saveState('offline_queue', remaining);
-    if (synced > 0) {
-      setSupabaseStatus('connected');
-      addAuditLog('Sincronización Offline', `${synced} registros sincronizados con Supabase`);
-    }
+    await flushOfflineQueue(client);
   };
 
   return (

@@ -3,8 +3,9 @@ import {
   Calendar,
   CheckCircle2,
   ClipboardList,
-  Download,
   Edit3,
+  FileSpreadsheet,
+  FileText,
   Layers,
   PackageCheck,
   RefreshCw,
@@ -23,6 +24,14 @@ import {
   DailyProductionRow,
 } from '../../types/greenhouse';
 import { AromaFlowersLogo } from '../common/AromaFlowersLogo';
+import {
+  exportAllAdminRecordsExcel,
+  exportAllAdminRecordsPdf,
+  exportDailyConsolidatedExcel,
+  exportDailyConsolidatedPdf,
+  exportSingleEntryExcel,
+  exportSingleEntryPdf,
+} from '../../utils/exportReports';
 
 const getTodayDate = (): string => new Date().toISOString().slice(0, 10);
 
@@ -176,9 +185,11 @@ export const DailyProductionView: React.FC = () => {
     existingEntryForSelection?.updatedAt,
   ]);
 
+  const [isSavingCapture, setIsSavingCapture] = useState(false);
+
   const showToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 4000);
+    setTimeout(() => setToastMsg(null), 4500);
   };
 
   const handleManualRefresh = async () => {
@@ -225,14 +236,15 @@ export const DailyProductionView: React.FC = () => {
 
   const draftTotals = useMemo(() => computeTotals(draftRows), [draftRows]);
 
-  const handleSaveCapture = (e: React.FormEvent) => {
+  const handleSaveCapture = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!effectiveEmployee) return;
 
     const nonZeroRows = draftRows.filter((r) => r.total > 0);
     const totals = computeTotals(nonZeroRows);
 
-    saveDailyProduction(
+    setIsSavingCapture(true);
+    const res = await saveDailyProduction(
       {
         productionDate: selectedDate,
         employeeUserId: effectiveEmployee.id,
@@ -247,10 +259,17 @@ export const DailyProductionView: React.FC = () => {
       },
       existingEntryForSelection?.id
     );
+    setIsSavingCapture(false);
 
-    showToast(
-      `Producción del día guardada para ${effectiveEmployee.fullName} (${totals.grandTotal} total).`
-    );
+    if (res.cloudSynced) {
+      showToast(
+        `Producción de ${effectiveEmployee.fullName} (${totals.grandTotal} total) guardada en Supabase.`
+      );
+    } else {
+      showToast(
+        `Guardado localmente (${totals.grandTotal} total). Pendiente en Supabase: ${res.cloudError || 'Sin conexión'}`
+      );
+    }
   };
 
   // ---------- Admin Consolidation Logic for selectedDate ----------
@@ -389,52 +408,14 @@ export const DailyProductionView: React.FC = () => {
       .sort((a, b) => b.productionDate.localeCompare(a.productionDate));
   }, [dailyProductions, currentUser]);
 
-  const exportConsolidatedCsv = () => {
-    const empHeaders = entriesForSelectedDate.map((e) => e.employeeName.toUpperCase());
-    const headers = ['VARIEDAD', 'LAR', 'MED', 'CHI', ...empHeaders, 'TOTAL'];
-    const lines = [
-      headers.join(','),
-      ...consolidatedData.rows.map((r) => {
-        const empCols = entriesForSelectedDate.map(
-          (e) => r.byEmployee[e.employeeUserId] || 0
-        );
-        if (r.captureMode === 'direct_total') {
-          return [`"${r.productName}"`, 0, 0, 0, ...empCols, r.total].join(',');
-        }
-        return [`"${r.productName}"`, r.lar, r.med, r.chi, ...empCols, r.total].join(',');
-      }),
-      [
-        'TOTAL GENERAL',
-        consolidatedData.totals.totalLar,
-        consolidatedData.totals.totalMed,
-        consolidatedData.totals.totalChi,
-        ...entriesForSelectedDate.map((e) => e.grandTotal),
-        consolidatedData.totals.grandTotal,
-      ].join(','),
-    ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Produccion_Consolidada_${selectedDate}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleExportAllExcel = () => {
+    exportAllAdminRecordsExcel(dailyProductions, aromaProducts, appUsers);
+    showToast(`Excel generado con todos los registros (${dailyProductions.length} planillas).`);
   };
 
-  const exportEntryCsv = (entry: DailyProductionEntry) => {
-    const lines = [
-      `EMPLEADO,${entry.employeeName},FECHA,${entry.productionDate}`,
-      'VARIEDAD,LAR,MED,CHI,TOTAL',
-      ...entry.rows.map((r) => `"${r.productName}",${r.lar},${r.med},${r.chi},${r.total}`),
-      `TOTAL,${entry.totalLar},${entry.totalMed},${entry.totalChi},${entry.grandTotal}`,
-    ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Produccion_${entry.employeeName}_${entry.productionDate}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleExportAllPdf = () => {
+    exportAllAdminRecordsPdf(dailyProductions, aromaProducts, appUsers);
+    showToast(`PDF generado con todos los registros (${dailyProductions.length} planillas).`);
   };
 
   // ---------- Reusable Capture Table ----------
@@ -646,11 +627,14 @@ export const DailyProductionView: React.FC = () => {
           </div>
           <button
             type="submit"
-            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
+            disabled={isSavingCapture}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40 disabled:opacity-60"
           >
             <Save className="w-4 h-4 text-[#C3A25D]" />
             <span>
-              {existingEntryForSelection
+              {isSavingCapture
+                ? 'Guardando en Supabase...'
+                : existingEntryForSelection
                 ? 'Actualizar Producción del Día'
                 : 'Guardar Producción del Día'}
             </span>
@@ -697,13 +681,35 @@ export const DailyProductionView: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdminView && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportAllExcel}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold border border-[#C3A25D]/50 transition cursor-pointer shadow-sm"
+                  title="Exportar absolutamente todos los registros históricos, consolidados y catálogo a Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-[#C3A25D]" />
+                  <span>Exportar Todos (Excel)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportAllPdf}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs font-bold transition cursor-pointer shadow-sm"
+                  title="Exportar absolutamente todos los registros históricos, consolidados y catálogo a PDF"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Exportar Todos (PDF)</span>
+                </button>
+              </>
+            )}
             {supabaseConfig.isConnected && isOnline && (
               <button
                 type="button"
                 onClick={handleManualRefresh}
                 disabled={isRefreshing}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold border border-[#C3A25D]/40 transition cursor-pointer disabled:opacity-60"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/20 transition cursor-pointer disabled:opacity-60"
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-[#C3A25D] ${isRefreshing ? 'animate-spin' : ''}`} />
                 <span>{isRefreshing ? 'Sincronizando...' : 'Sincronizar en Vivo'}</span>
@@ -884,14 +890,38 @@ export const DailyProductionView: React.FC = () => {
                 </div>
 
                 {consolidatedData.rows.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={exportConsolidatedCsv}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold transition cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5 text-[#C3A25D]" />
-                    <span>Exportar CSV Consolidado</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        exportDailyConsolidatedExcel(
+                          selectedDate,
+                          consolidatedData.rows,
+                          consolidatedData.totals,
+                          entriesForSelectedDate
+                        )
+                      }
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-[#C3A25D]" />
+                      <span>Excel del Día (.xlsx)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        exportDailyConsolidatedPdf(
+                          selectedDate,
+                          consolidatedData.rows,
+                          consolidatedData.totals,
+                          entriesForSelectedDate
+                        )
+                      }
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-[#C3A25D]" />
+                      <span>PDF del Día</span>
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -1020,18 +1050,26 @@ export const DailyProductionView: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => exportEntryCsv(entry)}
+                          onClick={() => exportSingleEntryExcel(entry)}
                           className="p-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white transition cursor-pointer"
-                          title="Exportar CSV"
+                          title="Exportar Excel (.xlsx)"
                         >
-                          <Download className="w-4 h-4" />
+                          <FileSpreadsheet className="w-4 h-4 text-[#C3A25D]" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => exportSingleEntryPdf(entry)}
+                          className="p-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white transition cursor-pointer"
+                          title="Exportar PDF"
+                        >
+                          <FileText className="w-4 h-4" />
                         </button>
                         {confirmDeleteId === entry.id ? (
                           <div className="flex items-center gap-1 bg-black/50 px-2 py-1 rounded-lg text-[11px]">
                             <button
                               type="button"
-                              onClick={() => {
-                                deleteDailyProduction(entry.id);
+                              onClick={async () => {
+                                await deleteDailyProduction(entry.id);
                                 setConfirmDeleteId(null);
                                 showToast('Registro eliminado.');
                               }}
@@ -1201,11 +1239,19 @@ export const DailyProductionView: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => exportEntryCsv(entry)}
+                          onClick={() => exportSingleEntryExcel(entry)}
                           className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#f7f8f2] text-[#535B28] text-xs font-bold border border-[#dce4bf] hover:bg-[#ecf0dc] transition cursor-pointer"
                         >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>CSV</span>
+                          <FileSpreadsheet className="w-3.5 h-3.5" />
+                          <span>Excel</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => exportSingleEntryPdf(entry)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#fbf7eb] text-[#7c5b16] text-xs font-bold border border-[#e7d4a5] hover:bg-[#f5ecd3] transition cursor-pointer"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>PDF</span>
                         </button>
                       </div>
                     </div>
