@@ -33,10 +33,10 @@ export const Header: React.FC = () => {
     setActiveRole(role);
     if (role === 'admin') {
       setActiveView('admin_panel');
-    } else if (role === 'produccion' || role === 'aroma_flowers') {
+    } else if (role === 'produccion') {
+      setActiveView('produccion_dia');
+    } else if (role === 'aroma_flowers') {
       setActiveView('fi_general');
-    } else if (role === 'perfil') {
-      setActiveView('mi_perfil');
     } else {
       setActiveView('principal');
     }
@@ -45,9 +45,9 @@ export const Header: React.FC = () => {
   const handleHomeLogoClick = () => {
     if (activeRole === 'admin') {
       setActiveView('admin_panel');
-    } else if (activeRole === 'perfil') {
-      setActiveView('mi_perfil');
-    } else if (activeRole === 'produccion' || activeRole === 'aroma_flowers') {
+    } else if (activeRole === 'produccion') {
+      setActiveView('produccion_dia');
+    } else if (activeRole === 'aroma_flowers') {
       setActiveView('fi_general');
     } else {
       setActiveView('principal');
@@ -151,16 +151,12 @@ export const Header: React.FC = () => {
             {/* Quick PWA Install Button */}
             <PWAInstallButton compact />
 
-            {/* Profile / User Avatar Button (Opens Perfil role) */}
+            {/* Profile / User Avatar Button (Opens Mi Perfil module inside active role) */}
             {currentUser && (
               <button
                 type="button"
-                onClick={() => handleSwitchRole('perfil')}
-                className={`flex items-center gap-2 px-2 py-1 rounded-xl border transition cursor-pointer ${
-                  activeRole === 'perfil'
-                    ? 'bg-[#5C1125] text-white border-[#C3A25D]'
-                    : 'bg-[#fbf2f4] border-[#ebccd4] text-[#5C1125] hover:bg-[#f5e4e8]'
-                }`}
+                onClick={() => setActiveView('mi_perfil')}
+                className="flex items-center gap-2 px-2 py-1 rounded-xl border transition cursor-pointer bg-[#fbf2f4] border-[#ebccd4] text-[#5C1125] hover:bg-[#f5e4e8]"
                 title="Ir a Mi Perfil (datos personales y fotografía)"
               >
                 {currentUser.avatarUrl ? (

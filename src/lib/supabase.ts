@@ -3,10 +3,12 @@ import {
   ActiveLoan,
   AppUser,
   AromaFlowerSheetEntry,
+  AromaProduct,
   AuditLogEntry,
   BankAccount,
   CulturalTask,
   Customer,
+  DailyProductionEntry,
   EquipmentAsset,
   FinancialMovement,
   GreenhouseModule,
@@ -86,17 +88,18 @@ export async function testSupabaseConnection(
   }
 
   try {
-    const [sheetsRes, usersRes] = await Promise.all([
-      client.from('aroma_flower_sheets').select('id').limit(1),
+    const [usersRes, productsRes, prodRes] = await Promise.all([
       client.from('app_users').select('id').limit(1),
+      client.from('app_products').select('id').limit(1),
+      client.from('daily_productions').select('id').limit(1),
     ]);
-    const error = sheetsRes.error || usersRes.error;
+    const error = usersRes.error || productsRes.error || prodRes.error;
     if (!error) {
       return {
         ok: true,
         tablesReady: true,
         status: 'connected',
-        message: 'Conexión exitosa y tablas listas en Supabase (aroma_flower_sheets y app_users).',
+        message: 'Conexión exitosa y tablas activas listas en Supabase (app_users, app_products y daily_productions).',
       };
     }
 
@@ -110,7 +113,7 @@ export async function testSupabaseConnection(
         tablesReady: false,
         status: 'missing_tables',
         message:
-          'Proyecto Supabase conectado, pero falta crear/actualizar las tablas (aroma_flower_sheets y app_users). Copia y ejecuta el SQL en Supabase → SQL Editor.',
+          'Proyecto Supabase conectado, pero falta ejecutar el SQL actualizado (app_users, app_products y daily_productions) en Supabase → SQL Editor.',
       };
     }
 
@@ -645,6 +648,56 @@ export const mapAppUserFromDb = (r: any): AppUser => ({
   updatedAt: r.updated_at || undefined,
 });
 
+export const mapAromaProductToDb = (p: AromaProduct) => ({
+  id: p.id,
+  name: p.name,
+  capture_mode: p.captureMode,
+  sort_order: Number(p.sortOrder || 0),
+  active: p.active !== false,
+  created_at: p.createdAt || '',
+});
+
+export const mapAromaProductFromDb = (r: any): AromaProduct => ({
+  id: String(r.id),
+  name: r.name || '',
+  captureMode: r.capture_mode === 'direct_total' ? 'direct_total' : 'lar_med_chi',
+  sortOrder: Number(r.sort_order || 0),
+  active: r.active !== false,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapDailyProductionToDb = (d: DailyProductionEntry) => ({
+  id: d.id,
+  production_date: d.productionDate,
+  employee_user_id: d.employeeUserId,
+  employee_username: d.employeeUsername,
+  employee_name: d.employeeName,
+  rows: d.rows || [],
+  total_lar: Number(d.totalLar || 0),
+  total_med: Number(d.totalMed || 0),
+  total_chi: Number(d.totalChi || 0),
+  grand_total: Number(d.grandTotal || 0),
+  notes: d.notes || null,
+  created_at: d.createdAt || '',
+});
+
+export const mapDailyProductionFromDb = (r: any): DailyProductionEntry => ({
+  id: String(r.id),
+  productionDate: r.production_date || '',
+  employeeUserId: r.employee_user_id || '',
+  employeeUsername: r.employee_username || '',
+  employeeName: r.employee_name || '',
+  rows: Array.isArray(r.rows) ? r.rows : [],
+  totalLar: Number(r.total_lar || 0),
+  totalMed: Number(r.total_med || 0),
+  totalChi: Number(r.total_chi || 0),
+  grandTotal: Number(r.grand_total || 0),
+  notes: r.notes || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
 // ---------- Sync Helpers ----------
 
 export async function upsertRowsToSupabase(
@@ -683,6 +736,8 @@ export interface RemoteSnapshot {
   status: SupabaseSyncStatus;
   aromaSheets?: AromaFlowerSheetEntry[];
   appUsers?: AppUser[];
+  aromaProducts?: AromaProduct[];
+  dailyProductions?: DailyProductionEntry[];
   modules?: GreenhouseModule[];
   tasks?: CulturalTask[];
   irrigation?: IrrigationLog[];
@@ -704,44 +759,42 @@ export async function fetchAllFromSupabase(
   client: SupabaseClient,
   onlyAromaFlowers = false
 ): Promise<RemoteSnapshot> {
-  const [check, usersRes] = await Promise.all([
-    client.from('aroma_flower_sheets').select('*'),
+  const [usersRes, productsRes, prodRes] = await Promise.all([
     client.from('app_users').select('*'),
+    client.from('app_products').select('*').order('sort_order', { ascending: true }),
+    client.from('daily_productions').select('*').order('production_date', { ascending: false }),
   ]);
 
-  const missingCheck =
-    check.error &&
-    (check.error.code === 'PGRST205' ||
-      check.error.code === '42P01' ||
-      check.error.message?.toLowerCase().includes('could not find the table'));
+  const isMissingTable = (err: any) =>
+    err &&
+    (err.code === 'PGRST205' ||
+      err.code === '42P01' ||
+      err.message?.toLowerCase().includes('could not find the table'));
 
-  const missingUsers =
-    usersRes.error &&
-    (usersRes.error.code === 'PGRST205' ||
-      usersRes.error.code === '42P01' ||
-      usersRes.error.message?.toLowerCase().includes('could not find the table'));
-
-  if (missingCheck || missingUsers) {
+  if (isMissingTable(usersRes.error) || isMissingTable(productsRes.error) || isMissingTable(prodRes.error)) {
     return {
       status: 'missing_tables',
-      aromaSheets: !check.error && check.data?.length ? check.data.map(mapAromaSheetFromDb) : undefined,
       appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
+      aromaProducts: !productsRes.error && productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
+      dailyProductions: !prodRes.error && prodRes.data?.length ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
     };
   }
 
-  if (check.error) {
+  if (usersRes.error || productsRes.error || prodRes.error) {
     return { status: 'error' };
   }
 
   if (onlyAromaFlowers) {
     return {
       status: 'connected',
-      aromaSheets: check.data?.length ? check.data.map(mapAromaSheetFromDb) : undefined,
-      appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
+      appUsers: usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
+      aromaProducts: productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
+      dailyProductions: prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
     };
   }
 
   const [
+    check,
     modulesRes,
     tasksRes,
     irrigationRes,
@@ -758,6 +811,7 @@ export async function fetchAllFromSupabase(
     loansRes,
     auditRes,
   ] = await Promise.all([
+    client.from('aroma_flower_sheets').select('*'),
     client.from('modules').select('*'),
     client.from('cultural_tasks').select('*'),
     client.from('irrigation_logs').select('*'),
@@ -778,7 +832,9 @@ export async function fetchAllFromSupabase(
   return {
     status: 'connected',
     aromaSheets: check.data?.length ? check.data.map(mapAromaSheetFromDb) : undefined,
-    appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
+    appUsers: usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
+    aromaProducts: productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
+    dailyProductions: prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
     modules: modulesRes.data?.length ? modulesRes.data.map(mapModuleFromDb) : undefined,
     tasks: tasksRes.data?.length ? tasksRes.data.map(mapTaskFromDb) : undefined,
     irrigation: irrigationRes.data?.length ? irrigationRes.data.map(mapIrrigationFromDb) : undefined,
@@ -800,6 +856,8 @@ export async function fetchAllFromSupabase(
 export interface LocalStateSnapshot {
   aromaSheets: AromaFlowerSheetEntry[];
   appUsers: AppUser[];
+  aromaProducts: AromaProduct[];
+  dailyProductions: DailyProductionEntry[];
   modules: GreenhouseModule[];
   tasks: CulturalTask[];
   irrigation: IrrigationLog[];
@@ -825,10 +883,13 @@ export async function pushAllLocalToSupabase(
   const batches: Array<{ table: string; rows: Record<string, any>[] }> = onlyAromaFlowers
     ? [
         { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
-        { table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) },
+        { table: 'app_products', rows: state.aromaProducts.map(mapAromaProductToDb) },
+        { table: 'daily_productions', rows: state.dailyProductions.map(mapDailyProductionToDb) },
       ]
     : [
         { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
+        { table: 'app_products', rows: state.aromaProducts.map(mapAromaProductToDb) },
+        { table: 'daily_productions', rows: state.dailyProductions.map(mapDailyProductionToDb) },
         { table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) },
         { table: 'modules', rows: state.modules.map(mapModuleToDb) },
         { table: 'cultural_tasks', rows: state.tasks.map(mapTaskToDb) },

@@ -39,10 +39,10 @@ export const RoleSelector: React.FC = () => {
     setActiveRole(roleId);
     if (roleId === 'admin') {
       setActiveView('admin_panel');
-    } else if (roleId === 'produccion' || roleId === 'aroma_flowers') {
+    } else if (roleId === 'produccion') {
+      setActiveView('produccion_dia');
+    } else if (roleId === 'aroma_flowers') {
       setActiveView('fi_general');
-    } else if (roleId === 'perfil') {
-      setActiveView('mi_perfil');
     } else {
       setActiveView('principal');
     }

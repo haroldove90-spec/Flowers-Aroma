@@ -14,6 +14,8 @@ import {
   KeyRound,
   Eye,
   EyeOff,
+  Boxes,
+  Layers,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AppUser, AppUserRole } from '../../types/greenhouse';
@@ -25,7 +27,8 @@ export const AdminRoleView: React.FC = () => {
     appUsers,
     saveAppUser,
     deleteAppUser,
-    aromaSheets,
+    aromaProducts,
+    dailyProductions,
     setActiveRole,
     setActiveView,
   } = useGreenhouse();
@@ -44,13 +47,22 @@ export const AdminRoleView: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  const today = new Date().toISOString().slice(0, 10);
+
   const kpis = useMemo(() => {
-    const totalRegistros = aromaSheets.length;
-    const totalCantidad = aromaSheets.reduce((acc, s) => acc + Number(s.grandTotal || 0), 0);
+    const todayEntries = dailyProductions.filter((d) => d.productionDate === today);
+    const totalHoy = todayEntries.reduce((acc, d) => acc + Number(d.grandTotal || 0), 0);
+    const totalProductos = aromaProducts.filter((p) => p.active !== false).length;
     const totalAdmins = appUsers.filter((u) => u.role === 'admin' && u.active !== false).length;
     const totalProd = appUsers.filter((u) => u.role === 'produccion' && u.active !== false).length;
-    return { totalRegistros, totalCantidad, totalAdmins, totalProd };
-  }, [aromaSheets, appUsers]);
+    return {
+      totalHoy,
+      empleadosHoy: todayEntries.length,
+      totalProductos,
+      totalAdmins,
+      totalProd,
+    };
+  }, [dailyProductions, aromaProducts, appUsers, today]);
 
   const resetForm = () => {
     setEditingUserId(null);
@@ -143,36 +155,42 @@ export const AdminRoleView: React.FC = () => {
             </div>
           </div>
 
-          {/* Direct switch buttons for Admin: Access Produccion, Excel Modules, or Perfil */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* Direct module buttons inside Admin + switch to Producción */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveView('produccion_dia')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-bold shadow-md transition cursor-pointer"
+            >
+              <Layers className="w-4 h-4" />
+              <span>Producción del Día</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('admin_productos')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
+            >
+              <Boxes className="w-4 h-4 text-[#C3A25D]" />
+              <span>Productos ({kpis.totalProductos})</span>
+            </button>
+
             <button
               type="button"
               onClick={() => {
                 setActiveRole('produccion');
-                setActiveView('fi_general');
+                setActiveView('produccion_dia');
               }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
             >
               <PackageCheck className="w-4 h-4 text-[#C3A25D]" />
-              <span>Entrar al Rol Producción</span>
+              <span>Ir a Rol Producción</span>
               <ArrowRight className="w-4 h-4" />
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveView('fi_general')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-bold shadow-md transition cursor-pointer"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Planillas Aroma Flowers</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setActiveRole('perfil');
-                setActiveView('mi_perfil');
-              }}
+              onClick={() => setActiveView('mi_perfil')}
               className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
             >
               <UserCog className="w-4 h-4 text-[#C3A25D]" />
@@ -184,23 +202,33 @@ export const AdminRoleView: React.FC = () => {
 
       {/* KPI Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
+        <button
+          type="button"
+          onClick={() => setActiveView('produccion_dia')}
+          className="text-left p-4 rounded-2xl bg-white border border-stone-200 hover:border-[#5C1125] shadow-xs transition cursor-pointer"
+        >
           <span className="text-[11px] font-bold text-[#5C1125] uppercase tracking-wider">
-            Planillas Guardadas
-          </span>
-          <p className="mt-1 text-2xl font-black text-[#000000]">{kpis.totalRegistros}</p>
-          <span className="text-[10px] text-stone-500">En los 7 módulos Excel</span>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
-          <span className="text-[11px] font-bold text-[#535B28] uppercase tracking-wider">
-            Volumen Acumulado
+            Producción Hoy
           </span>
           <p className="mt-1 text-2xl font-black text-[#000000]">
-            {kpis.totalCantidad.toLocaleString()}
+            {kpis.totalHoy.toLocaleString()}
           </p>
-          <span className="text-[10px] text-stone-500">Tallos / Paquetes registrados</span>
-        </div>
+          <span className="text-[10px] text-stone-500">
+            {kpis.empleadosHoy} empleado(s) hoy
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveView('admin_productos')}
+          className="text-left p-4 rounded-2xl bg-white border border-stone-200 hover:border-[#535B28] shadow-xs transition cursor-pointer"
+        >
+          <span className="text-[11px] font-bold text-[#535B28] uppercase tracking-wider">
+            Productos Activos
+          </span>
+          <p className="mt-1 text-2xl font-black text-[#000000]">{kpis.totalProductos}</p>
+          <span className="text-[10px] text-stone-500">Ver / editar catálogo</span>
+        </button>
 
         <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
           <span className="text-[11px] font-bold text-[#C3A25D] uppercase tracking-wider">
@@ -212,10 +240,10 @@ export const AdminRoleView: React.FC = () => {
 
         <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
           <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider">
-            Cuentas Producción
+            Empleados Producción
           </span>
           <p className="mt-1 text-2xl font-black text-[#000000]">{kpis.totalProd}</p>
-          <span className="text-[10px] text-stone-500">Operación en planta</span>
+          <span className="text-[10px] text-stone-500">Aaron, David y equipo</span>
         </div>
       </div>
 

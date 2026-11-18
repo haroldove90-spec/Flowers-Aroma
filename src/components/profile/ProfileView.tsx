@@ -56,6 +56,7 @@ const compressAvatarImage = (file: File): Promise<string> => {
 export const ProfileView: React.FC = () => {
   const {
     currentUser,
+    activeRole,
     updateCurrentProfile,
     setActiveRole,
     setActiveView,
@@ -185,7 +186,7 @@ export const ProfileView: React.FC = () => {
           </div>
           <div>
             <span className="text-[11px] font-bold uppercase tracking-widest text-[#C3A25D]">
-              Rol Perfil &bull; Cuenta Personal
+              Módulo Perfil &bull; {activeRole === 'admin' ? 'Rol Admin' : 'Rol Producción'}
             </span>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
               Mi Perfil y Credenciales
@@ -207,20 +208,17 @@ export const ProfileView: React.FC = () => {
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#C3A25D] text-[#000000] text-xs font-bold hover:bg-[#d6be83] transition cursor-pointer"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>Ir a Admin</span>
+              <span>Panel Admin</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           )}
           <button
             type="button"
-            onClick={() => {
-              setActiveRole('produccion');
-              setActiveView('fi_general');
-            }}
+            onClick={() => setActiveView('produccion_dia')}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#535B28] text-white text-xs font-bold hover:bg-[#3b411c] transition cursor-pointer border border-white/15"
           >
             <PackageCheck className="w-4 h-4 text-[#C3A25D]" />
-            <span>Ir a Producción</span>
+            <span>Producción del Día</span>
           </button>
         </div>
       </div>

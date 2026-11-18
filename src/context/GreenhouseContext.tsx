@@ -17,6 +17,8 @@ import {
   ActiveLoan,
   AuditLogEntry,
   AromaFlowerSheetEntry,
+  AromaProduct,
+  DailyProductionEntry,
   AppUser,
   ROLES,
 } from '../types/greenhouse';
@@ -37,6 +39,8 @@ import {
   INITIAL_LOANS,
   INITIAL_AUDIT_LOGS,
   INITIAL_AROMA_FLOWER_SHEETS,
+  INITIAL_AROMA_PRODUCTS,
+  INITIAL_DAILY_PRODUCTIONS,
   INITIAL_APP_USERS,
 } from '../data/mockData';
 import {
@@ -51,9 +55,11 @@ import {
   mapAppUserFromDb,
   mapAppUserToDb,
   mapApplicationToDb,
+  mapAromaProductToDb,
   mapAuditToDb,
   mapAromaSheetToDb,
   mapCustomerToDb,
+  mapDailyProductionToDb,
   mapEquipmentToDb,
   mapHarvestToDb,
   mapInventoryToDb,
@@ -123,10 +129,26 @@ interface GreenhouseContextType {
   auditLogs: AuditLogEntry[];
   offlineQueue: OfflineOperation[];
 
-  // Aroma Flowers Sheets (7 Modules from Excel)
+  // Aroma Flowers Sheets (Legacy 7 Modules)
   aromaSheets: AromaFlowerSheetEntry[];
   saveAromaSheet: (sheet: Omit<AromaFlowerSheetEntry, 'id' | 'createdAt'>, existingId?: string) => void;
   deleteAromaSheet: (id: string) => void;
+
+  // Dynamic Catalog of Products & Daily Production by Employee
+  aromaProducts: AromaProduct[];
+  saveAromaProduct: (
+    product: Omit<AromaProduct, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => { ok: boolean; error?: string };
+  deleteAromaProduct: (id: string) => void;
+
+  dailyProductions: DailyProductionEntry[];
+  saveDailyProduction: (
+    entry: Omit<DailyProductionEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => DailyProductionEntry;
+  deleteDailyProduction: (id: string) => void;
+  refreshFromSupabase: () => Promise<boolean>;
 
   // Mutators
   addModule: (mod: GreenhouseModule) => void;
@@ -229,7 +251,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Active Role and View
   const [activeRole, setActiveRoleState] = useState<UserRole | null>(null);
-  const [activeView, setActiveView] = useState<string>('fi_general');
+  const [activeView, setActiveView] = useState<string>('produccion_dia');
 
   // Network status
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -307,6 +329,25 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => loadInitial('audit_logs', INITIAL_AUDIT_LOGS));
   const [aromaSheets, setAromaSheets] = useState<AromaFlowerSheetEntry[]>(() => loadInitial('aroma_sheets', INITIAL_AROMA_FLOWER_SHEETS));
 
+  // Catalog of Products (always stays populated unless Admin modifies it)
+  const [aromaProducts, setAromaProducts] = useState<AromaProduct[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}app_products`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {
+        return INITIAL_AROMA_PRODUCTS;
+      }
+    }
+    return INITIAL_AROMA_PRODUCTS;
+  });
+
+  // Daily Production Entries by employee and date
+  const [dailyProductions, setDailyProductions] = useState<DailyProductionEntry[]>(() =>
+    loadInitial('daily_productions', INITIAL_DAILY_PRODUCTIONS)
+  );
+
   // Sync online status
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -343,13 +384,19 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     (r) =>
       r.id === 'admin' ||
       r.id === 'produccion' ||
-      r.id === 'perfil' ||
       r.enabled === false
   );
 
   const pushUpsertToSupabase = (table: string, payload: Record<string, any>) => {
     if (!supabaseConfig.isConnected) return;
-    if (onlyAromaFlowers && table !== 'aroma_flower_sheets' && table !== 'app_users') return;
+    if (
+      onlyAromaFlowers &&
+      table !== 'app_users' &&
+      table !== 'app_products' &&
+      table !== 'daily_productions'
+    ) {
+      return;
+    }
     if (!isOnline) {
       enqueueOfflineOp({ table, op: 'upsert', payload });
       return;
@@ -370,7 +417,14 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const pushDeleteToSupabase = (table: string, recordId: string) => {
     if (!supabaseConfig.isConnected) return;
-    if (onlyAromaFlowers && table !== 'aroma_flower_sheets' && table !== 'app_users') return;
+    if (
+      onlyAromaFlowers &&
+      table !== 'app_users' &&
+      table !== 'app_products' &&
+      table !== 'daily_productions'
+    ) {
+      return;
+    }
     if (!isOnline) {
       enqueueOfflineOp({ table, op: 'delete', recordId });
       return;
@@ -385,7 +439,111 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
   };
 
-  // Hydrate / check Supabase status on startup and when credentials change
+  const applyRemoteSnapshot = (snap: Awaited<ReturnType<typeof fetchAllFromSupabase>>) => {
+    setSupabaseStatus(snap.status);
+    if (snap.status === 'missing_tables') {
+      setSupabaseMessage('Faltan crear/actualizar las tablas en Supabase. Ejecuta el SQL actualizado.');
+    } else if (snap.status === 'error') {
+      setSupabaseMessage('Error al consultar Supabase. Verifica tu conexión o políticas RLS.');
+      return;
+    } else {
+      setSupabaseMessage('Conectado a Supabase');
+    }
+    if (snap.aromaSheets) {
+      setAromaSheets(snap.aromaSheets);
+      saveState('aroma_sheets', snap.aromaSheets);
+    }
+    if (snap.appUsers) {
+      setAppUsers((prev) => {
+        const byId = new Map<string, AppUser>();
+        prev.forEach((u) => byId.set(u.id, u));
+        snap.appUsers?.forEach((u) => byId.set(u.id, u));
+        const merged = Array.from(byId.values());
+        saveState('app_users', merged);
+        return merged;
+      });
+    }
+    if (snap.aromaProducts && snap.aromaProducts.length > 0) {
+      const sorted = [...snap.aromaProducts].sort((a, b) => a.sortOrder - b.sortOrder);
+      setAromaProducts(sorted);
+      saveState('app_products', sorted);
+    }
+    if (snap.dailyProductions && snap.dailyProductions.length > 0) {
+      setDailyProductions(snap.dailyProductions);
+      saveState('daily_productions', snap.dailyProductions);
+    }
+    if (snap.modules) {
+      setModules(snap.modules);
+      saveState('modules', snap.modules);
+    }
+    if (snap.tasks) {
+      setTasks(snap.tasks);
+      saveState('tasks', snap.tasks);
+    }
+    if (snap.irrigation) {
+      setIrrigation(snap.irrigation);
+      saveState('irrigation', snap.irrigation);
+    }
+    if (snap.pestMonitoring) {
+      setPestMonitoring(snap.pestMonitoring);
+      saveState('pest_monitoring', snap.pestMonitoring);
+    }
+    if (snap.applications) {
+      setApplications(snap.applications);
+      saveState('applications', snap.applications);
+    }
+    if (snap.harvest) {
+      setHarvest(snap.harvest);
+      saveState('harvest', snap.harvest);
+    }
+    if (snap.inventory) {
+      setInventory(snap.inventory);
+      saveState('inventory', snap.inventory);
+    }
+    if (snap.equipment) {
+      setEquipment(snap.equipment);
+      saveState('equipment', snap.equipment);
+    }
+    if (snap.workers) {
+      setWorkers(snap.workers);
+      saveState('workers', snap.workers);
+    }
+    if (snap.customers) {
+      setCustomers(snap.customers);
+      saveState('customers', snap.customers);
+    }
+    if (snap.orders) {
+      setOrders(snap.orders);
+      saveState('orders', snap.orders);
+    }
+    if (snap.bankAccounts) {
+      setBankAccounts(snap.bankAccounts);
+      saveState('bank_accounts', snap.bankAccounts);
+    }
+    if (snap.movements) {
+      setMovements(snap.movements);
+      saveState('movements', snap.movements);
+    }
+    if (snap.loans) {
+      setLoans(snap.loans);
+      saveState('loans', snap.loans);
+    }
+    if (snap.auditLogs) {
+      setAuditLogs(snap.auditLogs);
+      saveState('audit_logs', snap.auditLogs);
+    }
+  };
+
+  const refreshFromSupabase = async (): Promise<boolean> => {
+    if (!supabaseConfig.isConnected || !isOnline) return false;
+    const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
+    if (!client) return false;
+    const snap = await fetchAllFromSupabase(client, onlyAromaFlowers);
+    applyRemoteSnapshot(snap);
+    return snap.status === 'connected';
+  };
+
+  // Hydrate / check Supabase status on startup and poll every 15s for real-time employee sync
   useEffect(() => {
     if (!supabaseConfig.isConnected || !isOnline) {
       if (!supabaseConfig.isConnected) setSupabaseStatus('disconnected');
@@ -398,93 +556,20 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSupabaseStatus('connecting');
     fetchAllFromSupabase(client, onlyAromaFlowers).then((snap) => {
       if (cancelled) return;
-      setSupabaseStatus(snap.status);
-      if (snap.status === 'missing_tables') {
-        setSupabaseMessage('Faltan crear/actualizar las tablas en Supabase. Ejecuta el SQL actualizado.');
-      } else if (snap.status === 'error') {
-        setSupabaseMessage('Error al consultar Supabase. Verifica tu conexión o políticas RLS.');
-        return;
-      } else {
-        setSupabaseMessage('Conectado a Supabase');
-      }
-      if (snap.aromaSheets) {
-        setAromaSheets(snap.aromaSheets);
-        saveState('aroma_sheets', snap.aromaSheets);
-      }
-      if (snap.appUsers) {
-        setAppUsers((prev) => {
-          const byId = new Map<string, AppUser>();
-          prev.forEach((u) => byId.set(u.id, u));
-          snap.appUsers?.forEach((u) => byId.set(u.id, u));
-          const merged = Array.from(byId.values());
-          saveState('app_users', merged);
-          return merged;
-        });
-      }
-      if (snap.modules) {
-        setModules(snap.modules);
-        saveState('modules', snap.modules);
-      }
-      if (snap.tasks) {
-        setTasks(snap.tasks);
-        saveState('tasks', snap.tasks);
-      }
-      if (snap.irrigation) {
-        setIrrigation(snap.irrigation);
-        saveState('irrigation', snap.irrigation);
-      }
-      if (snap.pestMonitoring) {
-        setPestMonitoring(snap.pestMonitoring);
-        saveState('pest_monitoring', snap.pestMonitoring);
-      }
-      if (snap.applications) {
-        setApplications(snap.applications);
-        saveState('applications', snap.applications);
-      }
-      if (snap.harvest) {
-        setHarvest(snap.harvest);
-        saveState('harvest', snap.harvest);
-      }
-      if (snap.inventory) {
-        setInventory(snap.inventory);
-        saveState('inventory', snap.inventory);
-      }
-      if (snap.equipment) {
-        setEquipment(snap.equipment);
-        saveState('equipment', snap.equipment);
-      }
-      if (snap.workers) {
-        setWorkers(snap.workers);
-        saveState('workers', snap.workers);
-      }
-      if (snap.customers) {
-        setCustomers(snap.customers);
-        saveState('customers', snap.customers);
-      }
-      if (snap.orders) {
-        setOrders(snap.orders);
-        saveState('orders', snap.orders);
-      }
-      if (snap.bankAccounts) {
-        setBankAccounts(snap.bankAccounts);
-        saveState('bank_accounts', snap.bankAccounts);
-      }
-      if (snap.movements) {
-        setMovements(snap.movements);
-        saveState('movements', snap.movements);
-      }
-      if (snap.loans) {
-        setLoans(snap.loans);
-        saveState('loans', snap.loans);
-      }
-      if (snap.auditLogs) {
-        setAuditLogs(snap.auditLogs);
-        saveState('audit_logs', snap.auditLogs);
-      }
+      applyRemoteSnapshot(snap);
     });
+
+    const intervalId = window.setInterval(() => {
+      fetchAllFromSupabase(client, onlyAromaFlowers).then((snap) => {
+        if (!cancelled && snap.status === 'connected') {
+          applyRemoteSnapshot(snap);
+        }
+      });
+    }, 15000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [supabaseConfig.url, supabaseConfig.anonKey, supabaseConfig.isConnected, isOnline]);
 
@@ -786,12 +871,114 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     addAuditLog('Aroma Flowers', `Planilla eliminada (ID: ${id})`);
   };
 
+  // ---------- Aroma Products Catalog Mutators (Admin) ----------
+  const saveAromaProduct = (
+    productInput: Omit<AromaProduct, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): { ok: boolean; error?: string } => {
+    const cleanName = productInput.name.trim().toUpperCase();
+    if (!cleanName) {
+      return { ok: false, error: 'El nombre del producto/variedad es obligatorio.' };
+    }
+    const dup = aromaProducts.find(
+      (p) => p.name.trim().toUpperCase() === cleanName && p.id !== existingId
+    );
+    if (dup) {
+      return { ok: false, error: `El producto "${cleanName}" ya existe en el catálogo.` };
+    }
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const existing = existingId ? aromaProducts.find((p) => p.id === existingId) : undefined;
+    const saved: AromaProduct = {
+      ...productInput,
+      name: cleanName,
+      id: existingId || `prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setAromaProducts((prev) => {
+      const updated = existingId
+        ? prev.map((p) => (p.id === existingId ? saved : p))
+        : [...prev, saved];
+      const sorted = [...updated].sort((a, b) => a.sortOrder - b.sortOrder);
+      saveState('app_products', sorted);
+      return sorted;
+    });
+    pushUpsertToSupabase('app_products', mapAromaProductToDb(saved));
+    addAuditLog('Catálogo de Productos', `Producto "${saved.name}" guardado`);
+    return { ok: true };
+  };
+
+  const deleteAromaProduct = (id: string) => {
+    setAromaProducts((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      saveState('app_products', updated);
+      return updated;
+    });
+    pushDeleteToSupabase('app_products', id);
+    addAuditLog('Catálogo de Productos', `Producto eliminado (ID: ${id})`);
+  };
+
+  // ---------- Daily Production Mutators (Empleados + Admin) ----------
+  const saveDailyProduction = (
+    entryInput: Omit<DailyProductionEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): DailyProductionEntry => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    // Use deterministic ID per date + employee unless editing a specific existingId, or match same employee+date
+    const matchedSameDay =
+      existingId
+        ? dailyProductions.find((d) => d.id === existingId)
+        : dailyProductions.find(
+            (d) =>
+              d.productionDate === entryInput.productionDate &&
+              d.employeeUserId === entryInput.employeeUserId
+          );
+
+    const targetId =
+      existingId ||
+      matchedSameDay?.id ||
+      `dp-${entryInput.productionDate}-${entryInput.employeeUsername.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString(36)}`;
+
+    const saved: DailyProductionEntry = {
+      ...entryInput,
+      id: targetId,
+      createdAt: matchedSameDay?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setDailyProductions((prev) => {
+      const exists = prev.some((d) => d.id === saved.id);
+      const updated = exists
+        ? prev.map((d) => (d.id === saved.id ? saved : d))
+        : [saved, ...prev];
+      saveState('daily_productions', updated);
+      return updated;
+    });
+    pushUpsertToSupabase('daily_productions', mapDailyProductionToDb(saved));
+    addAuditLog(
+      'Producción del Día',
+      `${saved.employeeName} registró ${saved.grandTotal} unidades el ${saved.productionDate}`
+    );
+    return saved;
+  };
+
+  const deleteDailyProduction = (id: string) => {
+    setDailyProductions((prev) => {
+      const updated = prev.filter((d) => d.id !== id);
+      saveState('daily_productions', updated);
+      return updated;
+    });
+    pushDeleteToSupabase('daily_productions', id);
+    addAuditLog('Producción del Día', `Registro eliminado (ID: ${id})`);
+  };
+
   // ---------- Authentication, Permissions & User Profile Management ----------
   const canAccessRole = (role: UserRole): boolean => {
     if (!currentUser) return false;
     const cfg = ROLES.find((r) => r.id === role);
     if (!cfg || cfg.enabled === false) return false;
-    if (role === 'perfil') return true;
     if (currentUser.role === 'admin') {
       return role === 'admin' || role === 'produccion';
     }
@@ -867,7 +1054,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCurrentUserId(matchedUser.id);
     localStorage.setItem(`${STORAGE_KEY_PREFIX}session_user_id`, matchedUser.id);
     setActiveRoleState(null);
-    setActiveView(matchedUser.role === 'admin' ? 'admin_panel' : 'fi_general');
+    setActiveView(matchedUser.role === 'admin' ? 'admin_panel' : 'produccion_dia');
     addAuditLog('Inicio de Sesión', `Usuario ${matchedUser.username} (${matchedUser.role}) ingresó al sistema`);
     return { ok: true };
   };
@@ -986,6 +1173,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setLoans([]);
     setAuditLogs([]);
     setAromaSheets([]);
+    setDailyProductions([]);
 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}demo_cleared`, 'true');
     localStorage.setItem(`${STORAGE_KEY_PREFIX}never_show_demo`, 'true');
@@ -1010,6 +1198,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'loans',
       'audit_logs',
       'aroma_sheets',
+      'daily_productions',
     ];
     keys.forEach((k) => localStorage.removeItem(`${STORAGE_KEY_PREFIX}${k}`));
 
@@ -1033,6 +1222,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setLoans(INITIAL_LOANS);
     setAuditLogs(INITIAL_AUDIT_LOGS);
     setAromaSheets(INITIAL_AROMA_FLOWER_SHEETS);
+    setDailyProductions(INITIAL_DAILY_PRODUCTIONS);
 
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}demo_cleared`);
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}never_show_demo`);
@@ -1086,6 +1276,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         {
           aromaSheets,
           appUsers,
+          aromaProducts,
+          dailyProductions,
           modules,
           tasks,
           irrigation,
@@ -1119,13 +1311,15 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (onlyAromaFlowers) {
       return `-- ================================================================
 -- AROMA FLOWER - ESQUEMA ACTUALIZADO PARA SUPABASE
--- Roles Activos: Admin (Admin + Producción), Producción y Perfil
+-- Roles Activos: Admin y Producción (cada rol incluye su módulo Perfil)
+-- Módulos: Producción del Día por Empleado + Consolidado + Catálogo Productos
 -- Proyecto: aromaflowers@appdesignsoftware.com's Project (syrchvrxkkwvwynvtzfq)
 -- ================================================================
 
 -- 1. Eliminar tablas de módulos desactivados para que Supabase detecte
---    únicamente las tablas actuales del sistema
+--    únicamente las 3 tablas actuales del sistema
 DROP TABLE IF EXISTS
+  aroma_flower_sheets,
   active_loans,
   audit_logs,
   bank_accounts,
@@ -1143,7 +1337,7 @@ DROP TABLE IF EXISTS
   workers
 CASCADE;
 
--- 2. Tabla de Usuarios, Credenciales, Roles y Perfil (Fotografía y Datos Personales)
+-- 2. Tabla de Usuarios, Credenciales, Roles y Módulo Perfil
 CREATE TABLE IF NOT EXISTS app_users (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
@@ -1164,26 +1358,70 @@ CREATE TABLE IF NOT EXISTS app_users (
 CREATE INDEX IF NOT EXISTS idx_app_users_username
   ON app_users (LOWER(username));
 
--- Credenciales administrativas iniciales solicitadas
+-- Credenciales iniciales (3 Admin + 2 Empleados Producción: Aaron y David)
 INSERT INTO app_users (id, full_name, username, password, role, job_title, department, notes, active, created_at)
 VALUES
   ('usr-haroldo90', 'Harold Anguiano Morales', 'haroldo90', 'Chevropar#1970', 'admin', 'Administrador General', 'Dirección & Administración', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00'),
   ('usr-admin-1', 'Admin_1', 'Admin_1', 'Chevropar#1970', 'admin', 'Administrador del Sistema', 'Administración', 'Cuenta administrativa principal.', TRUE, '2026-11-18 05:00'),
-  ('usr-aaron-mena', 'Aaron Mena', 'aaron_mena', 'Chevropar#1970', 'admin', 'Administrador de Producción', 'Producción & Ventas', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00')
+  ('usr-aaron-mena', 'Aaron Mena', 'aaron_mena', 'Chevropar#1970', 'admin', 'Administrador de Producción', 'Producción & Ventas', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00'),
+  ('usr-aaron-prod', 'Aaron', 'aaron', 'Chevropar#1970', 'produccion', 'Encargado de Producción', 'Producción Invernadero', 'Cuenta operativa de producción del día.', TRUE, '2026-11-18 05:00'),
+  ('usr-david-prod', 'David', 'david', 'Chevropar#1970', 'produccion', 'Encargado de Producción', 'Producción Invernadero', 'Cuenta operativa de producción del día.', TRUE, '2026-11-18 05:00')
 ON CONFLICT (username) DO UPDATE SET
   full_name = EXCLUDED.full_name,
   password = EXCLUDED.password,
   role = EXCLUDED.role,
   active = TRUE;
 
--- 3. Tabla de Planillas Aroma Flowers (7 Módulos Excel: FI General, Producción Aarón,
---    Suma de Paquetes, Resumen de Variedades, Venta, Resumen de Venta, Matriz 2026)
-CREATE TABLE IF NOT EXISTS aroma_flower_sheets (
+-- 3. Tabla de Catálogo Dinámico de Productos / Variedades (Administrado por Admin)
+CREATE TABLE IF NOT EXISTS app_products (
     id TEXT PRIMARY KEY,
-    module_type TEXT NOT NULL,
-    sheet_date TEXT NOT NULL,
-    responsable TEXT NOT NULL DEFAULT '',
-    title TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
+    capture_mode TEXT NOT NULL DEFAULT 'lar_med_chi' CHECK (capture_mode IN ('lar_med_chi', 'direct_total')),
+    sort_order INT NOT NULL DEFAULT 0,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_products_sort
+  ON app_products (sort_order ASC, name ASC);
+
+INSERT INTO app_products (id, name, capture_mode, sort_order, active, created_at)
+VALUES
+  ('prod-freedom', 'FREEDOM', 'lar_med_chi', 1, TRUE, '2026-11-09 08:00'),
+  ('prod-mondial', 'MONDIAL', 'lar_med_chi', 2, TRUE, '2026-11-09 08:00'),
+  ('prod-proud', 'PROUD', 'lar_med_chi', 3, TRUE, '2026-11-09 08:00'),
+  ('prod-hermosa', 'HERMOSA', 'lar_med_chi', 4, TRUE, '2026-11-09 08:00'),
+  ('prod-topaz', 'TOPAZ', 'lar_med_chi', 5, TRUE, '2026-11-09 08:00'),
+  ('prod-caricia', 'CARICIA', 'lar_med_chi', 6, TRUE, '2026-11-09 08:00'),
+  ('prod-homer', 'HOMER', 'lar_med_chi', 7, TRUE, '2026-11-09 08:00'),
+  ('prod-deep-purple', 'DEEP PURPLE', 'lar_med_chi', 8, TRUE, '2026-11-09 08:00'),
+  ('prod-cool-water', 'COOL WATER', 'lar_med_chi', 9, TRUE, '2026-11-09 08:00'),
+  ('prod-novia', 'NOVIA', 'lar_med_chi', 10, TRUE, '2026-11-09 08:00'),
+  ('prod-bouevard', 'BOUEVARD', 'lar_med_chi', 11, TRUE, '2026-11-09 08:00'),
+  ('prod-samuray', 'SAMURAY', 'lar_med_chi', 12, TRUE, '2026-11-09 08:00'),
+  ('prod-salma', 'SALMA', 'lar_med_chi', 13, TRUE, '2026-11-09 08:00'),
+  ('prod-blancaricia', 'BLANCARICIA', 'lar_med_chi', 14, TRUE, '2026-11-09 08:00'),
+  ('prod-shimer', 'SHIMER', 'lar_med_chi', 15, TRUE, '2026-11-09 08:00'),
+  ('prod-mandala', 'MANDALA', 'lar_med_chi', 16, TRUE, '2026-11-09 08:00'),
+  ('prod-bee-sweet', 'BEE SWEET', 'lar_med_chi', 17, TRUE, '2026-11-09 08:00'),
+  ('prod-ocean-sun', 'OCEAN SUN', 'lar_med_chi', 18, TRUE, '2026-11-09 08:00'),
+  ('prod-gotcha', 'GOTCHA', 'lar_med_chi', 19, TRUE, '2026-11-09 08:00'),
+  ('prod-inglesa', 'INGLESA', 'lar_med_chi', 20, TRUE, '2026-11-09 08:00'),
+  ('prod-combinados', 'COMBINADOS', 'lar_med_chi', 21, TRUE, '2026-11-09 08:00'),
+  ('prod-std-y-mol', 'STD Y MOL', 'direct_total', 22, TRUE, '2026-11-09 08:00')
+ON CONFLICT (name) DO UPDATE SET
+  capture_mode = EXCLUDED.capture_mode,
+  sort_order = EXCLUDED.sort_order,
+  active = TRUE;
+
+-- 4. Tabla de Producción del Día por Empleado (Sincronizada al Panel Admin)
+CREATE TABLE IF NOT EXISTS daily_productions (
+    id TEXT PRIMARY KEY,
+    production_date TEXT NOT NULL,
+    employee_user_id TEXT NOT NULL,
+    employee_username TEXT NOT NULL,
+    employee_name TEXT NOT NULL,
     rows JSONB NOT NULL DEFAULT '[]'::jsonb,
     total_lar INT NOT NULL DEFAULT 0,
     total_med INT NOT NULL DEFAULT 0,
@@ -1194,10 +1432,10 @@ CREATE TABLE IF NOT EXISTS aroma_flower_sheets (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_aroma_sheets_module_date
-  ON aroma_flower_sheets (module_type, sheet_date DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_productions_date_emp
+  ON daily_productions (production_date DESC, employee_user_id);
 
--- 4. Habilitar RLS y políticas de acceso para Aroma Flower
+-- 5. Habilitar RLS y políticas de acceso para Aroma Flower
 ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "aroma_flower_full_access" ON app_users;
 CREATE POLICY "aroma_flower_full_access"
@@ -1207,10 +1445,19 @@ CREATE POLICY "aroma_flower_full_access"
   USING (true)
   WITH CHECK (true);
 
-ALTER TABLE aroma_flower_sheets ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "aroma_flower_full_access" ON aroma_flower_sheets;
+ALTER TABLE app_products ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "aroma_flower_full_access" ON app_products;
 CREATE POLICY "aroma_flower_full_access"
-  ON aroma_flower_sheets
+  ON app_products
+  FOR ALL
+  TO anon, authenticated
+  USING (true)
+  WITH CHECK (true);
+
+ALTER TABLE daily_productions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "aroma_flower_full_access" ON daily_productions;
+CREATE POLICY "aroma_flower_full_access"
+  ON daily_productions
   FOR ALL
   TO anon, authenticated
   USING (true)
@@ -1533,13 +1780,13 @@ END $$;
   const generateSupabaseCleanupSql = (): string => {
     if (onlyAromaFlowers) {
       return `-- ================================================================
--- SCRIPT DE LIMPIEZA DE DATOS SUPABASE (ROL ÚNICO AROMA FLOWERS)
--- Invernadero Aroma Flower
+-- SCRIPT DE LIMPIEZA DE REGISTROS DE PRODUCCIÓN SUPABASE
+-- Invernadero Aroma Flower (Mantiene usuarios y catálogo de productos)
 -- ================================================================
 BEGIN;
-TRUNCATE TABLE aroma_flower_sheets CASCADE;
+TRUNCATE TABLE daily_productions CASCADE;
 COMMIT;
--- La tabla aroma_flower_sheets y su política RLS permanecen listas para producción.
+-- Las tablas app_users, app_products y daily_productions permanecen listas.
 `;
     }
 
@@ -1590,6 +1837,8 @@ COMMIT;
       movements,
       loans,
       aromaSheets,
+      aromaProducts,
+      dailyProductions,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -1612,6 +1861,8 @@ COMMIT;
       if (data.movements) setMovements(data.movements);
       if (data.loans) setLoans(data.loans);
       if (data.aromaSheets) setAromaSheets(data.aromaSheets);
+      if (data.aromaProducts) setAromaProducts(data.aromaProducts);
+      if (data.dailyProductions) setDailyProductions(data.dailyProductions);
 
       setDemoDataCleared(false);
       addAuditLog('Restauración de Respaldo', 'Base de datos restaurada desde archivo JSON');
@@ -1684,6 +1935,13 @@ COMMIT;
         aromaSheets,
         saveAromaSheet,
         deleteAromaSheet,
+        aromaProducts,
+        saveAromaProduct,
+        deleteAromaProduct,
+        dailyProductions,
+        saveDailyProduction,
+        deleteDailyProduction,
+        refreshFromSupabase,
         addModule,
         updateModule,
         deleteModule,

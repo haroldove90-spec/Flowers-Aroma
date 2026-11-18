@@ -14,6 +14,8 @@ import { SystemView } from './components/system/SystemView';
 import { AromaFlowersRoleView } from './components/aroma_flowers/AromaFlowersRoleView';
 import { LoginView } from './components/auth/LoginView';
 import { AdminRoleView } from './components/admin/AdminRoleView';
+import { AdminProductsView } from './components/admin/AdminProductsView';
+import { DailyProductionView } from './components/production/DailyProductionView';
 import { ProfileView } from './components/profile/ProfileView';
 import { ROLES } from './types/greenhouse';
 
@@ -33,19 +35,25 @@ const MainAppLayout: React.FC = () => {
 
   // 3. Render current active role & module view
   const renderRoleView = () => {
+    if (activeView === 'mi_perfil') {
+      return <ProfileView />;
+    }
+
     if (activeView === 'workflow') {
       return <WorkflowView />;
     }
 
     switch (activeRole) {
-      case 'perfil':
-        return <ProfileView />;
       case 'admin':
-        if (activeView === 'admin_panel') {
-          return <AdminRoleView />;
+        if (activeView === 'admin_productos') {
+          return <AdminProductsView />;
         }
-        return <AromaFlowersRoleView />;
+        if (activeView === 'produccion_dia') {
+          return <DailyProductionView />;
+        }
+        return <AdminRoleView />;
       case 'produccion':
+        return <DailyProductionView />;
       case 'aroma_flowers':
         return <AromaFlowersRoleView />;
       case 'director':
@@ -61,7 +69,7 @@ const MainAppLayout: React.FC = () => {
       case 'sistema':
         return <SystemView />;
       default:
-        return <AromaFlowersRoleView />;
+        return <DailyProductionView />;
     }
   };
 

@@ -53,7 +53,7 @@ export const ROLES: RoleConfig[] = [
     id: 'produccion',
     title: 'Producción',
     shortTitle: 'Producción',
-    badge: 'Módulos Aroma Flowers',
+    badge: 'Producción del Día y Perfil',
     color: 'olive',
     iconName: 'PackageCheck',
     enabled: true,
@@ -62,10 +62,10 @@ export const ROLES: RoleConfig[] = [
     id: 'perfil',
     title: 'Perfil',
     shortTitle: 'Perfil',
-    badge: 'Datos Personales y Fotografía',
+    badge: 'Módulo Integrado en Admin y Producción',
     color: 'gold',
     iconName: 'UserCog',
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'aroma_flowers',
@@ -132,7 +132,7 @@ export const ROLES: RoleConfig[] = [
   },
 ];
 
-// Aroma Flowers Excel/CSV Module Types
+// Aroma Flowers Standardized Catalog (22 Varieties/Products from Aaron, David & CEDA CDMX sheets)
 export const AROMA_FLOWER_VARIETIES = [
   'FREEDOM',
   'MONDIAL',
@@ -144,15 +144,59 @@ export const AROMA_FLOWER_VARIETIES = [
   'DEEP PURPLE',
   'COOL WATER',
   'NOVIA',
+  'BOUEVARD',
+  'SAMURAY',
+  'SALMA',
+  'BLANCARICIA',
   'SHIMER',
   'MANDALA',
   'BEE SWEET',
-  'BOUEVARD',
+  'OCEAN SUN',
+  'GOTCHA',
+  'INGLESA',
   'COMBINADOS',
   'STD Y MOL',
 ] as const;
 
 export type AromaFlowerVariety = typeof AROMA_FLOWER_VARIETIES[number];
+
+export type ProductCaptureMode = 'lar_med_chi' | 'direct_total';
+
+export interface AromaProduct {
+  id: string;
+  name: string;
+  captureMode: ProductCaptureMode;
+  sortOrder: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface DailyProductionRow {
+  productId: string;
+  productName: string;
+  captureMode: ProductCaptureMode;
+  lar: number;
+  med: number;
+  chi: number;
+  total: number;
+}
+
+export interface DailyProductionEntry {
+  id: string;
+  productionDate: string; // YYYY-MM-DD
+  employeeUserId: string;
+  employeeUsername: string;
+  employeeName: string;
+  rows: DailyProductionRow[];
+  totalLar: number;
+  totalMed: number;
+  totalChi: number;
+  grandTotal: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
 
 export type AromaFlowerModuleType =
   | 'fi_general'

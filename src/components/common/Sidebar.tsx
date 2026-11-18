@@ -61,10 +61,10 @@ export const Sidebar: React.FC = () => {
     setActiveRole(role);
     if (role === 'admin') {
       setActiveView('admin_panel');
-    } else if (role === 'produccion' || role === 'aroma_flowers') {
+    } else if (role === 'produccion') {
+      setActiveView('produccion_dia');
+    } else if (role === 'aroma_flowers') {
       setActiveView('fi_general');
-    } else if (role === 'perfil') {
-      setActiveView('mi_perfil');
     } else {
       setActiveView('principal');
     }
@@ -76,15 +76,17 @@ export const Sidebar: React.FC = () => {
       case 'admin':
         return [
           { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
-          ...AROMA_MODULE_ITEMS,
+          { id: 'produccion_dia', label: 'Producción del Día', icon: Layers },
+          { id: 'admin_productos', label: 'Catálogo de Productos', icon: Boxes },
+          { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
         ];
       case 'produccion':
+        return [
+          { id: 'produccion_dia', label: 'Producción del Día', icon: PackageCheck },
+          { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
+        ];
       case 'aroma_flowers':
         return AROMA_MODULE_ITEMS;
-      case 'perfil':
-        return [
-          { id: 'mi_perfil', label: 'Datos y Fotografía', icon: UserCog },
-        ];
       case 'director':
         return [
           { id: 'principal', label: 'Panel Dirección (KPIs)', icon: LayoutDashboard },
@@ -144,11 +146,7 @@ export const Sidebar: React.FC = () => {
       <div className="h-16 flex items-center justify-between px-4 border-b border-stone-800">
         {!collapsed && (
           <span className="text-xs font-bold uppercase tracking-wider text-[#C3A25D]">
-            {activeRole === 'admin'
-              ? 'Rol Admin'
-              : activeRole === 'perfil'
-              ? 'Mi Perfil'
-              : 'Rol Producción'}
+            {activeRole === 'admin' ? 'Rol Admin' : 'Rol Producción'}
           </span>
         )}
         <button
@@ -163,7 +161,7 @@ export const Sidebar: React.FC = () => {
       {/* Role specific links */}
       <div className="p-3 space-y-1.5 flex-1 overflow-y-auto">
         <div className="text-[10px] font-bold uppercase tracking-wider text-[#535B28] px-3 py-1">
-          {!collapsed && 'Navegación'}
+          {!collapsed && 'Módulos Activos'}
         </div>
 
         {menuItems.map((item) => {
@@ -186,48 +184,38 @@ export const Sidebar: React.FC = () => {
           );
         })}
 
-        {/* Quick Role Switch Section */}
-        <div className="pt-4 border-t border-stone-800 mt-4 space-y-1.5">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#535B28] px-3 py-1">
-            {!collapsed && 'Accesos de Rol'}
+        {/* Quick Role Switch Section for Admin accounts */}
+        {currentUser?.role === 'admin' && (
+          <div className="pt-4 border-t border-stone-800 mt-4 space-y-1.5">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[#535B28] px-3 py-1">
+              {!collapsed && 'Cambio Rápido de Rol'}
+            </div>
+
+            {activeRole !== 'admin' && (
+              <button
+                type="button"
+                onClick={() => handleSwitchRole('admin')}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
+                title="Ir a Rol Admin"
+              >
+                <ShieldCheck className="w-5 h-5 shrink-0 text-[#C3A25D]" />
+                {!collapsed && <span className="truncate text-left">Cambiar a Admin</span>}
+              </button>
+            )}
+
+            {activeRole !== 'produccion' && (
+              <button
+                type="button"
+                onClick={() => handleSwitchRole('produccion')}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
+                title="Ir a Rol Producción"
+              >
+                <PackageCheck className="w-5 h-5 shrink-0 text-[#535B28]" />
+                {!collapsed && <span className="truncate text-left">Cambiar a Producción</span>}
+              </button>
+            )}
           </div>
-
-          {currentUser?.role === 'admin' && activeRole !== 'admin' && (
-            <button
-              type="button"
-              onClick={() => handleSwitchRole('admin')}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
-              title="Ir a Panel Admin"
-            >
-              <ShieldCheck className="w-5 h-5 shrink-0 text-[#C3A25D]" />
-              {!collapsed && <span className="truncate text-left">Ir a Admin</span>}
-            </button>
-          )}
-
-          {activeRole !== 'produccion' && (
-            <button
-              type="button"
-              onClick={() => handleSwitchRole('produccion')}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
-              title="Ir a Rol Producción"
-            >
-              <PackageCheck className="w-5 h-5 shrink-0 text-[#535B28]" />
-              {!collapsed && <span className="truncate text-left">Ir a Producción</span>}
-            </button>
-          )}
-
-          {activeRole !== 'perfil' && (
-            <button
-              type="button"
-              onClick={() => handleSwitchRole('perfil')}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
-              title="Editar Perfil y Fotografía"
-            >
-              <UserCog className="w-5 h-5 shrink-0 text-[#C3A25D]" />
-              {!collapsed && <span className="truncate text-left">Mi Perfil</span>}
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Sidebar Footer: Switch Role & Logout buttons */}

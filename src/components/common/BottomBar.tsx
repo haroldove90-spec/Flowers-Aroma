@@ -47,29 +47,25 @@ export const BottomBar: React.FC = () => {
       case 'admin':
         return [
           { id: 'admin_panel', label: 'Admin', icon: ShieldCheck },
-          { id: 'fi_general', label: 'FI-General', icon: FileSpreadsheet },
-          { id: 'produccion_aaron', label: 'Aarón', icon: Boxes },
-          { id: 'venta', label: 'Venta', icon: TrendingUp },
-          { id: 'mi_perfil', label: 'Perfil', icon: UserCog, switchRole: 'perfil' },
+          { id: 'produccion_dia', label: 'Prod. Día', icon: Sparkles },
+          { id: 'admin_productos', label: 'Productos', icon: Boxes },
+          { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
         ];
       case 'produccion':
+        return [
+          { id: 'produccion_dia', label: 'Prod. Día', icon: PackageCheck },
+          { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
+          ...(currentUser?.role === 'admin'
+            ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]
+            : []),
+        ];
       case 'aroma_flowers':
         return [
           { id: 'fi_general', label: 'FI-General', icon: FileSpreadsheet },
           { id: 'produccion_aaron', label: 'Aarón', icon: Boxes },
           { id: 'suma_paquetes', label: 'Paquetes', icon: Sparkles },
           { id: 'venta', label: 'Venta', icon: TrendingUp },
-          ...(currentUser?.role === 'admin'
-            ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]
-            : [{ id: 'mi_perfil', label: 'Perfil', icon: UserCog, switchRole: 'perfil' as UserRole }]),
-        ];
-      case 'perfil':
-        return [
-          { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
-          { id: 'fi_general', label: 'Producción', icon: PackageCheck, switchRole: 'produccion' },
-          ...(currentUser?.role === 'admin'
-            ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]
-            : []),
+          { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
         ];
       case 'director':
         return [
