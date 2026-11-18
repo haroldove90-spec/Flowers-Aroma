@@ -17,6 +17,7 @@ import {
   AromaFlowerSheetEntry,
   AromaProduct,
   DailyProductionEntry,
+  DailySalesEntry,
   AppUser,
 } from '../types/greenhouse';
 
@@ -1147,6 +1148,49 @@ export const INITIAL_DAILY_PRODUCTIONS: DailyProductionEntry[] = [
     notes: 'Registro de muestra (hoja David).',
     createdAt: '2026-11-09 18:10',
     updatedAt: '2026-11-09 18:10',
+  },
+];
+
+export const INITIAL_DAILY_SALES: DailySalesEntry[] = [
+  {
+    id: 'ds-2026-11-09-aaron',
+    saleDate: '2026-11-09',
+    employeeUserId: 'usr-aaron-prod',
+    employeeUsername: 'aaron',
+    employeeName: 'Aaron',
+    channel: 'CEDA CDMX',
+    rows: [
+      { productId: 'prod-freedom', productName: 'FREEDOM', captureMode: 'lar_med_chi', packagesSold: 3, unitPrice: 180, subtotal: 540 },
+      { productId: 'prod-mondial', productName: 'MONDIAL', captureMode: 'lar_med_chi', packagesSold: 6, unitPrice: 190, subtotal: 1140 },
+      { productId: 'prod-proud', productName: 'PROUD', captureMode: 'lar_med_chi', packagesSold: 9, unitPrice: 175, subtotal: 1575 },
+      { productId: 'prod-combinados', productName: 'COMBINADOS', captureMode: 'lar_med_chi', packagesSold: 45, unitPrice: 150, subtotal: 6750 },
+      { productId: 'prod-std-y-mol', productName: 'STD Y MOL', captureMode: 'direct_total', packagesSold: 16, unitPrice: 95, subtotal: 1520 },
+    ],
+    totalPackages: 79,
+    totalAmount: 11525,
+    notes: 'Venta de muestra CEDA CDMX — despacho Aaron.',
+    createdAt: '2026-11-09 19:00',
+    updatedAt: '2026-11-09 19:00',
+  },
+  {
+    id: 'ds-2026-11-09-david',
+    saleDate: '2026-11-09',
+    employeeUserId: 'usr-david-prod',
+    employeeUsername: 'david',
+    employeeName: 'David',
+    channel: 'CEDA CDMX',
+    rows: [
+      { productId: 'prod-freedom', productName: 'FREEDOM', captureMode: 'lar_med_chi', packagesSold: 3, unitPrice: 180, subtotal: 540 },
+      { productId: 'prod-samuray', productName: 'SAMURAY', captureMode: 'lar_med_chi', packagesSold: 30, unitPrice: 165, subtotal: 4950 },
+      { productId: 'prod-gotcha', productName: 'GOTCHA', captureMode: 'lar_med_chi', packagesSold: 42, unitPrice: 170, subtotal: 7140 },
+      { productId: 'prod-combinados', productName: 'COMBINADOS', captureMode: 'lar_med_chi', packagesSold: 51, unitPrice: 150, subtotal: 7650 },
+      { productId: 'prod-std-y-mol', productName: 'STD Y MOL', captureMode: 'direct_total', packagesSold: 18, unitPrice: 95, subtotal: 1710 },
+    ],
+    totalPackages: 144,
+    totalAmount: 21990,
+    notes: 'Venta de muestra CEDA CDMX — despacho David.',
+    createdAt: '2026-11-09 19:15',
+    updatedAt: '2026-11-09 19:15',
   },
 ];
 

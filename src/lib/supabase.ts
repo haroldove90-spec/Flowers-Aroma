@@ -9,6 +9,7 @@ import {
   CulturalTask,
   Customer,
   DailyProductionEntry,
+  DailySalesEntry,
   EquipmentAsset,
   FinancialMovement,
   GreenhouseModule,
@@ -88,18 +89,19 @@ export async function testSupabaseConnection(
   }
 
   try {
-    const [usersRes, productsRes, prodRes] = await Promise.all([
+    const [usersRes, productsRes, prodRes, salesRes] = await Promise.all([
       client.from('app_users').select('id').limit(1),
       client.from('app_products').select('id').limit(1),
       client.from('daily_productions').select('id').limit(1),
+      client.from('daily_sales').select('id').limit(1),
     ]);
-    const error = usersRes.error || productsRes.error || prodRes.error;
+    const error = usersRes.error || productsRes.error || prodRes.error || salesRes.error;
     if (!error) {
       return {
         ok: true,
         tablesReady: true,
         status: 'connected',
-        message: 'Conexión exitosa y tablas activas listas en Supabase (app_users, app_products y daily_productions).',
+        message: 'Conexión exitosa y tablas activas listas en Supabase (app_users, app_products, daily_productions y daily_sales).',
       };
     }
 
@@ -113,7 +115,7 @@ export async function testSupabaseConnection(
         tablesReady: false,
         status: 'missing_tables',
         message:
-          'Proyecto Supabase conectado, pero falta ejecutar el SQL actualizado (app_users, app_products y daily_productions) en Supabase → SQL Editor.',
+          'Proyecto Supabase conectado, pero falta ejecutar el SQL actualizado (incluye daily_sales) en Supabase → SQL Editor (botón Run).',
       };
     }
 
@@ -701,6 +703,36 @@ export const mapDailyProductionFromDb = (r: any): DailyProductionEntry => ({
   updatedAt: r.updated_at || undefined,
 });
 
+export const mapDailySaleToDb = (s: DailySalesEntry) => ({
+  id: s.id,
+  sale_date: s.saleDate,
+  employee_user_id: s.employeeUserId,
+  employee_username: s.employeeUsername,
+  employee_name: s.employeeName,
+  channel: s.channel || 'CEDA CDMX',
+  rows: s.rows || [],
+  total_packages: Number(s.totalPackages || 0),
+  total_amount: Number(s.totalAmount || 0),
+  notes: s.notes || null,
+  created_at: s.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapDailySaleFromDb = (r: any): DailySalesEntry => ({
+  id: String(r.id),
+  saleDate: r.sale_date || '',
+  employeeUserId: r.employee_user_id || '',
+  employeeUsername: r.employee_username || '',
+  employeeName: r.employee_name || '',
+  channel: r.channel || 'CEDA CDMX',
+  rows: Array.isArray(r.rows) ? r.rows : [],
+  totalPackages: Number(r.total_packages || 0),
+  totalAmount: Number(r.total_amount || 0),
+  notes: r.notes || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
 // ---------- Sync Helpers ----------
 
 export async function upsertRowsToSupabase(
@@ -824,6 +856,7 @@ export interface RemoteSnapshot {
   appUsers?: AppUser[];
   aromaProducts?: AromaProduct[];
   dailyProductions?: DailyProductionEntry[];
+  dailySales?: DailySalesEntry[];
   modules?: GreenhouseModule[];
   tasks?: CulturalTask[];
   irrigation?: IrrigationLog[];
@@ -845,10 +878,11 @@ export async function fetchAllFromSupabase(
   client: SupabaseClient,
   onlyAromaFlowers = false
 ): Promise<RemoteSnapshot> {
-  const [usersRes, productsRes, prodRes] = await Promise.all([
+  const [usersRes, productsRes, prodRes, salesRes] = await Promise.all([
     client.from('app_users').select('*'),
     client.from('app_products').select('*').order('sort_order', { ascending: true }),
     client.from('daily_productions').select('*').order('production_date', { ascending: false }),
+    client.from('daily_sales').select('*').order('sale_date', { ascending: false }),
   ]);
 
   const isMissingTable = (err: any) =>
@@ -857,16 +891,22 @@ export async function fetchAllFromSupabase(
       err.code === '42P01' ||
       err.message?.toLowerCase().includes('could not find the table'));
 
-  if (isMissingTable(usersRes.error) || isMissingTable(productsRes.error) || isMissingTable(prodRes.error)) {
+  if (
+    isMissingTable(usersRes.error) ||
+    isMissingTable(productsRes.error) ||
+    isMissingTable(prodRes.error) ||
+    isMissingTable(salesRes.error)
+  ) {
     return {
       status: 'missing_tables',
       appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
       aromaProducts: !productsRes.error && productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
-      dailyProductions: !prodRes.error && prodRes.data?.length ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
+      dailyProductions: !prodRes.error && prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
+      dailySales: !salesRes.error && salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
     };
   }
 
-  if (usersRes.error || productsRes.error || prodRes.error) {
+  if (usersRes.error || productsRes.error || prodRes.error || salesRes.error) {
     return { status: 'error' };
   }
 
@@ -876,6 +916,7 @@ export async function fetchAllFromSupabase(
       appUsers: usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
       aromaProducts: productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
       dailyProductions: prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
+      dailySales: salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
     };
   }
 
@@ -921,6 +962,7 @@ export async function fetchAllFromSupabase(
     appUsers: usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
     aromaProducts: productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
     dailyProductions: prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
+    dailySales: salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
     modules: modulesRes.data?.length ? modulesRes.data.map(mapModuleFromDb) : undefined,
     tasks: tasksRes.data?.length ? tasksRes.data.map(mapTaskFromDb) : undefined,
     irrigation: irrigationRes.data?.length ? irrigationRes.data.map(mapIrrigationFromDb) : undefined,
@@ -944,6 +986,7 @@ export interface LocalStateSnapshot {
   appUsers: AppUser[];
   aromaProducts: AromaProduct[];
   dailyProductions: DailyProductionEntry[];
+  dailySales: DailySalesEntry[];
   modules: GreenhouseModule[];
   tasks: CulturalTask[];
   irrigation: IrrigationLog[];
@@ -971,11 +1014,13 @@ export async function pushAllLocalToSupabase(
         { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
         { table: 'app_products', rows: state.aromaProducts.map(mapAromaProductToDb) },
         { table: 'daily_productions', rows: state.dailyProductions.map(mapDailyProductionToDb) },
+        { table: 'daily_sales', rows: state.dailySales.map(mapDailySaleToDb) },
       ]
     : [
         { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
         { table: 'app_products', rows: state.aromaProducts.map(mapAromaProductToDb) },
         { table: 'daily_productions', rows: state.dailyProductions.map(mapDailyProductionToDb) },
+        { table: 'daily_sales', rows: state.dailySales.map(mapDailySaleToDb) },
         { table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) },
         { table: 'modules', rows: state.modules.map(mapModuleToDb) },
         { table: 'cultural_tasks', rows: state.tasks.map(mapTaskToDb) },

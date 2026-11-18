@@ -411,10 +411,10 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <span className="font-semibold text-xs text-stone-700 block">
-                      1. Script SQL Actualizado (Admin + Producción + Productos):
+                      1. Script SQL Actualizado (Admin + Producción + Ventas + Productos):
                     </span>
                     <span className="text-[11px] text-stone-500">
-                      Deja únicamente las 3 tablas activas: app_users (credenciales/perfiles), app_products (catálogo administrable) y daily_productions (producción diaria por empleado).
+                      Deja únicamente las 4 tablas activas: app_users (credenciales/perfiles), app_products (catálogo), daily_productions (CEDA CDMX) y daily_sales (Resumen de Ventas).
                     </span>
                   </div>
                   <button

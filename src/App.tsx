@@ -16,6 +16,7 @@ import { LoginView } from './components/auth/LoginView';
 import { AdminRoleView } from './components/admin/AdminRoleView';
 import { AdminProductsView } from './components/admin/AdminProductsView';
 import { DailyProductionView } from './components/production/DailyProductionView';
+import { DailySalesView } from './components/sales/DailySalesView';
 import { ProfileView } from './components/profile/ProfileView';
 import { ROLES } from './types/greenhouse';
 
@@ -51,8 +52,14 @@ const MainAppLayout: React.FC = () => {
         if (activeView === 'produccion_dia') {
           return <DailyProductionView />;
         }
+        if (activeView === 'resumen_ventas') {
+          return <DailySalesView />;
+        }
         return <AdminRoleView />;
       case 'produccion':
+        if (activeView === 'resumen_ventas') {
+          return <DailySalesView />;
+        }
         return <DailyProductionView />;
       case 'aroma_flowers':
         return <AromaFlowersRoleView />;

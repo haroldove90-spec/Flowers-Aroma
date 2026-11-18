@@ -19,6 +19,7 @@ import {
   AromaFlowerSheetEntry,
   AromaProduct,
   DailyProductionEntry,
+  DailySalesEntry,
   AppUser,
   ROLES,
 } from '../types/greenhouse';
@@ -41,6 +42,7 @@ import {
   INITIAL_AROMA_FLOWER_SHEETS,
   INITIAL_AROMA_PRODUCTS,
   INITIAL_DAILY_PRODUCTIONS,
+  INITIAL_DAILY_SALES,
   INITIAL_APP_USERS,
 } from '../data/mockData';
 import {
@@ -62,6 +64,8 @@ import {
   mapCustomerToDb,
   mapDailyProductionFromDb,
   mapDailyProductionToDb,
+  mapDailySaleFromDb,
+  mapDailySaleToDb,
   mapEquipmentToDb,
   mapHarvestToDb,
   mapInventoryToDb,
@@ -152,6 +156,14 @@ interface GreenhouseContextType {
     existingId?: string
   ) => Promise<{ entry: DailyProductionEntry; cloudSynced: boolean; cloudError?: string }>;
   deleteDailyProduction: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  dailySales: DailySalesEntry[];
+  saveDailySale: (
+    entry: Omit<DailySalesEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ entry: DailySalesEntry; cloudSynced: boolean; cloudError?: string }>;
+  deleteDailySale: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
   refreshFromSupabase: () => Promise<boolean>;
 
   // Mutators
@@ -352,6 +364,11 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     loadInitial('daily_productions', INITIAL_DAILY_PRODUCTIONS)
   );
 
+  // Daily Sales Entries (Resumen de Ventas CEDA CDMX)
+  const [dailySales, setDailySales] = useState<DailySalesEntry[]>(() =>
+    loadInitial('daily_sales', INITIAL_DAILY_SALES)
+  );
+
   // Sync online status
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -402,7 +419,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       onlyAromaFlowers &&
       table !== 'app_users' &&
       table !== 'app_products' &&
-      table !== 'daily_productions'
+      table !== 'daily_productions' &&
+      table !== 'daily_sales'
     ) {
       return { ok: true };
     }
@@ -441,7 +459,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       onlyAromaFlowers &&
       table !== 'app_users' &&
       table !== 'app_products' &&
-      table !== 'daily_productions'
+      table !== 'daily_productions' &&
+      table !== 'daily_sales'
     ) {
       return { ok: true };
     }
@@ -509,6 +528,10 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (snap.dailyProductions !== undefined && !pendingTables.has('daily_productions')) {
       setDailyProductions(snap.dailyProductions);
       saveState('daily_productions', snap.dailyProductions);
+    }
+    if (snap.dailySales !== undefined && !pendingTables.has('daily_sales')) {
+      setDailySales(snap.dailySales);
+      saveState('daily_sales', snap.dailySales);
     }
     if (snap.modules) {
       setModules(snap.modules);
@@ -1065,7 +1088,71 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return updated;
     });
     const res = await pushDeleteToSupabase('daily_productions', id);
-    addAuditLog('Producción del Día', `Registro eliminado (ID: ${id})`);
+    addAuditLog('Producción del Día (CEDA CDMX)', `Registro eliminado (ID: ${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  // ---------- Daily Sales Mutators (Resumen de Ventas CEDA CDMX) ----------
+  const saveDailySale = async (
+    entryInput: Omit<DailySalesEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{ entry: DailySalesEntry; cloudSynced: boolean; cloudError?: string }> => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const matchedSameDay =
+      existingId
+        ? dailySales.find((d) => d.id === existingId)
+        : dailySales.find(
+            (d) =>
+              d.saleDate === entryInput.saleDate &&
+              d.employeeUserId === entryInput.employeeUserId
+          );
+
+    const targetId =
+      existingId ||
+      matchedSameDay?.id ||
+      `ds-${entryInput.saleDate}-${entryInput.employeeUsername.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString(36)}`;
+
+    const saved: DailySalesEntry = {
+      ...entryInput,
+      channel: entryInput.channel || 'CEDA CDMX',
+      id: targetId,
+      createdAt: matchedSameDay?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setDailySales((prev) => {
+      const exists = prev.some((d) => d.id === saved.id);
+      const updated = exists
+        ? prev.map((d) => (d.id === saved.id ? saved : d))
+        : [saved, ...prev];
+      saveState('daily_sales', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('daily_sales', mapDailySaleToDb(saved));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapDailySaleFromDb(cloudRes.savedRow);
+      setDailySales((prev) => {
+        const updated = prev.map((d) => (d.id === saved.id ? synced : d));
+        saveState('daily_sales', updated);
+        return updated;
+      });
+    }
+    addAuditLog(
+      'Resumen de Ventas',
+      `${saved.employeeName} registró venta de ${saved.totalPackages} paq. ($${saved.totalAmount}) el ${saved.saleDate}`
+    );
+    return { entry: saved, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteDailySale = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setDailySales((prev) => {
+      const updated = prev.filter((d) => d.id !== id);
+      saveState('daily_sales', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('daily_sales', id);
+    addAuditLog('Resumen de Ventas', `Venta eliminada (ID: ${id})`);
     return { ok: true, cloudSynced: res.ok };
   };
 
@@ -1300,6 +1387,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setAuditLogs([]);
     setAromaSheets([]);
     setDailyProductions([]);
+    setDailySales([]);
 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}demo_cleared`, 'true');
     localStorage.setItem(`${STORAGE_KEY_PREFIX}never_show_demo`, 'true');
@@ -1325,6 +1413,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'audit_logs',
       'aroma_sheets',
       'daily_productions',
+      'daily_sales',
     ];
     keys.forEach((k) => localStorage.removeItem(`${STORAGE_KEY_PREFIX}${k}`));
 
@@ -1349,6 +1438,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setAuditLogs(INITIAL_AUDIT_LOGS);
     setAromaSheets(INITIAL_AROMA_FLOWER_SHEETS);
     setDailyProductions(INITIAL_DAILY_PRODUCTIONS);
+    setDailySales(INITIAL_DAILY_SALES);
 
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}demo_cleared`);
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}never_show_demo`);
@@ -1404,6 +1494,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           appUsers,
           aromaProducts,
           dailyProductions,
+          dailySales,
           modules,
           tasks,
           irrigation,
@@ -1437,13 +1528,14 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (onlyAromaFlowers) {
       return `-- ================================================================
 -- AROMA FLOWER - ESQUEMA ACTUALIZADO PARA SUPABASE
--- Roles Activos: Admin y Producción (cada rol incluye su módulo Perfil)
--- Módulos: Producción del Día por Empleado + Consolidado + Catálogo Productos
+-- Roles Activos: Admin y Producción (con Mi Perfil en ambos)
+-- Módulos: Producción del Día ( CEDA CDMX ), Resumen de Ventas y Catálogo
 -- Proyecto: aromaflowers@appdesignsoftware.com's Project (syrchvrxkkwvwynvtzfq)
+-- IMPORTANTE: Pega este código en SQL Editor y haz clic en el botón verde "Run"
 -- ================================================================
 
--- 1. Eliminar tablas de módulos desactivados para que Supabase detecte
---    únicamente las 3 tablas actuales del sistema
+-- 1. Eliminar tablas heredadas desactivadas para que Supabase detecte
+--    únicamente las 4 tablas actuales: app_users, app_products, daily_productions, daily_sales
 DROP TABLE IF EXISTS
   aroma_flower_sheets,
   active_loans,
@@ -1481,7 +1573,6 @@ CREATE TABLE IF NOT EXISTS app_users (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Garantizar columnas de Perfil en tablas preexistentes
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
@@ -1493,7 +1584,7 @@ ALTER TABLE app_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NO
 CREATE INDEX IF NOT EXISTS idx_app_users_username
   ON app_users (LOWER(username));
 
--- Credenciales iniciales (3 Admin + 2 Empleados Producción: Aaron y David)
+-- Credenciales iniciales (conserva correos/fotos/contraseñas ya editados si existen)
 INSERT INTO app_users (id, full_name, username, password, role, job_title, department, notes, active, created_at)
 VALUES
   ('usr-haroldo90', 'Harold Anguiano Morales', 'haroldo90', 'Chevropar#1970', 'admin', 'Administrador General', 'Dirección & Administración', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00'),
@@ -1501,11 +1592,7 @@ VALUES
   ('usr-aaron-mena', 'Aaron Mena', 'aaron_mena', 'Chevropar#1970', 'admin', 'Administrador de Producción', 'Producción & Ventas', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00'),
   ('usr-aaron-prod', 'Aaron', 'aaron', 'Chevropar#1970', 'produccion', 'Encargado de Producción', 'Producción Invernadero', 'Cuenta operativa de producción del día.', TRUE, '2026-11-18 05:00'),
   ('usr-david-prod', 'David', 'david', 'Chevropar#1970', 'produccion', 'Encargado de Producción', 'Producción Invernadero', 'Cuenta operativa de producción del día.', TRUE, '2026-11-18 05:00')
-ON CONFLICT (username) DO UPDATE SET
-  full_name = EXCLUDED.full_name,
-  password = EXCLUDED.password,
-  role = EXCLUDED.role,
-  active = TRUE;
+ON CONFLICT (username) DO NOTHING;
 
 -- 3. Tabla de Catálogo Dinámico de Productos / Variedades (Administrado por Admin)
 CREATE TABLE IF NOT EXISTS app_products (
@@ -1545,12 +1632,9 @@ VALUES
   ('prod-inglesa', 'INGLESA', 'lar_med_chi', 20, TRUE, '2026-11-09 08:00'),
   ('prod-combinados', 'COMBINADOS', 'lar_med_chi', 21, TRUE, '2026-11-09 08:00'),
   ('prod-std-y-mol', 'STD Y MOL', 'direct_total', 22, TRUE, '2026-11-09 08:00')
-ON CONFLICT (name) DO UPDATE SET
-  capture_mode = EXCLUDED.capture_mode,
-  sort_order = EXCLUDED.sort_order,
-  active = TRUE;
+ON CONFLICT (name) DO NOTHING;
 
--- 4. Tabla de Producción del Día por Empleado (Sincronizada al Panel Admin)
+-- 4. Tabla de Producción del Día ( CEDA CDMX ) por Empleado
 CREATE TABLE IF NOT EXISTS daily_productions (
     id TEXT PRIMARY KEY,
     production_date TEXT NOT NULL,
@@ -1570,33 +1654,45 @@ CREATE TABLE IF NOT EXISTS daily_productions (
 CREATE INDEX IF NOT EXISTS idx_daily_productions_date_emp
   ON daily_productions (production_date DESC, employee_user_id);
 
--- 5. Habilitar RLS y políticas de acceso para Aroma Flower
+-- 5. Nueva Tabla de Resumen de Ventas Diarias ( CEDA CDMX ) por Empleado y Variedad
+CREATE TABLE IF NOT EXISTS daily_sales (
+    id TEXT PRIMARY KEY,
+    sale_date TEXT NOT NULL,
+    employee_user_id TEXT NOT NULL,
+    employee_username TEXT NOT NULL,
+    employee_name TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'CEDA CDMX',
+    rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_packages INT NOT NULL DEFAULT 0,
+    total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_sales_date_emp
+  ON daily_sales (sale_date DESC, employee_user_id);
+
+-- 6. Habilitar RLS y políticas de acceso para las 4 tablas activas de Aroma Flower
 ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "aroma_flower_full_access" ON app_users;
 CREATE POLICY "aroma_flower_full_access"
-  ON app_users
-  FOR ALL
-  TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
+  ON app_users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 ALTER TABLE app_products ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "aroma_flower_full_access" ON app_products;
 CREATE POLICY "aroma_flower_full_access"
-  ON app_products
-  FOR ALL
-  TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
+  ON app_products FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 ALTER TABLE daily_productions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "aroma_flower_full_access" ON daily_productions;
 CREATE POLICY "aroma_flower_full_access"
-  ON daily_productions
-  FOR ALL
-  TO anon, authenticated
-  USING (true)
-  WITH CHECK (true);
+  ON daily_productions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+ALTER TABLE daily_sales ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "aroma_flower_full_access" ON daily_sales;
+CREATE POLICY "aroma_flower_full_access"
+  ON daily_sales FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 `;
     }
 
@@ -1915,13 +2011,13 @@ END $$;
   const generateSupabaseCleanupSql = (): string => {
     if (onlyAromaFlowers) {
       return `-- ================================================================
--- SCRIPT DE LIMPIEZA DE REGISTROS DE PRODUCCIÓN SUPABASE
+-- SCRIPT DE LIMPIEZA DE REGISTROS DE PRODUCCIÓN Y VENTAS SUPABASE
 -- Invernadero Aroma Flower (Mantiene usuarios y catálogo de productos)
 -- ================================================================
 BEGIN;
-TRUNCATE TABLE daily_productions CASCADE;
+TRUNCATE TABLE daily_productions, daily_sales CASCADE;
 COMMIT;
--- Las tablas app_users, app_products y daily_productions permanecen listas.
+-- Las tablas app_users, app_products, daily_productions y daily_sales permanecen listas.
 `;
     }
 
@@ -1974,6 +2070,7 @@ COMMIT;
       aromaSheets,
       aromaProducts,
       dailyProductions,
+      dailySales,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -1998,6 +2095,7 @@ COMMIT;
       if (data.aromaSheets) setAromaSheets(data.aromaSheets);
       if (data.aromaProducts) setAromaProducts(data.aromaProducts);
       if (data.dailyProductions) setDailyProductions(data.dailyProductions);
+      if (data.dailySales) setDailySales(data.dailySales);
 
       setDemoDataCleared(false);
       addAuditLog('Restauración de Respaldo', 'Base de datos restaurada desde archivo JSON');
@@ -2055,6 +2153,9 @@ COMMIT;
         dailyProductions,
         saveDailyProduction,
         deleteDailyProduction,
+        dailySales,
+        saveDailySale,
+        deleteDailySale,
         refreshFromSupabase,
         addModule,
         updateModule,

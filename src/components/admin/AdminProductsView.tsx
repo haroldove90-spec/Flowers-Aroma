@@ -146,7 +146,7 @@ export const AdminProductsView: React.FC = () => {
               Productos y Variedades
             </h1>
             <p className="text-xs sm:text-sm text-[#d6be83] mt-0.5">
-              Agrega, edita o elimina productos. Los empleados verán estos cambios al instante en Producción del Día.
+              Agrega, edita o elimina productos. Los empleados verán estos cambios al instante en Producción del Día ( CEDA CDMX ).
             </p>
           </div>
         </div>
@@ -157,7 +157,7 @@ export const AdminProductsView: React.FC = () => {
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer self-start lg:self-auto"
         >
           <Layers className="w-4 h-4 text-[#C3A25D]" />
-          <span>Ver Producción del Día</span>
+          <span>Ver Producción del Día ( CEDA CDMX )</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>

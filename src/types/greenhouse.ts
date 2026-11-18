@@ -53,7 +53,7 @@ export const ROLES: RoleConfig[] = [
     id: 'produccion',
     title: 'Producción',
     shortTitle: 'Producción',
-    badge: 'Producción del Día y Perfil',
+    badge: 'Producción del Día ( CEDA CDMX ), Resumen y Perfil',
     color: 'olive',
     iconName: 'PackageCheck',
     enabled: true,
@@ -193,6 +193,30 @@ export interface DailyProductionEntry {
   totalMed: number;
   totalChi: number;
   grandTotal: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface DailySalesRow {
+  productId: string;
+  productName: string;
+  captureMode: ProductCaptureMode;
+  packagesSold: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
+export interface DailySalesEntry {
+  id: string;
+  saleDate: string; // YYYY-MM-DD
+  employeeUserId: string;
+  employeeUsername: string;
+  employeeName: string;
+  channel: string;
+  rows: DailySalesRow[];
+  totalPackages: number;
+  totalAmount: number;
   notes?: string;
   createdAt: string;
   updatedAt?: string;

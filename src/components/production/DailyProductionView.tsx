@@ -29,6 +29,8 @@ import {
   exportAllAdminRecordsPdf,
   exportDailyConsolidatedExcel,
   exportDailyConsolidatedPdf,
+  exportFilteredProductionsExcel,
+  exportFilteredProductionsPdf,
   exportSingleEntryExcel,
   exportSingleEntryPdf,
 } from '../../utils/exportReports';
@@ -114,6 +116,7 @@ export const DailyProductionView: React.FC = () => {
     appUsers,
     aromaProducts,
     dailyProductions,
+    dailySales,
     saveDailyProduction,
     deleteDailyProduction,
     refreshFromSupabase,
@@ -126,10 +129,17 @@ export const DailyProductionView: React.FC = () => {
   // Selected date (shared across capture & admin consolidation)
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDate);
 
-  // Admin sub-tabs: 'consolidado' | 'empleados' | 'capturar'
-  const [adminTab, setAdminTab] = useState<'consolidado' | 'empleados' | 'capturar'>('consolidado');
+  // Admin sub-tabs: 'consolidado' | 'empleados' | 'historico' | 'capturar'
+  const [adminTab, setAdminTab] = useState<
+    'consolidado' | 'empleados' | 'historico' | 'capturar'
+  >('consolidado');
   // Employee sub-tabs: 'captura' | 'historial'
   const [empTab, setEmpTab] = useState<'captura' | 'historial'>('captura');
+
+  // Historical & per-employee filter state (Admin)
+  const [histEmployeeId, setHistEmployeeId] = useState<string>('ALL');
+  const [histDateFrom, setHistDateFrom] = useState<string>('');
+  const [histDateTo, setHistDateTo] = useState<string>('');
 
   // Target employee when Admin is capturing/editing for someone
   const productionEmployees = useMemo(
@@ -408,14 +418,84 @@ export const DailyProductionView: React.FC = () => {
       .sort((a, b) => b.productionDate.localeCompare(a.productionDate));
   }, [dailyProductions, currentUser]);
 
+  // Historical & per-employee filtered entries (Admin)
+  const historicalEntries = useMemo(() => {
+    return dailyProductions
+      .filter((d) => {
+        if (histEmployeeId !== 'ALL' && d.employeeUserId !== histEmployeeId) return false;
+        if (histDateFrom && d.productionDate < histDateFrom) return false;
+        if (histDateTo && d.productionDate > histDateTo) return false;
+        return true;
+      })
+      .sort(
+        (a, b) =>
+          b.productionDate.localeCompare(a.productionDate) ||
+          a.employeeName.localeCompare(b.employeeName)
+      );
+  }, [dailyProductions, histEmployeeId, histDateFrom, histDateTo]);
+
+  const historicalTotalsByEmployee = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        employeeUserId: string;
+        employeeName: string;
+        employeeUsername: string;
+        count: number;
+        lar: number;
+        med: number;
+        chi: number;
+        direct: number;
+        total: number;
+      }
+    >();
+
+    historicalEntries.forEach((e) => {
+      const direct = e.rows
+        .filter((r) => r.captureMode === 'direct_total')
+        .reduce((acc, r) => acc + Number(r.total || 0), 0);
+      const cur = map.get(e.employeeUserId) || {
+        employeeUserId: e.employeeUserId,
+        employeeName: e.employeeName,
+        employeeUsername: e.employeeUsername,
+        count: 0,
+        lar: 0,
+        med: 0,
+        chi: 0,
+        direct: 0,
+        total: 0,
+      };
+      cur.count += 1;
+      cur.lar += Number(e.totalLar || 0);
+      cur.med += Number(e.totalMed || 0);
+      cur.chi += Number(e.totalChi || 0);
+      cur.direct += direct;
+      cur.total += Number(e.grandTotal || 0);
+      map.set(e.employeeUserId, cur);
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [historicalEntries]);
+
+  const histFilterLabel = useMemo(() => {
+    const empName =
+      histEmployeeId === 'ALL'
+        ? 'Todos los empleados'
+        : appUsers.find((u) => u.id === histEmployeeId)?.fullName || 'Empleado';
+    if (histDateFrom && histDateTo) return `${empName} (${histDateFrom} a ${histDateTo})`;
+    if (histDateFrom) return `${empName} (desde ${histDateFrom})`;
+    if (histDateTo) return `${empName} (hasta ${histDateTo})`;
+    return `${empName} (Todo el historial)`;
+  }, [histEmployeeId, histDateFrom, histDateTo, appUsers]);
+
   const handleExportAllExcel = () => {
-    exportAllAdminRecordsExcel(dailyProductions, aromaProducts, appUsers);
-    showToast(`Excel generado con todos los registros (${dailyProductions.length} planillas).`);
+    exportAllAdminRecordsExcel(dailyProductions, aromaProducts, appUsers, dailySales);
+    showToast(`Excel generado con todos los registros (${dailyProductions.length} planillas y ${dailySales.length} ventas).`);
   };
 
   const handleExportAllPdf = () => {
-    exportAllAdminRecordsPdf(dailyProductions, aromaProducts, appUsers);
-    showToast(`PDF generado con todos los registros (${dailyProductions.length} planillas).`);
+    exportAllAdminRecordsPdf(dailyProductions, aromaProducts, appUsers, dailySales);
+    showToast(`PDF generado con todos los registros (${dailyProductions.length} planillas y ${dailySales.length} ventas).`);
   };
 
   // ---------- Reusable Capture Table ----------
@@ -671,11 +751,11 @@ export const DailyProductionView: React.FC = () => {
                 </span>
               </div>
               <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight mt-0.5">
-                Producción del Día
+                Producción del Día ( CEDA CDMX )
               </h1>
               <p className="text-xs sm:text-sm text-[#d6be83] mt-0.5">
                 {isAdminView
-                  ? 'Visualiza y suma automáticamente la producción diaria de todos tus empleados.'
+                  ? 'Consulta, edita y suma automáticamente la producción diaria e histórica de cada empleado.'
                   : `Registra tu corte y producción diaria (${currentUser?.fullName}).`}
               </p>
             </div>
@@ -857,6 +937,19 @@ export const DailyProductionView: React.FC = () => {
             >
               <Users className="w-4 h-4 text-[#C3A25D]" />
               <span>Desglose por Empleado ({entriesForSelectedDate.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminTab('historico')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                adminTab === 'historico'
+                  ? 'bg-[#5C1125] text-white shadow-sm'
+                  : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4 text-[#C3A25D]" />
+              <span>Histórico y Total por Empleado ({dailyProductions.length})</span>
             </button>
 
             <button
@@ -1156,7 +1249,261 @@ export const DailyProductionView: React.FC = () => {
             </div>
           )}
 
-          {/* Admin Tab 3: Capture / Edit for any employee */}
+          {/* Admin Tab 3: Historical & Per-Employee Summary + Direct Editing */}
+          {adminTab === 'historico' && (
+            <div className="space-y-6">
+              {/* Filter Bar */}
+              <div className="bg-white rounded-2xl border border-stone-200 shadow-xs p-4 sm:p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm sm:text-base font-extrabold text-[#000000]">
+                      Consulta Histórica y Total Acumulado por Empleado
+                    </h2>
+                    <p className="text-[11px] text-stone-500">
+                      Filtra por empleado o rango de fechas, consulta el total acumulado y edita o exporta cualquier planilla.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => exportFilteredProductionsExcel(historicalEntries, histFilterLabel)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-[#C3A25D]" />
+                      <span>Exportar Filtro (Excel)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => exportFilteredProductionsPdf(historicalEntries, histFilterLabel)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-[#C3A25D]" />
+                      <span>Exportar Filtro (PDF)</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-[#535B28] mb-1">
+                      Filtrar Empleado
+                    </label>
+                    <select
+                      value={histEmployeeId}
+                      onChange={(e) => setHistEmployeeId(e.target.value)}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold text-[#000000] bg-white focus:ring-2 focus:ring-[#5C1125]"
+                    >
+                      <option value="ALL">Todos los empleados</option>
+                      {productionEmployees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.fullName} (@{emp.username})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-[#535B28] mb-1">
+                      Desde Fecha
+                    </label>
+                    <input
+                      type="date"
+                      value={histDateFrom}
+                      onChange={(e) => setHistDateFrom(e.target.value)}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase text-[#535B28] mb-1">
+                      Hasta Fecha
+                    </label>
+                    <input
+                      type="date"
+                      value={histDateTo}
+                      onChange={(e) => setHistDateTo(e.target.value)}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
+                    />
+                  </div>
+
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistEmployeeId('ALL');
+                        setHistDateFrom('');
+                        setHistDateTo('');
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-[#FAF8F5] hover:bg-stone-100 border border-stone-300 text-xs font-bold text-stone-700 transition cursor-pointer"
+                    >
+                      Mostrar Todo el Historial
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cumulative Totals by Employee Table */}
+              <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-stone-200 bg-[#FAF8F5]">
+                  <h3 className="text-sm font-extrabold text-[#000000]">
+                    Total Acumulado por Empleado ({histFilterLabel})
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                    <thead>
+                      <tr className="bg-[#5C1125] text-white text-xs uppercase">
+                        <th className="py-3 px-4 font-bold">Empleado</th>
+                        <th className="py-3 px-3 font-bold text-center">Planillas</th>
+                        <th className="py-3 px-3 font-bold text-center">LAR</th>
+                        <th className="py-3 px-3 font-bold text-center">MED</th>
+                        <th className="py-3 px-3 font-bold text-center">CHI</th>
+                        <th className="py-3 px-3 font-bold text-center">Directo</th>
+                        <th className="py-3 px-4 font-bold text-right bg-[#000000] text-[#C3A25D]">
+                          Total Acumulado
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                      {historicalTotalsByEmployee.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-6 text-center text-stone-500 text-xs">
+                            Sin registros en el rango seleccionado.
+                          </td>
+                        </tr>
+                      ) : (
+                        historicalTotalsByEmployee.map((row) => (
+                          <tr key={row.employeeUserId} className="hover:bg-[#FAF8F5]">
+                            <td className="py-2.5 px-4 font-extrabold text-[#000000]">
+                              {row.employeeName}{' '}
+                              <span className="text-xs font-normal text-stone-500">
+                                (@{row.employeeUsername})
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-semibold">{row.count}</td>
+                            <td className="py-2.5 px-3 text-center">{row.lar}</td>
+                            <td className="py-2.5 px-3 text-center">{row.med}</td>
+                            <td className="py-2.5 px-3 text-center">{row.chi}</td>
+                            <td className="py-2.5 px-3 text-center">{row.direct}</td>
+                            <td className="py-2.5 px-4 text-right font-black text-[#5C1125] bg-[#FAF8F5]">
+                              {row.total.toLocaleString()}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Filtered Individual Records List with Direct Edit/Export/Delete */}
+              <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-stone-200 bg-[#FAF8F5] flex items-center justify-between">
+                  <h3 className="text-sm font-extrabold text-[#000000]">
+                    Planillas Individuales Encontradas ({historicalEntries.length})
+                  </h3>
+                </div>
+                {historicalEntries.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-stone-500">
+                    No hay planillas que coincidan con el filtro.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-stone-100">
+                    {historicalEntries.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#FAF8F5]/70"
+                      >
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-extrabold text-[#000000]">
+                              {entry.employeeName}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-[#5C1125]/10 text-[#5C1125] text-[11px] font-bold">
+                              {entry.productionDate}
+                            </span>
+                            <span className="text-xs text-stone-500">@{entry.employeeUsername}</span>
+                          </div>
+                          <p className="text-xs text-stone-600 mt-1">
+                            LAR: <strong>{entry.totalLar}</strong> &bull; MED:{' '}
+                            <strong>{entry.totalMed}</strong> &bull; CHI:{' '}
+                            <strong>{entry.totalChi}</strong> &bull; Total:{' '}
+                            <strong className="text-[#5C1125]">{entry.grandTotal}</strong>
+                            {entry.notes ? ` • ${entry.notes}` : ''}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedDate(entry.productionDate);
+                              setTargetEmployeeId(entry.employeeUserId);
+                              setAdminTab('capturar');
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#fbf2f4] text-[#5C1125] text-xs font-bold border border-[#ebccd4] hover:bg-[#ebccd4] transition cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Editar</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => exportSingleEntryExcel(entry)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#f7f8f2] text-[#535B28] text-xs font-bold border border-[#dce4bf] hover:bg-[#ecf0dc] transition cursor-pointer"
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5" />
+                            <span>Excel</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => exportSingleEntryPdf(entry)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#fbf7eb] text-[#7c5b16] text-xs font-bold border border-[#e7d4a5] hover:bg-[#f5ecd3] transition cursor-pointer"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>PDF</span>
+                          </button>
+                          {confirmDeleteId === entry.id ? (
+                            <div className="flex items-center gap-1 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200 text-[11px]">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await deleteDailyProduction(entry.id);
+                                  setConfirmDeleteId(null);
+                                  showToast('Planilla eliminada.');
+                                }}
+                                className="font-bold text-rose-700 hover:underline cursor-pointer"
+                              >
+                                Borrar
+                              </button>
+                              <span>|</span>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="text-stone-500 hover:underline cursor-pointer"
+                              >
+                                No
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(entry.id)}
+                              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 transition cursor-pointer"
+                              title="Eliminar planilla"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Admin Tab 4: Capture / Edit for any employee */}
           {adminTab === 'capturar' && renderCaptureForm()}
         </>
       ) : (

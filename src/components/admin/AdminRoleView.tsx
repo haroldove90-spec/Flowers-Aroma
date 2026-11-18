@@ -17,6 +17,7 @@ import {
   EyeOff,
   Boxes,
   Layers,
+  TrendingUp,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AppUser, AppUserRole } from '../../types/greenhouse';
@@ -34,6 +35,7 @@ export const AdminRoleView: React.FC = () => {
     deleteAppUser,
     aromaProducts,
     dailyProductions,
+    dailySales,
     setActiveRole,
     setActiveView,
   } = useGreenhouse();
@@ -178,7 +180,16 @@ export const AdminRoleView: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-bold shadow-md transition cursor-pointer"
             >
               <Layers className="w-4 h-4" />
-              <span>Producción del Día</span>
+              <span>Producción del Día ( CEDA CDMX )</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('resumen_ventas')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
+            >
+              <TrendingUp className="w-4 h-4 text-[#C3A25D]" />
+              <span>Resumen de Ventas</span>
             </button>
 
             <button
@@ -269,14 +280,14 @@ export const AdminRoleView: React.FC = () => {
             Exportar Todos los Registros (Admin)
           </h2>
           <p className="text-xs text-stone-500 mt-0.5">
-            Descarga el historial completo de producción ({dailyProductions.length} planillas), consolidados por fecha, catálogo de productos y usuarios en Excel o PDF.
+            Descarga el historial completo de producción ({dailyProductions.length} planillas), ventas ({dailySales.length} reg.), consolidados por fecha, catálogo y usuarios en Excel o PDF.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           <button
             type="button"
             onClick={() => {
-              exportAllAdminRecordsExcel(dailyProductions, aromaProducts, appUsers);
+              exportAllAdminRecordsExcel(dailyProductions, aromaProducts, appUsers, dailySales);
               setFeedback('Archivo Excel (.xlsx) con todos los registros descargado.');
               setTimeout(() => setFeedback(null), 3500);
             }}
@@ -289,7 +300,7 @@ export const AdminRoleView: React.FC = () => {
           <button
             type="button"
             onClick={() => {
-              exportAllAdminRecordsPdf(dailyProductions, aromaProducts, appUsers);
+              exportAllAdminRecordsPdf(dailyProductions, aromaProducts, appUsers, dailySales);
               setFeedback('Archivo PDF con todos los registros descargado.');
               setTimeout(() => setFeedback(null), 3500);
             }}

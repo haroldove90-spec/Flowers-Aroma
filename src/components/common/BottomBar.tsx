@@ -47,13 +47,15 @@ export const BottomBar: React.FC = () => {
       case 'admin':
         return [
           { id: 'admin_panel', label: 'Admin', icon: ShieldCheck },
-          { id: 'produccion_dia', label: 'Prod. Día', icon: Sparkles },
+          { id: 'produccion_dia', label: 'CEDA CDMX', icon: Sparkles },
+          { id: 'resumen_ventas', label: 'Ventas', icon: TrendingUp },
           { id: 'admin_productos', label: 'Productos', icon: Boxes },
           { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
         ];
       case 'produccion':
         return [
-          { id: 'produccion_dia', label: 'Prod. Día', icon: PackageCheck },
+          { id: 'produccion_dia', label: 'CEDA CDMX', icon: PackageCheck },
+          { id: 'resumen_ventas', label: 'Ventas', icon: TrendingUp },
           { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
           ...(currentUser?.role === 'admin'
             ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]

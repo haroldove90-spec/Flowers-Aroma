@@ -76,13 +76,15 @@ export const Sidebar: React.FC = () => {
       case 'admin':
         return [
           { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
-          { id: 'produccion_dia', label: 'Producción del Día', icon: Layers },
+          { id: 'produccion_dia', label: 'Producción del Día ( CEDA CDMX )', icon: Layers },
+          { id: 'resumen_ventas', label: 'Resumen de Ventas', icon: TrendingUp },
           { id: 'admin_productos', label: 'Catálogo de Productos', icon: Boxes },
           { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
         ];
       case 'produccion':
         return [
-          { id: 'produccion_dia', label: 'Producción del Día', icon: PackageCheck },
+          { id: 'produccion_dia', label: 'Producción del Día ( CEDA CDMX )', icon: PackageCheck },
+          { id: 'resumen_ventas', label: 'Resumen de Ventas', icon: TrendingUp },
           { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
         ];
       case 'aroma_flowers':
