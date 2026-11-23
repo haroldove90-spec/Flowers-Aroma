@@ -261,7 +261,7 @@ export const ProfileView: React.FC = () => {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#535B28] text-white text-xs font-bold hover:bg-[#3b411c] transition cursor-pointer border border-white/15"
           >
             <PackageCheck className="w-4 h-4 text-[#C3A25D]" />
-            <span>Producción del Día ( CEDA CDMX )</span>
+            <span>Producción e Inventario</span>
           </button>
         </div>
       </div>

@@ -70,7 +70,7 @@ const buildWhatsAppMessage = (params: {
   role: AppUserRole;
   appUrl: string;
 }) => {
-  const roleLabel = params.role === 'admin' ? 'Administrador' : 'Producción (CEDA CDMX)';
+  const roleLabel = params.role === 'admin' ? 'Administrador' : 'Producción y Ventas';
   return [
     `Hola *${params.fullName}*,`,
     `Tus credenciales de acceso al sistema *Aroma Flower* ya están activas:`,
@@ -744,7 +744,7 @@ export const EmployeesView: React.FC = () => {
                     onChange={(e) => setCredRole(e.target.value as AppUserRole)}
                     className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold bg-white focus:ring-2 focus:ring-[#5C1125]"
                   >
-                    <option value="produccion">Producción (CEDA CDMX + Ventas + Perfil)</option>
+                    <option value="produccion">Producción (Inventario + Ventas/Remisiones + Perfil)</option>
                     <option value="admin">Admin (Acceso Total)</option>
                   </select>
                 </div>

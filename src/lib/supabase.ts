@@ -25,6 +25,14 @@ import {
   SupplierPayment,
   UserRole,
   Worker,
+  SalesPoint,
+  SalesClient,
+  TruckLoad,
+  RemissionNote,
+  ClientPayment,
+  SupplyItem,
+  SupplyPurchase,
+  GreenhouseApplication,
 } from '../types/greenhouse';
 
 export const DEFAULT_SUPABASE_URL =
@@ -93,33 +101,32 @@ export async function testSupabaseConnection(
   }
 
   try {
-    const [usersRes, productsRes, prodRes, salesRes, empRes, weekRes, loanRes, supRes] =
-      await Promise.all([
-        client.from('app_users').select('id').limit(1),
-        client.from('app_products').select('id').limit(1),
-        client.from('daily_productions').select('id').limit(1),
-        client.from('daily_sales').select('id').limit(1),
-        client.from('payroll_employees').select('id').limit(1),
-        client.from('payroll_weeks').select('id').limit(1),
-        client.from('employee_loans').select('id').limit(1),
-        client.from('supplier_payments').select('id').limit(1),
-      ]);
-    const error =
-      usersRes.error ||
-      productsRes.error ||
-      prodRes.error ||
-      salesRes.error ||
-      empRes.error ||
-      weekRes.error ||
-      loanRes.error ||
-      supRes.error;
+    const checks = await Promise.all([
+      client.from('app_users').select('id').limit(1),
+      client.from('app_products').select('id').limit(1),
+      client.from('daily_productions').select('id').limit(1),
+      client.from('daily_sales').select('id').limit(1),
+      client.from('payroll_employees').select('id').limit(1),
+      client.from('payroll_weeks').select('id').limit(1),
+      client.from('employee_loans').select('id').limit(1),
+      client.from('supplier_payments').select('id').limit(1),
+      client.from('sales_points').select('id').limit(1),
+      client.from('sales_clients').select('id').limit(1),
+      client.from('truck_loads').select('id').limit(1),
+      client.from('remission_notes').select('id').limit(1),
+      client.from('client_payments').select('id').limit(1),
+      client.from('supply_items').select('id').limit(1),
+      client.from('supply_purchases').select('id').limit(1),
+      client.from('greenhouse_applications').select('id').limit(1),
+    ]);
+    const error = checks.find((c) => c.error)?.error;
     if (!error) {
       return {
         ok: true,
         tablesReady: true,
         status: 'connected',
         message:
-          'Conexión exitosa y las 8 tablas activas están listas en Supabase (Usuarios, Productos, Producción, Ventas, Empleados, Nóminas, Préstamos y Proveedores).',
+          'Conexión exitosa y las 16 tablas activas de Aroma Flower están listas en Supabase.',
       };
     }
 
@@ -133,7 +140,7 @@ export async function testSupabaseConnection(
         tablesReady: false,
         status: 'missing_tables',
         message:
-          'Proyecto Supabase conectado, pero falta ejecutar el SQL actualizado (incluye Empleados y Pagos) en Supabase → SQL Editor (botón Run).',
+          'Proyecto Supabase conectado, pero falta ejecutar el SQL actualizado (16 tablas activas) en Supabase → SQL Editor (botón Run).',
       };
     }
 
@@ -922,6 +929,358 @@ export const mapSupplierPaymentFromDb = (r: any): SupplierPayment => ({
   updatedAt: r.updated_at || undefined,
 });
 
+export const mapSalesPointToDb = (p: SalesPoint) => ({
+  id: p.id,
+  name: p.name,
+  city: p.city || '',
+  address: p.address || '',
+  contact_phone: p.contactPhone || '',
+  notes: p.notes || '',
+  active: p.active !== false,
+  created_at: p.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapSalesPointFromDb = (r: any): SalesPoint => ({
+  id: String(r.id),
+  name: r.name || '',
+  city: r.city || '',
+  address: r.address || '',
+  contactPhone: r.contact_phone || r.contact || '',
+  notes: r.notes || '',
+  active: r.active !== false,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapSalesClientToDb = (c: SalesClient) => ({
+  id: c.id,
+  name: c.name,
+  phone: c.phone || '',
+  default_sales_point_id: c.defaultSalesPointId || '',
+  default_sales_point_name: c.defaultSalesPointName || '',
+  credit_limit: Number(c.creditLimit || 0),
+  balance: Number(c.balance || 0),
+  notes: c.notes || '',
+  active: c.active !== false,
+  created_at: c.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapSalesClientFromDb = (r: any): SalesClient => ({
+  id: String(r.id),
+  name: r.name || '',
+  phone: r.phone || '',
+  defaultSalesPointId: r.default_sales_point_id || r.sales_point_id || '',
+  defaultSalesPointName: r.default_sales_point_name || r.sales_point_name || '',
+  creditLimit: Number(r.credit_limit || 0),
+  balance: Number(r.balance || 0),
+  notes: r.notes || '',
+  active: r.active !== false,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapTruckLoadToDb = (l: TruckLoad) => ({
+  id: l.id,
+  folio: l.folio,
+  load_date: l.loadDate,
+  sales_point_id: l.salesPointId,
+  sales_point_name: l.salesPointName,
+  driver_user_id: l.driverUserId || '',
+  driver_name: l.driverName,
+  vehicle_label: l.vehicleLabel || '',
+  rows: l.rows || [],
+  owner_shares: l.ownerShares || [],
+  total_lar: Number(l.totalLar || 0),
+  total_med: Number(l.totalMed || 0),
+  total_chi: Number(l.totalChi || 0),
+  total_packages: Number(l.totalPackages || 0),
+  expenses: l.expenses || {
+    casetas: 0,
+    gasolina: 0,
+    pagoPiso: 0,
+    comida: 0,
+    extra: 0,
+    extraNotes: '',
+  },
+  total_expenses: Number(l.totalExpenses || 0),
+  cost_per_package: Number(l.costPerPackage || 0),
+  status: l.status === 'liquidada' ? 'liquidada' : 'en_ruta',
+  notes: l.notes || '',
+  created_at: l.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapTruckLoadFromDb = (r: any): TruckLoad => {
+  const exp = r.expenses || {};
+  const normalizedExp = {
+    casetas: Number(exp.casetas || 0),
+    gasolina: Number(exp.gasolina || 0),
+    pagoPiso: Number(exp.pagoPiso || 0),
+    comida: Number(exp.comida || 0),
+    extra: Number(exp.extra ?? exp.gastosExtra ?? 0),
+    extraNotes: exp.extraNotes || exp.gastosExtraNotes || '',
+  };
+  const totalExp = Number(
+    r.total_expenses ??
+      (normalizedExp.casetas +
+        normalizedExp.gasolina +
+        normalizedExp.pagoPiso +
+        normalizedExp.comida +
+        normalizedExp.extra)
+  );
+  return {
+    id: String(r.id),
+    folio: r.folio || '',
+    loadDate: r.load_date || '',
+    salesPointId: r.sales_point_id || '',
+    salesPointName: r.sales_point_name || '',
+    driverUserId: r.driver_user_id || '',
+    driverName: r.driver_name || '',
+    vehicleLabel: r.vehicle_label || r.vehicle || '',
+    rows: Array.isArray(r.rows) ? r.rows : [],
+    ownerShares: Array.isArray(r.owner_shares) ? r.owner_shares : [],
+    totalLar: Number(r.total_lar || 0),
+    totalMed: Number(r.total_med || 0),
+    totalChi: Number(r.total_chi || 0),
+    totalPackages: Number(r.total_packages || 0),
+    expenses: normalizedExp,
+    totalExpenses: totalExp,
+    costPerPackage: Number(r.cost_per_package || 0),
+    status: r.status === 'liquidada' ? 'liquidada' : 'en_ruta',
+    notes: r.notes || undefined,
+    createdAt: r.created_at || '',
+    updatedAt: r.updated_at || undefined,
+  };
+};
+
+export const mapRemissionNoteToDb = (n: RemissionNote) => ({
+  id: n.id,
+  folio: n.folio,
+  note_date: n.noteDate,
+  load_id: n.loadId || '',
+  load_folio: n.loadFolio || '',
+  sales_point_id: n.salesPointId,
+  sales_point_name: n.salesPointName,
+  client_id: n.clientId,
+  client_name: n.clientName,
+  client_phone: n.clientPhone || '',
+  seller_user_id: n.sellerUserId || '',
+  seller_name: n.sellerName,
+  owner_name: n.ownerName || 'Harold',
+  rows: n.rows || [],
+  total_packages: Number(n.totalPackages || 0),
+  total_amount: Number(n.totalAmount || 0),
+  payment_method: n.paymentMethod || 'contado',
+  payment_status: n.paymentStatus || 'pagado',
+  paid_amount: Number(n.paidAmount || 0),
+  balance_due: Number(n.balanceDue || 0),
+  deducts_inventory: Boolean(n.deductsInventory),
+  notes: n.notes || '',
+  created_at: n.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapRemissionNoteFromDb = (r: any): RemissionNote => ({
+  id: String(r.id),
+  folio: r.folio || '',
+  noteDate: r.note_date || r.sale_date || '',
+  loadId: r.load_id || undefined,
+  loadFolio: r.load_folio || undefined,
+  salesPointId: r.sales_point_id || '',
+  salesPointName: r.sales_point_name || '',
+  clientId: r.client_id || '',
+  clientName: r.client_name || '',
+  clientPhone: r.client_phone || '',
+  sellerUserId: r.seller_user_id || undefined,
+  sellerName: r.seller_name || r.driver_name || '',
+  ownerName: r.owner_name || undefined,
+  rows: Array.isArray(r.rows) ? r.rows : [],
+  totalPackages: Number(r.total_packages || 0),
+  totalAmount: Number(r.total_amount || 0),
+  paymentMethod:
+    r.payment_method === 'credito' || r.payment_method === 'deposito'
+      ? r.payment_method
+      : 'contado',
+  paymentStatus:
+    r.payment_status === 'pendiente' || r.payment_status === 'parcial'
+      ? r.payment_status
+      : 'pagado',
+  paidAmount: Number(r.paid_amount || 0),
+  balanceDue: Number(r.balance_due || 0),
+  deductsInventory: Boolean(r.deducts_inventory),
+  notes: r.notes || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapClientPaymentToDb = (p: ClientPayment) => ({
+  id: p.id,
+  client_id: p.clientId,
+  client_name: p.clientName,
+  remission_note_id: p.remissionNoteId || '',
+  remission_folio: p.remissionFolio || '',
+  payment_date: p.paymentDate,
+  payment_type: p.paymentType || 'abono',
+  payment_method: p.paymentMethod || 'efectivo',
+  amount: Number(p.amount || 0),
+  balance_after: Number(p.balanceAfter || 0),
+  reference: p.reference || '',
+  notes: p.notes || '',
+  created_at: p.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapClientPaymentFromDb = (r: any): ClientPayment => ({
+  id: String(r.id),
+  clientId: r.client_id || '',
+  clientName: r.client_name || '',
+  remissionNoteId: r.remission_note_id || r.remission_id || undefined,
+  remissionFolio: r.remission_folio || undefined,
+  paymentDate: r.payment_date || '',
+  paymentType: r.payment_type === 'pago_total' ? 'pago_total' : 'abono',
+  paymentMethod:
+    r.payment_method === 'deposito' || r.payment_method === 'transferencia'
+      ? r.payment_method
+      : 'efectivo',
+  amount: Number(r.amount || 0),
+  balanceAfter: Number(r.balance_after || 0),
+  reference: r.reference || '',
+  notes: r.notes || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+const normalizeArea = (raw: any): SupplyItem['area'] => {
+  if (raw === 'empaque') return 'empaque';
+  if (raw === 'comida_trabajadores' || raw === 'comida') return 'comida_trabajadores';
+  if (raw === 'otros') return 'otros';
+  return 'invernadero';
+};
+
+export const mapSupplyItemToDb = (s: SupplyItem) => ({
+  id: s.id,
+  name: s.name,
+  area: s.area || 'invernadero',
+  category: s.category || 'General',
+  purpose: s.purpose || '',
+  active_ingredient: s.activeIngredient || '',
+  recommended_dose: s.recommendedDose || '',
+  unit: s.unit || 'pza',
+  stock: Number(s.stock || 0),
+  min_stock: Number(s.minStock || 0),
+  unit_cost: Number(s.unitCost || 0),
+  supplier: s.supplier || '',
+  active: s.active !== false,
+  created_at: s.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapSupplyItemFromDb = (r: any): SupplyItem => ({
+  id: String(r.id),
+  name: r.name || '',
+  area: normalizeArea(r.area),
+  category: r.category || 'General',
+  unit: r.unit || 'pza',
+  purpose: r.purpose || '',
+  activeIngredient: r.active_ingredient || '',
+  recommendedDose: r.recommended_dose || '',
+  stock: Number(r.stock || 0),
+  minStock: Number(r.min_stock || 0),
+  unitCost: Number(r.unit_cost || 0),
+  supplier: r.supplier || '',
+  active: r.active !== false,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapSupplyPurchaseToDb = (p: SupplyPurchase) => ({
+  id: p.id,
+  purchase_date: p.purchaseDate,
+  supply_item_id: p.supplyItemId || '',
+  supply_name: p.supplyName,
+  area: p.area || 'invernadero',
+  supplier_name: p.supplierName || '',
+  quantity: Number(p.quantity || 0),
+  unit: p.unit || 'pza',
+  unit_cost: Number(p.unitCost || 0),
+  total_cost: Number(p.totalCost || 0),
+  payment_method: p.paymentMethod || 'efectivo',
+  reference: p.invoiceRef || '',
+  notes: p.notes || '',
+  created_at: p.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapSupplyPurchaseFromDb = (r: any): SupplyPurchase => ({
+  id: String(r.id),
+  purchaseDate: r.purchase_date || '',
+  supplyItemId: r.supply_item_id || r.supply_id || '',
+  supplyName: r.supply_name || '',
+  area: normalizeArea(r.area),
+  supplierName: r.supplier_name || '',
+  quantity: Number(r.quantity || 0),
+  unit: r.unit || 'pza',
+  unitCost: Number(r.unit_cost || 0),
+  totalCost: Number(r.total_cost || 0),
+  paymentMethod: r.payment_method || 'efectivo',
+  invoiceRef: r.reference || r.invoice_ref || '',
+  notes: r.notes || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapGreenhouseAppToDb = (a: GreenhouseApplication) => ({
+  id: a.id,
+  application_date: a.applicationDate,
+  greenhouse_name: a.greenhouseName,
+  application_type: a.applicationType || 'foliar',
+  supply_item_id: a.supplyItemId || '',
+  supply_name: a.supplyName,
+  supply_purpose: a.supplyPurpose || '',
+  quantity_used: Number(a.quantityUsed || 0),
+  unit: a.unit || 'L',
+  tambos_200l: Number(a.drums200L || 0),
+  applicator_name: a.applicatorName || '',
+  estimated_cost: Number(a.totalCost || a.estimatedCost || 0),
+  notes: a.notes || '',
+  created_at: a.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapGreenhouseAppFromDb = (r: any): GreenhouseApplication => {
+  const cost = Number(r.estimated_cost ?? r.total_cost ?? 0);
+  return {
+    id: String(r.id),
+    applicationDate: r.application_date || '',
+    greenhouseName: r.greenhouse_name || '',
+    applicationType:
+      r.application_type === 'fertilizacion' ||
+      r.application_type === 'drench' ||
+      r.application_type === 'otro'
+        ? r.application_type
+        : 'foliar',
+    supplyItemId: r.supply_item_id || r.supply_id || '',
+    supplyName: r.supply_name || '',
+    supplyPurpose: r.supply_purpose || '',
+    quantityUsed: Number(r.quantity_used || 0),
+    unit: r.unit || 'L',
+    unitCost: Number(r.unit_cost || 0),
+    totalCost: cost,
+    estimatedCost: cost,
+    doseUsed: r.dose_used || '',
+    drums200L: Number(r.tambos_200l ?? r.drums_200l ?? 0),
+    applicatorName: r.applicator_name || '',
+    notes: r.notes || undefined,
+    createdAt: r.created_at || '',
+    updatedAt: r.updated_at || undefined,
+  };
+};
+
+export const mapGreenhouseApplicationToDb = mapGreenhouseAppToDb;
+export const mapGreenhouseApplicationFromDb = mapGreenhouseAppFromDb;
+
 // ---------- Sync Helpers ----------
 
 export async function upsertRowsToSupabase(
@@ -1050,6 +1409,14 @@ export interface RemoteSnapshot {
   payrollWeeks?: PayrollWeekEntry[];
   employeeLoans?: EmployeeLoanMovement[];
   supplierPayments?: SupplierPayment[];
+  salesPoints?: SalesPoint[];
+  salesClients?: SalesClient[];
+  truckLoads?: TruckLoad[];
+  remissionNotes?: RemissionNote[];
+  clientPayments?: ClientPayment[];
+  supplyItems?: SupplyItem[];
+  supplyPurchases?: SupplyPurchase[];
+  greenhouseApplications?: GreenhouseApplication[];
   modules?: GreenhouseModule[];
   tasks?: CulturalTask[];
   irrigation?: IrrigationLog[];
@@ -1071,17 +1438,41 @@ export async function fetchAllFromSupabase(
   client: SupabaseClient,
   onlyAromaFlowers = false
 ): Promise<RemoteSnapshot> {
-  const [usersRes, productsRes, prodRes, salesRes, empRes, weekRes, loanRes, supRes] =
-    await Promise.all([
-      client.from('app_users').select('*'),
-      client.from('app_products').select('*').order('sort_order', { ascending: true }),
-      client.from('daily_productions').select('*').order('production_date', { ascending: false }),
-      client.from('daily_sales').select('*').order('sale_date', { ascending: false }),
-      client.from('payroll_employees').select('*').order('full_name', { ascending: true }),
-      client.from('payroll_weeks').select('*').order('start_date', { ascending: false }),
-      client.from('employee_loans').select('*').order('movement_date', { ascending: false }),
-      client.from('supplier_payments').select('*').order('payment_date', { ascending: false }),
-    ]);
+  const [
+    usersRes,
+    productsRes,
+    prodRes,
+    salesRes,
+    empRes,
+    weekRes,
+    loanRes,
+    supRes,
+    spRes,
+    cliRes,
+    loadRes,
+    remRes,
+    cpayRes,
+    sitemRes,
+    spurRes,
+    gappRes,
+  ] = await Promise.all([
+    client.from('app_users').select('*'),
+    client.from('app_products').select('*').order('sort_order', { ascending: true }),
+    client.from('daily_productions').select('*').order('production_date', { ascending: false }),
+    client.from('daily_sales').select('*').order('sale_date', { ascending: false }),
+    client.from('payroll_employees').select('*').order('full_name', { ascending: true }),
+    client.from('payroll_weeks').select('*').order('start_date', { ascending: false }),
+    client.from('employee_loans').select('*').order('movement_date', { ascending: false }),
+    client.from('supplier_payments').select('*').order('payment_date', { ascending: false }),
+    client.from('sales_points').select('*').order('name', { ascending: true }),
+    client.from('sales_clients').select('*').order('name', { ascending: true }),
+    client.from('truck_loads').select('*').order('load_date', { ascending: false }),
+    client.from('remission_notes').select('*').order('sale_date', { ascending: false }),
+    client.from('client_payments').select('*').order('payment_date', { ascending: false }),
+    client.from('supply_items').select('*').order('name', { ascending: true }),
+    client.from('supply_purchases').select('*').order('purchase_date', { ascending: false }),
+    client.from('greenhouse_applications').select('*').order('application_date', { ascending: false }),
+  ]);
 
   const isMissingTable = (err: any) =>
     err &&
@@ -1089,53 +1480,59 @@ export async function fetchAllFromSupabase(
       err.code === '42P01' ||
       err.message?.toLowerCase().includes('could not find the table'));
 
-  if (
-    isMissingTable(usersRes.error) ||
-    isMissingTable(productsRes.error) ||
-    isMissingTable(prodRes.error) ||
-    isMissingTable(salesRes.error) ||
-    isMissingTable(empRes.error) ||
-    isMissingTable(weekRes.error) ||
-    isMissingTable(loanRes.error) ||
-    isMissingTable(supRes.error)
-  ) {
+  const allRes = [
+    usersRes,
+    productsRes,
+    prodRes,
+    salesRes,
+    empRes,
+    weekRes,
+    loanRes,
+    supRes,
+    spRes,
+    cliRes,
+    loadRes,
+    remRes,
+    cpayRes,
+    sitemRes,
+    spurRes,
+    gappRes,
+  ];
+
+  const mappedBase = {
+    appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
+    aromaProducts: !productsRes.error && productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
+    dailyProductions: !prodRes.error && prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
+    dailySales: !salesRes.error && salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
+    payrollEmployees: !empRes.error && empRes.data?.length ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
+    payrollWeeks: !weekRes.error && weekRes.data ? weekRes.data.map(mapPayrollWeekFromDb) : undefined,
+    employeeLoans: !loanRes.error && loanRes.data ? loanRes.data.map(mapEmployeeLoanFromDb) : undefined,
+    supplierPayments: !supRes.error && supRes.data ? supRes.data.map(mapSupplierPaymentFromDb) : undefined,
+    salesPoints: !spRes.error && spRes.data?.length ? spRes.data.map(mapSalesPointFromDb) : undefined,
+    salesClients: !cliRes.error && cliRes.data?.length ? cliRes.data.map(mapSalesClientFromDb) : undefined,
+    truckLoads: !loadRes.error && loadRes.data ? loadRes.data.map(mapTruckLoadFromDb) : undefined,
+    remissionNotes: !remRes.error && remRes.data ? remRes.data.map(mapRemissionNoteFromDb) : undefined,
+    clientPayments: !cpayRes.error && cpayRes.data ? cpayRes.data.map(mapClientPaymentFromDb) : undefined,
+    supplyItems: !sitemRes.error && sitemRes.data?.length ? sitemRes.data.map(mapSupplyItemFromDb) : undefined,
+    supplyPurchases: !spurRes.error && spurRes.data ? spurRes.data.map(mapSupplyPurchaseFromDb) : undefined,
+    greenhouseApplications: !gappRes.error && gappRes.data ? gappRes.data.map(mapGreenhouseAppFromDb) : undefined,
+  };
+
+  if (allRes.some((r) => isMissingTable(r.error))) {
     return {
       status: 'missing_tables',
-      appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
-      aromaProducts: !productsRes.error && productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
-      dailyProductions: !prodRes.error && prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
-      dailySales: !salesRes.error && salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
-      payrollEmployees: !empRes.error && empRes.data?.length ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
-      payrollWeeks: !weekRes.error && weekRes.data ? weekRes.data.map(mapPayrollWeekFromDb) : undefined,
-      employeeLoans: !loanRes.error && loanRes.data ? loanRes.data.map(mapEmployeeLoanFromDb) : undefined,
-      supplierPayments: !supRes.error && supRes.data ? supRes.data.map(mapSupplierPaymentFromDb) : undefined,
+      ...mappedBase,
     };
   }
 
-  if (
-    usersRes.error ||
-    productsRes.error ||
-    prodRes.error ||
-    salesRes.error ||
-    empRes.error ||
-    weekRes.error ||
-    loanRes.error ||
-    supRes.error
-  ) {
+  if (allRes.some((r) => r.error)) {
     return { status: 'error' };
   }
 
   if (onlyAromaFlowers) {
     return {
       status: 'connected',
-      appUsers: usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
-      aromaProducts: productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
-      dailyProductions: prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
-      dailySales: salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
-      payrollEmployees: empRes.data?.length ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
-      payrollWeeks: weekRes.data ? weekRes.data.map(mapPayrollWeekFromDb) : undefined,
-      employeeLoans: loanRes.data ? loanRes.data.map(mapEmployeeLoanFromDb) : undefined,
-      supplierPayments: supRes.data ? supRes.data.map(mapSupplierPaymentFromDb) : undefined,
+      ...mappedBase,
     };
   }
 
@@ -1178,14 +1575,7 @@ export async function fetchAllFromSupabase(
   return {
     status: 'connected',
     aromaSheets: check.data?.length ? check.data.map(mapAromaSheetFromDb) : undefined,
-    appUsers: usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
-    aromaProducts: productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
-    dailyProductions: prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
-    dailySales: salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
-    payrollEmployees: empRes.data?.length ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
-    payrollWeeks: weekRes.data ? weekRes.data.map(mapPayrollWeekFromDb) : undefined,
-    employeeLoans: loanRes.data ? loanRes.data.map(mapEmployeeLoanFromDb) : undefined,
-    supplierPayments: supRes.data ? supRes.data.map(mapSupplierPaymentFromDb) : undefined,
+    ...mappedBase,
     modules: modulesRes.data?.length ? modulesRes.data.map(mapModuleFromDb) : undefined,
     tasks: tasksRes.data?.length ? tasksRes.data.map(mapTaskFromDb) : undefined,
     irrigation: irrigationRes.data?.length ? irrigationRes.data.map(mapIrrigationFromDb) : undefined,
@@ -1214,6 +1604,14 @@ export interface LocalStateSnapshot {
   payrollWeeks: PayrollWeekEntry[];
   employeeLoans: EmployeeLoanMovement[];
   supplierPayments: SupplierPayment[];
+  salesPoints: SalesPoint[];
+  salesClients: SalesClient[];
+  truckLoads: TruckLoad[];
+  remissionNotes: RemissionNote[];
+  clientPayments: ClientPayment[];
+  supplyItems: SupplyItem[];
+  supplyPurchases: SupplyPurchase[];
+  greenhouseApplications: GreenhouseApplication[];
   modules: GreenhouseModule[];
   tasks: CulturalTask[];
   irrigation: IrrigationLog[];
@@ -1236,26 +1634,29 @@ export async function pushAllLocalToSupabase(
   state: LocalStateSnapshot,
   onlyAromaFlowers = false
 ): Promise<{ ok: boolean; syncedCount: number; status: SupabaseSyncStatus; message: string }> {
-  const batches: Array<{ table: string; rows: Record<string, any>[] }> = onlyAromaFlowers
-    ? [
-        { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
-        { table: 'app_products', rows: state.aromaProducts.map(mapAromaProductToDb) },
-        { table: 'daily_productions', rows: state.dailyProductions.map(mapDailyProductionToDb) },
-        { table: 'daily_sales', rows: state.dailySales.map(mapDailySaleToDb) },
-        { table: 'payroll_employees', rows: state.payrollEmployees.map(mapPayrollEmployeeToDb) },
-        { table: 'payroll_weeks', rows: state.payrollWeeks.map(mapPayrollWeekToDb) },
-        { table: 'employee_loans', rows: state.employeeLoans.map(mapEmployeeLoanToDb) },
-        { table: 'supplier_payments', rows: state.supplierPayments.map(mapSupplierPaymentToDb) },
-      ]
+  const coreBatches: Array<{ table: string; rows: Record<string, any>[] }> = [
+    { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
+    { table: 'app_products', rows: state.aromaProducts.map(mapAromaProductToDb) },
+    { table: 'daily_productions', rows: state.dailyProductions.map(mapDailyProductionToDb) },
+    { table: 'daily_sales', rows: state.dailySales.map(mapDailySaleToDb) },
+    { table: 'payroll_employees', rows: state.payrollEmployees.map(mapPayrollEmployeeToDb) },
+    { table: 'payroll_weeks', rows: state.payrollWeeks.map(mapPayrollWeekToDb) },
+    { table: 'employee_loans', rows: state.employeeLoans.map(mapEmployeeLoanToDb) },
+    { table: 'supplier_payments', rows: state.supplierPayments.map(mapSupplierPaymentToDb) },
+    { table: 'sales_points', rows: state.salesPoints.map(mapSalesPointToDb) },
+    { table: 'sales_clients', rows: state.salesClients.map(mapSalesClientToDb) },
+    { table: 'truck_loads', rows: state.truckLoads.map(mapTruckLoadToDb) },
+    { table: 'remission_notes', rows: state.remissionNotes.map(mapRemissionNoteToDb) },
+    { table: 'client_payments', rows: state.clientPayments.map(mapClientPaymentToDb) },
+    { table: 'supply_items', rows: state.supplyItems.map(mapSupplyItemToDb) },
+    { table: 'supply_purchases', rows: state.supplyPurchases.map(mapSupplyPurchaseToDb) },
+    { table: 'greenhouse_applications', rows: state.greenhouseApplications.map(mapGreenhouseAppToDb) },
+  ];
+
+  const batches = onlyAromaFlowers
+    ? coreBatches
     : [
-        { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
-        { table: 'app_products', rows: state.aromaProducts.map(mapAromaProductToDb) },
-        { table: 'daily_productions', rows: state.dailyProductions.map(mapDailyProductionToDb) },
-        { table: 'daily_sales', rows: state.dailySales.map(mapDailySaleToDb) },
-        { table: 'payroll_employees', rows: state.payrollEmployees.map(mapPayrollEmployeeToDb) },
-        { table: 'payroll_weeks', rows: state.payrollWeeks.map(mapPayrollWeekToDb) },
-        { table: 'employee_loans', rows: state.employeeLoans.map(mapEmployeeLoanToDb) },
-        { table: 'supplier_payments', rows: state.supplierPayments.map(mapSupplierPaymentToDb) },
+        ...coreBatches,
         { table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) },
         { table: 'modules', rows: state.modules.map(mapModuleToDb) },
         { table: 'cultural_tasks', rows: state.tasks.map(mapTaskToDb) },

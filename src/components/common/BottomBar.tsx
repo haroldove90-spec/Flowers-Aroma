@@ -20,6 +20,8 @@ import {
   ShieldCheck,
   UserCog,
   PackageCheck,
+  Truck,
+  Calculator,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { UserRole } from '../../types/greenhouse';
@@ -47,16 +49,16 @@ export const BottomBar: React.FC = () => {
       case 'admin':
         return [
           { id: 'admin_panel', label: 'Admin', icon: ShieldCheck },
-          { id: 'produccion_dia', label: 'CEDA', icon: Sparkles },
-          { id: 'resumen_ventas', label: 'Ventas', icon: TrendingUp },
-          { id: 'admin_pagos', label: 'Pagos', icon: Wallet },
-          { id: 'admin_empleados', label: 'Personal', icon: Users },
-          { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
+          { id: 'produccion_dia', label: 'Prod.', icon: PackageCheck },
+          { id: 'ventas_operacion', label: 'Ventas', icon: Truck },
+          { id: 'admin_insumos', label: 'Insumos', icon: Sprout },
+          { id: 'admin_costos', label: 'Costos', icon: Calculator },
+          { id: 'admin_pagos', label: 'Nómina', icon: Wallet },
         ];
       case 'produccion':
         return [
-          { id: 'produccion_dia', label: 'CEDA CDMX', icon: PackageCheck },
-          { id: 'resumen_ventas', label: 'Ventas', icon: TrendingUp },
+          { id: 'produccion_dia', label: 'Producción', icon: PackageCheck },
+          { id: 'ventas_operacion', label: 'Remisiones', icon: Truck },
           { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
           ...(currentUser?.role === 'admin'
             ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]

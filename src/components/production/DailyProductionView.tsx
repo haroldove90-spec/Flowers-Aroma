@@ -31,6 +31,8 @@ import {
   exportDailyConsolidatedPdf,
   exportFilteredProductionsExcel,
   exportFilteredProductionsPdf,
+  exportGeneralInventoryExcel,
+  exportGeneralInventoryPdf,
   exportSingleEntryExcel,
   exportSingleEntryPdf,
 } from '../../utils/exportReports';
@@ -114,9 +116,11 @@ export const DailyProductionView: React.FC = () => {
     currentUser,
     activeRole,
     appUsers,
+    payrollEmployees,
     aromaProducts,
     dailyProductions,
     dailySales,
+    generalInventory,
     saveDailyProduction,
     deleteDailyProduction,
     refreshFromSupabase,
@@ -129,19 +133,49 @@ export const DailyProductionView: React.FC = () => {
   // Selected date (shared across capture & admin consolidation)
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDate);
 
-  // Admin sub-tabs: 'consolidado' | 'empleados' | 'historico' | 'capturar'
+  // Admin sub-tabs: 'inventario' | 'consolidado' | 'empleados' | 'historico' | 'capturar'
   const [adminTab, setAdminTab] = useState<
-    'consolidado' | 'empleados' | 'historico' | 'capturar'
-  >('consolidado');
-  // Employee sub-tabs: 'captura' | 'historial'
-  const [empTab, setEmpTab] = useState<'captura' | 'historial'>('captura');
+    'inventario' | 'consolidado' | 'empleados' | 'historico' | 'capturar'
+  >('inventario');
+  // Employee sub-tabs: 'captura' | 'inventario' | 'historial'
+  const [empTab, setEmpTab] = useState<'captura' | 'inventario' | 'historial'>('captura');
 
   // Historical & per-employee filter state (Admin)
   const [histEmployeeId, setHistEmployeeId] = useState<string>('ALL');
   const [histDateFrom, setHistDateFrom] = useState<string>('');
   const [histDateTo, setHistDateTo] = useState<string>('');
 
-  // Target employee when Admin is capturing/editing for someone
+  // Unified list of producers/collectors (appUsers + active payrollEmployees) selectable without logging out
+  const producerOptions = useMemo(() => {
+    const list: Array<{ id: string; fullName: string; username: string; badge: string }> = [];
+    const seenNames = new Set<string>();
+    appUsers
+      .filter((u) => u.active !== false)
+      .forEach((u) => {
+        seenNames.add(u.fullName.trim().toLowerCase());
+        list.push({
+          id: u.id,
+          fullName: u.fullName,
+          username: u.username,
+          badge: u.role === 'admin' ? 'Admin' : 'Producción',
+        });
+      });
+    payrollEmployees
+      .filter((e) => e.active !== false)
+      .forEach((e) => {
+        if (!seenNames.has(e.fullName.trim().toLowerCase())) {
+          seenNames.add(e.fullName.trim().toLowerCase());
+          list.push({
+            id: e.linkedUserId || e.id,
+            fullName: e.fullName,
+            username: e.fullName.toLowerCase().replace(/\s+/g, '_'),
+            badge: e.teamGroup || 'Campo',
+          });
+        }
+      });
+    return list;
+  }, [appUsers, payrollEmployees]);
+
   const productionEmployees = useMemo(
     () =>
       appUsers.filter(
@@ -151,26 +185,32 @@ export const DailyProductionView: React.FC = () => {
   );
 
   const [targetEmployeeId, setTargetEmployeeId] = useState<string>(
-    () => currentUser?.id || ''
+    () => currentUser?.id || producerOptions[0]?.id || ''
   );
 
   const effectiveEmployee = useMemo(() => {
-    if (!isAdminView) return currentUser;
-    return (
-      appUsers.find((u) => u.id === targetEmployeeId) ||
-      productionEmployees[0] ||
-      currentUser
-    );
-  }, [isAdminView, currentUser, appUsers, targetEmployeeId, productionEmployees]);
+    const found = producerOptions.find((p) => p.id === targetEmployeeId);
+    if (found) return found;
+    if (currentUser) {
+      return {
+        id: currentUser.id,
+        fullName: currentUser.fullName,
+        username: currentUser.username,
+        badge: currentUser.role === 'admin' ? 'Admin' : 'Producción',
+      };
+    }
+    return producerOptions[0] || null;
+  }, [producerOptions, targetEmployeeId, currentUser]);
 
-  // Current employee entry for selectedDate
+  // Current selected producer entry for selectedDate
   const existingEntryForSelection = useMemo(() => {
     if (!effectiveEmployee) return undefined;
     return dailyProductions.find(
       (d) =>
         d.productionDate === selectedDate &&
         (d.employeeUserId === effectiveEmployee.id ||
-          d.employeeUsername.toLowerCase() === effectiveEmployee.username.toLowerCase())
+          d.employeeUsername.toLowerCase() === effectiveEmployee.username.toLowerCase() ||
+          d.employeeName.trim().toLowerCase() === effectiveEmployee.fullName.trim().toLowerCase())
     );
   }, [dailyProductions, selectedDate, effectiveEmployee]);
 
@@ -498,11 +538,249 @@ export const DailyProductionView: React.FC = () => {
     showToast(`PDF generado con todos los registros (${dailyProductions.length} planillas y ${dailySales.length} ventas).`);
   };
 
+  // ---------- Reusable General Inventory View ----------
+  const invTotals = useMemo(
+    () =>
+      generalInventory.reduce(
+        (acc, r) => ({
+          produced: acc.produced + r.producedTotal,
+          dispatched: acc.dispatched + r.dispatchedTotal,
+          availLar: acc.availLar + r.availableLar,
+          availMed: acc.availMed + r.availableMed,
+          availChi: acc.availChi + r.availableChi,
+          available: acc.available + r.availableTotal,
+        }),
+        { produced: 0, dispatched: 0, availLar: 0, availMed: 0, availChi: 0, available: 0 }
+      ),
+    [generalInventory]
+  );
+
+  const renderGeneralInventoryPanel = () => (
+    <div className="space-y-4">
+      {/* General Inventory KPI Strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
+          <span className="text-[11px] font-bold text-[#535B28] uppercase tracking-wider">
+            Total Producido Acumulado
+          </span>
+          <p className="mt-1 text-2xl font-black text-[#000000]">
+            {invTotals.produced.toLocaleString()}
+          </p>
+          <span className="text-[10px] text-stone-500">Paquetes (todos los recolectores)</span>
+        </div>
+        <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
+          <span className="text-[11px] font-bold text-[#7c5b16] uppercase tracking-wider">
+            Despachado en Cargas / Ventas
+          </span>
+          <p className="mt-1 text-2xl font-black text-[#7c5b16]">
+            {invTotals.dispatched.toLocaleString()}
+          </p>
+          <span className="text-[10px] text-stone-500">Descontado automáticamente</span>
+        </div>
+        <div className="p-4 rounded-2xl bg-[#5C1125] text-white border border-[#C3A25D]/40 shadow-xs">
+          <span className="text-[11px] font-bold text-[#C3A25D] uppercase tracking-wider">
+            Stock Disponible Real
+          </span>
+          <p className="mt-1 text-2xl font-black text-white">
+            {invTotals.available.toLocaleString()}
+          </p>
+          <span className="text-[10px] text-[#e7d4a5]">Listo para cargar camioneta / vender</span>
+        </div>
+        <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
+          <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider">
+            Disponible LAR / MED / CHI
+          </span>
+          <p className="mt-1 text-lg sm:text-xl font-black text-[#000000]">
+            {invTotals.availLar} / {invTotals.availMed} / {invTotals.availChi}
+          </p>
+          <span className="text-[10px] text-stone-500">Stock por tamaño</span>
+        </div>
+      </div>
+
+      {/* General Inventory Table */}
+      <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+        <div className="px-5 py-4 border-b border-stone-200 bg-[#FAF8F5] flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm sm:text-base font-extrabold text-[#000000]">
+              Inventario General Único de Flores y Paquetes
+            </h2>
+            <p className="text-[11px] text-stone-500">
+              Toda la producción de todos los recolectores suma aquí y cada carga de camioneta o venta directa descuenta en automático.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => exportGeneralInventoryExcel(generalInventory)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold transition cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-[#C3A25D]" />
+              <span>Excel Inventario</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => exportGeneralInventoryPdf(generalInventory)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-bold transition cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5 text-[#C3A25D]" />
+              <span>PDF Inventario</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs sm:text-sm">
+            <thead>
+              <tr className="bg-[#5C1125] text-white text-[11px] uppercase tracking-wider">
+                <th className="py-3 px-4 font-bold">Variedad</th>
+                <th className="py-3 px-3 font-bold text-center">Producido</th>
+                <th className="py-3 px-3 font-bold text-center">Despachado</th>
+                <th className="py-3 px-3 font-bold text-center bg-[#430c1b]">Disp. LAR</th>
+                <th className="py-3 px-3 font-bold text-center bg-[#430c1b]">Disp. MED</th>
+                <th className="py-3 px-3 font-bold text-center bg-[#430c1b]">Disp. CHI</th>
+                <th className="py-3 px-4 font-bold text-right bg-[#000000] text-[#C3A25D]">
+                  STOCK DISP.
+                </th>
+                <th className="py-3 px-4 font-bold">Aporte por Productor</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {generalInventory.map((r) => (
+                <tr key={r.productName} className="hover:bg-[#FAF8F5] transition">
+                  <td className="py-2.5 px-4 font-extrabold text-[#000000]">
+                    {r.productName}
+                    {r.captureMode === 'direct_total' && (
+                      <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#C3A25D]/20 text-[#8a6d2b]">
+                        Directo
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-3 text-center font-semibold text-[#535B28]">
+                    {r.producedTotal}
+                  </td>
+                  <td className="py-2.5 px-3 text-center font-semibold text-amber-700">
+                    {r.dispatchedTotal > 0 ? `-${r.dispatchedTotal}` : '0'}
+                  </td>
+                  {r.captureMode === 'direct_total' ? (
+                    <td colSpan={3} className="py-2.5 px-3 text-center text-xs text-stone-500 bg-[#fcfaf4]">
+                      {r.availableTotal} (Directo)
+                    </td>
+                  ) : (
+                    <>
+                      <td className="py-2.5 px-3 text-center font-bold">{r.availableLar}</td>
+                      <td className="py-2.5 px-3 text-center font-bold">{r.availableMed}</td>
+                      <td className="py-2.5 px-3 text-center font-bold">{r.availableChi}</td>
+                    </>
+                  )}
+                  <td
+                    className={`py-2.5 px-4 text-right font-black bg-[#FAF8F5] ${
+                      r.availableTotal < 0
+                        ? 'text-rose-600'
+                        : r.availableTotal === 0
+                        ? 'text-stone-400'
+                        : 'text-[#5C1125]'
+                    }`}
+                  >
+                    {r.availableTotal}
+                  </td>
+                  <td className="py-2.5 px-4 text-[11px] text-stone-600">
+                    {Object.keys(r.byProducer).length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(r.byProducer).map(([prod, qty]) => (
+                          <span
+                            key={prod}
+                            className="px-2 py-0.5 rounded bg-[#f7f8f2] border border-[#dce4bf] text-[#535B28] font-bold"
+                          >
+                            {prod}: {qty}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-stone-400">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-[#000000] text-white font-extrabold text-xs sm:text-sm">
+                <td className="py-3 px-4 uppercase">TOTAL INVENTARIO GENERAL</td>
+                <td className="py-3 px-3 text-center text-emerald-300">{invTotals.produced}</td>
+                <td className="py-3 px-3 text-center text-amber-300">-{invTotals.dispatched}</td>
+                <td className="py-3 px-3 text-center text-[#C3A25D]">{invTotals.availLar}</td>
+                <td className="py-3 px-3 text-center text-[#C3A25D]">{invTotals.availMed}</td>
+                <td className="py-3 px-3 text-center text-[#C3A25D]">{invTotals.availChi}</td>
+                <td className="py-3 px-4 text-right text-base text-[#C3A25D] bg-[#5C1125]">
+                  {invTotals.available}
+                </td>
+                <td className="py-3 px-4 text-[11px] text-stone-300">Stock en tiempo real</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
   // ---------- Reusable Capture Table ----------
   const renderCaptureForm = () => (
     <form onSubmit={handleSaveCapture} className="space-y-5">
       {/* Form Controls Bar */}
       <div className="bg-white rounded-2xl border border-stone-200 shadow-xs p-4 sm:p-5 space-y-4">
+        {/* Producer / Collector Quick Checklist (no need to log out or change profile) */}
+        <div>
+          <label className="block text-[11px] font-bold uppercase tracking-wider text-[#5C1125] mb-2">
+            Selecciona Productor / Recolector (sin cerrar sesión ni cambiar perfil)
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+            {producerOptions.map((prod) => {
+              const isSelected = effectiveEmployee?.id === prod.id;
+              const alreadySavedToday = entriesForSelectedDate.some(
+                (e) =>
+                  e.employeeUserId === prod.id ||
+                  e.employeeUsername.toLowerCase() === prod.username.toLowerCase() ||
+                  e.employeeName.trim().toLowerCase() === prod.fullName.trim().toLowerCase()
+              );
+              return (
+                <button
+                  key={prod.id}
+                  type="button"
+                  onClick={() => setTargetEmployeeId(prod.id)}
+                  className={`text-left px-3 py-2 rounded-xl border transition cursor-pointer flex items-center gap-2 ${
+                    isSelected
+                      ? 'bg-[#5C1125] text-white border-[#5C1125] shadow-sm'
+                      : alreadySavedToday
+                      ? 'bg-[#f7f8f2] text-[#535B28] border-[#dce4bf] hover:border-[#535B28]'
+                      : 'bg-[#FAF8F5] text-stone-700 border-stone-200 hover:border-[#C3A25D]'
+                  }`}
+                >
+                  <span
+                    className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 text-[10px] font-black ${
+                      isSelected
+                        ? 'bg-[#C3A25D] border-[#C3A25D] text-[#000000]'
+                        : alreadySavedToday
+                        ? 'bg-[#535B28] border-[#535B28] text-white'
+                        : 'border-stone-400 bg-white'
+                    }`}
+                  >
+                    {isSelected || alreadySavedToday ? '✓' : ''}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold truncate">{prod.fullName}</p>
+                    <p
+                      className={`text-[10px] truncate ${
+                        isSelected ? 'text-[#e7d4a5]' : 'text-stone-500'
+                      }`}
+                    >
+                      {alreadySavedToday ? 'Capturado hoy' : prod.badge}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-[#535B28] mb-1">
@@ -521,26 +799,12 @@ export const DailyProductionView: React.FC = () => {
 
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-[#535B28] mb-1">
-              Empleado / Responsable
+              Productor Seleccionado
             </label>
-            {isAdminView ? (
-              <select
-                value={effectiveEmployee?.id || ''}
-                onChange={(e) => setTargetEmployeeId(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold text-[#000000] bg-white focus:ring-2 focus:ring-[#5C1125]"
-              >
-                {productionEmployees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.fullName} (@{emp.username})
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="px-3 py-2 border border-stone-200 bg-[#FAF8F5] rounded-xl text-xs sm:text-sm font-extrabold text-[#5C1125] flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-[#535B28]" />
-                <span>{currentUser?.fullName}</span>
-              </div>
-            )}
+            <div className="px-3 py-2 border border-[#5C1125]/30 bg-[#fbf2f4] rounded-xl text-xs sm:text-sm font-extrabold text-[#5C1125] flex items-center gap-2">
+              <UserCheck className="w-4 h-4 text-[#535B28]" />
+              <span className="truncate">{effectiveEmployee?.fullName || 'Selecciona arriba'}</span>
+            </div>
           </div>
 
           <div className="sm:col-span-2">
@@ -551,7 +815,7 @@ export const DailyProductionView: React.FC = () => {
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ej. Corte matutino, lote nave norte..."
+              placeholder="Ej. Corte matutino, lote invernadero 1..."
               className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
             />
           </div>
@@ -751,12 +1015,12 @@ export const DailyProductionView: React.FC = () => {
                 </span>
               </div>
               <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight mt-0.5">
-                Producción del Día ( CEDA CDMX )
+                Producción del Día e Inventario General
               </h1>
               <p className="text-xs sm:text-sm text-[#d6be83] mt-0.5">
                 {isAdminView
-                  ? 'Consulta, edita y suma automáticamente la producción diaria e histórica de cada empleado.'
-                  : `Registra tu corte y producción diaria (${currentUser?.fullName}).`}
+                  ? 'Registra producción por recolector, consulta el Inventario General Único y edita o exporta cualquier planilla.'
+                  : 'Registra la producción diaria seleccionando al recolector (sin cerrar sesión) y consulta el Inventario General.'}
               </p>
             </div>
           </div>
@@ -915,41 +1179,15 @@ export const DailyProductionView: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setAdminTab('consolidado')}
+              onClick={() => setAdminTab('inventario')}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                adminTab === 'consolidado'
+                adminTab === 'inventario'
                   ? 'bg-[#5C1125] text-white shadow-sm'
                   : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-50'
               }`}
             >
-              <Layers className="w-4 h-4 text-[#C3A25D]" />
-              <span>Consolidado del Día (Total Empleados)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setAdminTab('empleados')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                adminTab === 'empleados'
-                  ? 'bg-[#5C1125] text-white shadow-sm'
-                  : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-50'
-              }`}
-            >
-              <Users className="w-4 h-4 text-[#C3A25D]" />
-              <span>Desglose por Empleado ({entriesForSelectedDate.length})</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setAdminTab('historico')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                adminTab === 'historico'
-                  ? 'bg-[#5C1125] text-white shadow-sm'
-                  : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-50'
-              }`}
-            >
-              <ClipboardList className="w-4 h-4 text-[#C3A25D]" />
-              <span>Histórico y Total por Empleado ({dailyProductions.length})</span>
+              <PackageCheck className="w-4 h-4 text-[#C3A25D]" />
+              <span>Inventario General ({invTotals.available})</span>
             </button>
 
             <button
@@ -964,9 +1202,51 @@ export const DailyProductionView: React.FC = () => {
               <PlusCircle className="w-4 h-4 text-[#C3A25D]" />
               <span>Capturar / Editar Planilla</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminTab('consolidado')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                adminTab === 'consolidado'
+                  ? 'bg-[#5C1125] text-white shadow-sm'
+                  : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <Layers className="w-4 h-4 text-[#C3A25D]" />
+              <span>Consolidado del Día</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminTab('empleados')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                adminTab === 'empleados'
+                  ? 'bg-[#5C1125] text-white shadow-sm'
+                  : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <Users className="w-4 h-4 text-[#C3A25D]" />
+              <span>Desglose por Productor ({entriesForSelectedDate.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminTab('historico')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                adminTab === 'historico'
+                  ? 'bg-[#5C1125] text-white shadow-sm'
+                  : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4 text-[#C3A25D]" />
+              <span>Histórico ({dailyProductions.length})</span>
+            </button>
           </div>
 
-          {/* Admin Tab 1: Consolidated Table (CEDA CDMX) */}
+          {/* Admin Tab 0: Inventario General Único */}
+          {adminTab === 'inventario' && renderGeneralInventoryPanel()}
+
+          {/* Admin Tab 1: Consolidated Table */}
           {adminTab === 'consolidado' && (
             <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
               <div className="px-5 py-4 border-b border-stone-200 bg-[#FAF8F5] flex flex-wrap items-center justify-between gap-3">
@@ -1525,6 +1805,19 @@ export const DailyProductionView: React.FC = () => {
 
             <button
               type="button"
+              onClick={() => setEmpTab('inventario')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                empTab === 'inventario'
+                  ? 'bg-[#535B28] text-white shadow-sm'
+                  : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-50'
+              }`}
+            >
+              <PackageCheck className="w-4 h-4 text-[#C3A25D]" />
+              <span>Inventario General ({invTotals.available})</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setEmpTab('historial')}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
                 empTab === 'historial'
@@ -1539,6 +1832,8 @@ export const DailyProductionView: React.FC = () => {
 
           {empTab === 'captura' ? (
             renderCaptureForm()
+          ) : empTab === 'inventario' ? (
+            renderGeneralInventoryPanel()
           ) : (
             <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
               <div className="px-5 py-4 border-b border-stone-200 bg-[#FAF8F5]">

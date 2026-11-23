@@ -53,7 +53,7 @@ export const ROLES: RoleConfig[] = [
     id: 'produccion',
     title: 'Producción',
     shortTitle: 'Producción',
-    badge: 'Producción del Día ( CEDA CDMX ), Resumen y Perfil',
+    badge: 'Producción del Día, Inventario, Ventas y Perfil',
     color: 'olive',
     iconName: 'PackageCheck',
     enabled: true,
@@ -262,7 +262,8 @@ export interface PayrollWeekRow {
   weeklySalary: number; // P/ SEMANAL
   weekPay: number; // SEMANA = (weeklySalary / 6) * daysWorked
   attendanceBonus: number; // BONO/AyP
-  fumigadasQty: number;
+  attendanceDiscount?: number; // Descuento por asistencia / puntualidad
+  fumigadasQty: number; // Tambos de 200L aplicados
   fumigadasAmount: number;
   cargadasQty: number;
   cargadasAmount: number;
@@ -271,7 +272,8 @@ export interface PayrollWeekRow {
   destajosQty: number;
   destajosAmount: number;
   extraWorkQty: number;
-  extraWorkAmount: number; // TRABAJO EXTRA
+  extraWorkAmount: number; // TRABAJO EXTRA ($)
+  extraWorkDescription?: string; // Campo abierto: descripción del trabajo extra
   otherDeductions: number; // Otros descuentos (faltas, vales, etc.)
   loanPreviousBalance: number; // PRESTAMO (saldo antes del abono)
   loanPayment: number; // PAGO DE PRESTAMO (descuento en esta nómina)
@@ -347,6 +349,202 @@ export interface SupplierPayment {
   paidAmount: number;
   paymentMethod: SupplierPaymentMethod;
   status: SupplierPaymentStatus;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ==================== VENTAS, PUNTOS DE VENTA, CARGAS, REMISIONES Y COBRANZA ====================
+
+export interface SalesPoint {
+  id: string;
+  name: string; // ej. 'Central de Abastos CDMX', 'Mercado Puebla'
+  city: string;
+  address?: string;
+  contactPhone?: string;
+  notes?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface SalesClient {
+  id: string;
+  name: string; // ej. 'Chema'
+  phone: string;
+  defaultSalesPointId?: string;
+  defaultSalesPointName?: string;
+  creditLimit: number;
+  balance: number; // Saldo pendiente actual (Cuentas por Cobrar)
+  notes?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface TripExpenses {
+  casetas: number;
+  gasolina: number;
+  pagoPiso: number;
+  comida: number;
+  extra: number;
+  extraNotes?: string;
+}
+
+export interface TruckLoadOwnerShare {
+  ownerName: string; // ej. 'Harold (Administrador)', 'David', 'Aaron'
+  packages: number;
+  expenseShare: number;
+  grossSales: number;
+  netPayout: number;
+}
+
+export interface TruckLoad {
+  id: string;
+  folio: string; // ej. 'CARGA-2026-001'
+  loadDate: string; // YYYY-MM-DD
+  salesPointId: string;
+  salesPointName: string;
+  driverUserId?: string;
+  driverName: string; // ej. 'David'
+  vehicleLabel?: string;
+  rows: DailyProductionRow[]; // Misma tabla de variedades + LAR / MED / CHI
+  ownerShares: TruckLoadOwnerShare[]; // Reparto de paquetes por dueño para prorrateo
+  totalLar: number;
+  totalMed: number;
+  totalChi: number;
+  totalPackages: number;
+  expenses: TripExpenses;
+  totalExpenses: number;
+  costPerPackage: number; // totalExpenses / totalPackages
+  status: 'en_ruta' | 'liquidada';
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type RemissionPaymentMethod = 'contado' | 'credito' | 'deposito';
+export type RemissionPaymentStatus = 'pagado' | 'pendiente' | 'parcial';
+
+export interface RemissionNoteRow {
+  productId: string;
+  productName: string;
+  captureMode?: ProductCaptureMode;
+  lar: number;
+  med: number;
+  chi: number;
+  totalPackages: number;
+  colorNote?: string; // Color / calidad opcional
+  unitPrice: number; // Precio libre/variable por producto
+  subtotal: number;
+}
+
+export interface RemissionNote {
+  id: string;
+  folio: string; // ej. 'REM-2026-001'
+  noteDate: string; // YYYY-MM-DD
+  loadId?: string; // Si pertenece a una carga de camioneta (evita doble descuento de inventario)
+  loadFolio?: string;
+  salesPointId: string;
+  salesPointName: string;
+  clientId: string;
+  clientName: string;
+  clientPhone?: string;
+  sellerUserId?: string;
+  sellerName: string; // Vendedor / Chofer que realizó la entrega
+  ownerName?: string; // Dueño de la flor vendida (opcional para liquidación directa)
+  rows: RemissionNoteRow[];
+  totalPackages: number;
+  totalAmount: number;
+  paymentMethod: RemissionPaymentMethod;
+  paymentStatus: RemissionPaymentStatus;
+  paidAmount: number;
+  balanceDue: number;
+  deductsInventory: boolean; // true = venta directa sin carga previa; false = ya descontado en TruckLoad
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type ClientPaymentType = 'abono' | 'pago_total';
+export type ClientPaymentMethod = 'efectivo' | 'deposito' | 'transferencia';
+
+export interface ClientPayment {
+  id: string;
+  clientId: string;
+  clientName: string;
+  remissionNoteId?: string;
+  remissionFolio?: string;
+  paymentDate: string; // YYYY-MM-DD
+  paymentType: ClientPaymentType;
+  paymentMethod: ClientPaymentMethod;
+  amount: number;
+  balanceAfter: number;
+  reference?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ==================== COMPRAS, INSUMOS POR ÁREA Y APLICACIONES EN INVERNADEROS ====================
+
+export type SupplyArea = 'invernadero' | 'empaque' | 'comida_trabajadores' | 'otros';
+
+export interface SupplyItem {
+  id: string;
+  name: string; // ej. 'Consist Max'
+  area: SupplyArea;
+  areaCustom?: string;
+  category: string; // ej. 'Fungicida', 'Fertilizante', 'Capuchones', 'Despensa'
+  unit: string; // ej. 'L', 'kg', 'g', 'paq', 'pza'
+  purpose: string; // Ficha: "¿Para qué sirve?"
+  activeIngredient?: string;
+  recommendedDose?: string; // ej. '100 ml / 200L'
+  stock: number;
+  minStock: number;
+  unitCost: number;
+  supplier?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface SupplyPurchase {
+  id: string;
+  purchaseDate: string; // YYYY-MM-DD
+  supplyItemId: string;
+  supplyName: string;
+  area: SupplyArea;
+  supplierName: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  totalCost: number;
+  paymentMethod?: string;
+  invoiceRef?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type GreenhouseApplicationType = 'foliar' | 'fertilizacion' | 'drench' | 'otro';
+
+export interface GreenhouseApplication {
+  id: string;
+  applicationDate: string; // YYYY-MM-DD
+  greenhouseName: string; // ej. 'Invernadero 1 (Freedom)'
+  applicationType: GreenhouseApplicationType;
+  supplyItemId: string;
+  supplyName: string;
+  supplyPurpose: string; // Se jala automáticamente de SupplyItem.purpose
+  quantityUsed: number;
+  unit: string;
+  unitCost?: number;
+  totalCost: number;
+  estimatedCost?: number;
+  doseUsed?: string;
+  drums200L?: number; // Tambos de 200L preparados
+  applicatorName: string;
   notes?: string;
   createdAt: string;
   updatedAt?: string;

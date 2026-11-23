@@ -19,6 +19,9 @@ import {
   Layers,
   TrendingUp,
   Wallet,
+  Truck,
+  Sprout,
+  Calculator,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AppUser, AppUserRole } from '../../types/greenhouse';
@@ -214,16 +217,34 @@ export const AdminRoleView: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
             >
               <Layers className="w-4 h-4 text-[#C3A25D]" />
-              <span>Producción del Día ( CEDA CDMX )</span>
+              <span>Producción e Inventario</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setActiveView('resumen_ventas')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
+              onClick={() => setActiveView('ventas_operacion')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
             >
-              <TrendingUp className="w-4 h-4 text-[#C3A25D]" />
-              <span>Resumen de Ventas</span>
+              <Truck className="w-4 h-4 text-[#C3A25D]" />
+              <span>Ventas y Remisiones</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('admin_insumos')}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
+            >
+              <Sprout className="w-4 h-4 text-[#C3A25D]" />
+              <span>Insumos y Aplicaciones</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('admin_costos')}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
+            >
+              <Calculator className="w-4 h-4 text-[#C3A25D]" />
+              <span>Costos y Utilidad</span>
             </button>
 
             <button

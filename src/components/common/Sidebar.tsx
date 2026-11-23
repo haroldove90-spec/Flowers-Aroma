@@ -29,6 +29,8 @@ import {
   UserCog,
   PackageCheck,
   ArrowLeftRight,
+  Truck,
+  Calculator,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { UserRole } from '../../types/greenhouse';
@@ -76,17 +78,20 @@ export const Sidebar: React.FC = () => {
       case 'admin':
         return [
           { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
-          { id: 'produccion_dia', label: 'Producción del Día ( CEDA CDMX )', icon: Layers },
-          { id: 'resumen_ventas', label: 'Resumen de Ventas', icon: TrendingUp },
-          { id: 'admin_pagos', label: 'Pagos y Nómina', icon: Wallet },
+          { id: 'produccion_dia', label: 'Producción e Inventario', icon: Layers },
+          { id: 'ventas_operacion', label: 'Ventas, Remisiones y Cobranza', icon: Truck },
+          { id: 'admin_insumos', label: 'Insumos y Aplicaciones', icon: Sprout },
+          { id: 'admin_costos', label: 'Control de Costos y Utilidad', icon: Calculator },
+          { id: 'admin_pagos', label: 'Pagos, Nómina y Préstamos', icon: Wallet },
           { id: 'admin_empleados', label: 'Empleados', icon: Users },
           { id: 'admin_productos', label: 'Catálogo de Productos', icon: Boxes },
+          { id: 'resumen_ventas', label: 'Resumen Diario (Histórico)', icon: TrendingUp },
           { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
         ];
       case 'produccion':
         return [
-          { id: 'produccion_dia', label: 'Producción del Día ( CEDA CDMX )', icon: PackageCheck },
-          { id: 'resumen_ventas', label: 'Resumen de Ventas', icon: TrendingUp },
+          { id: 'produccion_dia', label: 'Producción e Inventario', icon: PackageCheck },
+          { id: 'ventas_operacion', label: 'Ventas y Remisiones (Tablet)', icon: Truck },
           { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
         ];
       case 'aroma_flowers':

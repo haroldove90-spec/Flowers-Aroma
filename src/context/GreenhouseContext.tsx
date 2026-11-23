@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import {
   UserRole,
   GreenhouseModule,
@@ -25,6 +25,14 @@ import {
   PayrollWeekEntry,
   EmployeeLoanMovement,
   SupplierPayment,
+  SalesPoint,
+  SalesClient,
+  TruckLoad,
+  RemissionNote,
+  ClientPayment,
+  SupplyItem,
+  SupplyPurchase,
+  GreenhouseApplication,
   ROLES,
 } from '../types/greenhouse';
 import {
@@ -52,6 +60,14 @@ import {
   INITIAL_PAYROLL_WEEKS,
   INITIAL_EMPLOYEE_LOANS,
   INITIAL_SUPPLIER_PAYMENTS,
+  INITIAL_SALES_POINTS,
+  INITIAL_SALES_CLIENTS,
+  INITIAL_TRUCK_LOADS,
+  INITIAL_REMISSION_NOTES,
+  INITIAL_CLIENT_PAYMENTS,
+  INITIAL_SUPPLY_ITEMS,
+  INITIAL_SUPPLY_PURCHASES,
+  INITIAL_GREENHOUSE_APPLICATIONS,
 } from '../data/mockData';
 import {
   DEFAULT_SUPABASE_KEY,
@@ -69,6 +85,8 @@ import {
   mapAromaProductToDb,
   mapAuditToDb,
   mapAromaSheetToDb,
+  mapClientPaymentFromDb,
+  mapClientPaymentToDb,
   mapCustomerToDb,
   mapDailyProductionFromDb,
   mapDailyProductionToDb,
@@ -77,6 +95,8 @@ import {
   mapEmployeeLoanFromDb,
   mapEmployeeLoanToDb,
   mapEquipmentToDb,
+  mapGreenhouseApplicationFromDb,
+  mapGreenhouseApplicationToDb,
   mapHarvestToDb,
   mapInventoryToDb,
   mapIrrigationToDb,
@@ -89,15 +109,46 @@ import {
   mapPayrollWeekFromDb,
   mapPayrollWeekToDb,
   mapPestToDb,
+  mapRemissionNoteFromDb,
+  mapRemissionNoteToDb,
+  mapSalesClientFromDb,
+  mapSalesClientToDb,
+  mapSalesPointFromDb,
+  mapSalesPointToDb,
   mapSupplierPaymentFromDb,
   mapSupplierPaymentToDb,
+  mapSupplyItemFromDb,
+  mapSupplyItemToDb,
+  mapSupplyPurchaseFromDb,
+  mapSupplyPurchaseToDb,
   mapTaskToDb,
+  mapTruckLoadFromDb,
+  mapTruckLoadToDb,
   mapWorkerToDb,
   normalizeSupabaseUrl,
   pushAllLocalToSupabase,
   testSupabaseConnection,
   upsertSingleRecordToSupabase,
 } from '../lib/supabase';
+
+export interface GeneralInventoryRow {
+  productId: string;
+  productName: string;
+  captureMode: 'lar_med_chi' | 'direct_total';
+  producedLar: number;
+  producedMed: number;
+  producedChi: number;
+  producedTotal: number;
+  dispatchedLar: number;
+  dispatchedMed: number;
+  dispatchedChi: number;
+  dispatchedTotal: number;
+  availableLar: number;
+  availableMed: number;
+  availableChi: number;
+  availableTotal: number;
+  byProducer: Record<string, number>;
+}
 
 interface SupabaseConfig {
   url: string;
@@ -225,6 +276,64 @@ interface GreenhouseContextType {
     existingId?: string
   ) => Promise<{ entry: SupplierPayment; cloudSynced: boolean; cloudError?: string }>;
   deleteSupplierPayment: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  // Inventario General Único (Calculado en tiempo real: Producción - Cargas/Ventas)
+  generalInventory: GeneralInventoryRow[];
+
+  // Puntos de Venta, Clientes, Cargas de Camioneta, Notas de Remisión y Cuentas por Cobrar
+  salesPoints: SalesPoint[];
+  saveSalesPoint: (
+    input: Omit<SalesPoint, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; entry?: SalesPoint; error?: string; cloudSynced?: boolean; cloudError?: string }>;
+  deleteSalesPoint: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  salesClients: SalesClient[];
+  saveSalesClient: (
+    input: Omit<SalesClient, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; entry?: SalesClient; error?: string; cloudSynced?: boolean; cloudError?: string }>;
+  deleteSalesClient: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  truckLoads: TruckLoad[];
+  saveTruckLoad: (
+    input: Omit<TruckLoad, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ entry: TruckLoad; cloudSynced: boolean; cloudError?: string }>;
+  deleteTruckLoad: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  remissionNotes: RemissionNote[];
+  saveRemissionNote: (
+    input: Omit<RemissionNote, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ entry: RemissionNote; cloudSynced: boolean; cloudError?: string }>;
+  deleteRemissionNote: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  clientPayments: ClientPayment[];
+  addClientPayment: (
+    input: Omit<ClientPayment, 'id' | 'balanceAfter' | 'createdAt' | 'updatedAt'>
+  ) => Promise<{ ok: boolean; entry?: ClientPayment; error?: string; cloudSynced?: boolean; cloudError?: string }>;
+  deleteClientPayment: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  // Insumos por Área, Compras y Aplicaciones Foliares / Fertilización en Invernaderos
+  supplyItems: SupplyItem[];
+  saveSupplyItem: (
+    input: Omit<SupplyItem, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; entry?: SupplyItem; error?: string; cloudSynced?: boolean; cloudError?: string }>;
+  deleteSupplyItem: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  supplyPurchases: SupplyPurchase[];
+  addSupplyPurchase: (
+    input: Omit<SupplyPurchase, 'id' | 'createdAt' | 'updatedAt'>
+  ) => Promise<{ ok: boolean; entry?: SupplyPurchase; cloudSynced?: boolean; cloudError?: string }>;
+  deleteSupplyPurchase: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  greenhouseApplications: GreenhouseApplication[];
+  addGreenhouseApplication: (
+    input: Omit<GreenhouseApplication, 'id' | 'createdAt' | 'updatedAt'>
+  ) => Promise<{ ok: boolean; entry?: GreenhouseApplication; cloudSynced?: boolean; cloudError?: string }>;
+  deleteGreenhouseApplication: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
 
   refreshFromSupabase: () => Promise<boolean>;
 
@@ -460,6 +569,209 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     loadInitial('supplier_payments', INITIAL_SUPPLIER_PAYMENTS)
   );
 
+  // Puntos de Venta (siempre disponibles salvo borrado manual)
+  const [salesPoints, setSalesPoints] = useState<SalesPoint[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}sales_points`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {
+        return INITIAL_SALES_POINTS;
+      }
+    }
+    return INITIAL_SALES_POINTS;
+  });
+
+  // Clientes Comerciales y Cuentas por Cobrar
+  const [salesClients, setSalesClients] = useState<SalesClient[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}sales_clients`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {
+        return INITIAL_SALES_CLIENTS;
+      }
+    }
+    return INITIAL_SALES_CLIENTS;
+  });
+
+  // Cargas de Camioneta y Gastos de Viaje (Prorrateo)
+  const [truckLoads, setTruckLoads] = useState<TruckLoad[]>(() =>
+    loadInitial('truck_loads', INITIAL_TRUCK_LOADS)
+  );
+
+  // Notas de Remisión (Tablet / Vendedor / Contado-Crédito-Depósito)
+  const [remissionNotes, setRemissionNotes] = useState<RemissionNote[]>(() =>
+    loadInitial('remission_notes', INITIAL_REMISSION_NOTES)
+  );
+
+  // Abonos y Pagos a Cuenta de Clientes
+  const [clientPayments, setClientPayments] = useState<ClientPayment[]>(() =>
+    loadInitial('client_payments', INITIAL_CLIENT_PAYMENTS)
+  );
+
+  // Catálogo de Insumos por Área (Invernadero, Empaque, Comida, Otros)
+  const [supplyItems, setSupplyItems] = useState<SupplyItem[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}supply_items`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {
+        return INITIAL_SUPPLY_ITEMS;
+      }
+    }
+    return INITIAL_SUPPLY_ITEMS;
+  });
+
+  // Compras de Insumos
+  const [supplyPurchases, setSupplyPurchases] = useState<SupplyPurchase[]>(() =>
+    loadInitial('supply_purchases', INITIAL_SUPPLY_PURCHASES)
+  );
+
+  // Aplicaciones Foliares y Fertilización en Invernaderos
+  const [greenhouseApplications, setGreenhouseApplications] = useState<GreenhouseApplication[]>(() =>
+    loadInitial('greenhouse_applications', INITIAL_GREENHOUSE_APPLICATIONS)
+  );
+
+  // Inventario General Único (Consolidado Producción - Cargas de Camioneta - Remisiones Directas)
+  const generalInventory = useMemo<GeneralInventoryRow[]>(() => {
+    const map = new Map<string, GeneralInventoryRow>();
+    const orderMap = new Map<string, number>();
+
+    [...aromaProducts]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .forEach((p, idx) => {
+        const key = p.name.trim().toUpperCase();
+        orderMap.set(key, p.sortOrder || idx + 1);
+        map.set(key, {
+          productId: p.id,
+          productName: p.name,
+          captureMode: p.captureMode,
+          producedLar: 0,
+          producedMed: 0,
+          producedChi: 0,
+          producedTotal: 0,
+          dispatchedLar: 0,
+          dispatchedMed: 0,
+          dispatchedChi: 0,
+          dispatchedTotal: 0,
+          availableLar: 0,
+          availableMed: 0,
+          availableChi: 0,
+          availableTotal: 0,
+          byProducer: {},
+        });
+      });
+
+    const getOrCreate = (
+      productId: string,
+      productName: string,
+      captureMode: 'lar_med_chi' | 'direct_total' = 'lar_med_chi'
+    ) => {
+      const key = productName.trim().toUpperCase();
+      let row = map.get(key);
+      if (!row) {
+        row = {
+          productId: productId || `var-${key}`,
+          productName: productName.trim().toUpperCase(),
+          captureMode,
+          producedLar: 0,
+          producedMed: 0,
+          producedChi: 0,
+          producedTotal: 0,
+          dispatchedLar: 0,
+          dispatchedMed: 0,
+          dispatchedChi: 0,
+          dispatchedTotal: 0,
+          availableLar: 0,
+          availableMed: 0,
+          availableChi: 0,
+          availableTotal: 0,
+          byProducer: {},
+        };
+        map.set(key, row);
+      }
+      return row;
+    };
+
+    dailyProductions.forEach((entry) => {
+      const prodLabel = entry.employeeName || entry.employeeUsername || 'Sin asignar';
+      entry.rows.forEach((r) => {
+        const row = getOrCreate(r.productId, r.productName, r.captureMode);
+        if (row.captureMode === 'direct_total' || r.captureMode === 'direct_total') {
+          const t = Number(r.total || 0);
+          row.producedTotal += t;
+          row.byProducer[prodLabel] = (row.byProducer[prodLabel] || 0) + t;
+        } else {
+          const lar = Number(r.lar || 0);
+          const med = Number(r.med || 0);
+          const chi = Number(r.chi || 0);
+          const tot = lar + med + chi;
+          row.producedLar += lar;
+          row.producedMed += med;
+          row.producedChi += chi;
+          row.producedTotal += tot;
+          if (tot > 0) {
+            row.byProducer[prodLabel] = (row.byProducer[prodLabel] || 0) + tot;
+          }
+        }
+      });
+    });
+
+    truckLoads.forEach((load) => {
+      load.rows.forEach((r) => {
+        const row = getOrCreate(r.productId, r.productName, r.captureMode);
+        if (row.captureMode === 'direct_total' || r.captureMode === 'direct_total') {
+          row.dispatchedTotal += Number(r.total || 0);
+        } else {
+          const lar = Number(r.lar || 0);
+          const med = Number(r.med || 0);
+          const chi = Number(r.chi || 0);
+          row.dispatchedLar += lar;
+          row.dispatchedMed += med;
+          row.dispatchedChi += chi;
+          row.dispatchedTotal += lar + med + chi;
+        }
+      });
+    });
+
+    remissionNotes.forEach((note) => {
+      if (!note.deductsInventory) return;
+      note.rows.forEach((r) => {
+        const row = getOrCreate(r.productId, r.productName, 'lar_med_chi');
+        const lar = Number(r.lar || 0);
+        const med = Number(r.med || 0);
+        const chi = Number(r.chi || 0);
+        const tot = Number(r.totalPackages || lar + med + chi);
+        if (row.captureMode === 'direct_total') {
+          row.dispatchedTotal += tot;
+        } else {
+          row.dispatchedLar += lar;
+          row.dispatchedMed += med;
+          row.dispatchedChi += chi;
+          row.dispatchedTotal += tot;
+        }
+      });
+    });
+
+    return Array.from(map.values())
+      .map((row) => ({
+        ...row,
+        availableLar: row.producedLar - row.dispatchedLar,
+        availableMed: row.producedMed - row.dispatchedMed,
+        availableChi: row.producedChi - row.dispatchedChi,
+        availableTotal: row.producedTotal - row.dispatchedTotal,
+      }))
+      .sort((a, b) => {
+        const oa = orderMap.get(a.productName.trim().toUpperCase()) ?? 999;
+        const ob = orderMap.get(b.productName.trim().toUpperCase()) ?? 999;
+        return oa - ob || a.productName.localeCompare(b.productName);
+      });
+  }, [aromaProducts, dailyProductions, truckLoads, remissionNotes]);
+
   // Sync online status
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -515,6 +827,14 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'payroll_weeks',
       'employee_loans',
       'supplier_payments',
+      'sales_points',
+      'sales_clients',
+      'truck_loads',
+      'remission_notes',
+      'client_payments',
+      'supply_items',
+      'supply_purchases',
+      'greenhouse_applications',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -559,6 +879,14 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'payroll_weeks',
       'employee_loans',
       'supplier_payments',
+      'sales_points',
+      'sales_clients',
+      'truck_loads',
+      'remission_notes',
+      'client_payments',
+      'supply_items',
+      'supply_purchases',
+      'greenhouse_applications',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -647,6 +975,38 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (snap.supplierPayments !== undefined && !pendingTables.has('supplier_payments')) {
       setSupplierPayments(snap.supplierPayments);
       saveState('supplier_payments', snap.supplierPayments);
+    }
+    if (snap.salesPoints && snap.salesPoints.length > 0 && !pendingTables.has('sales_points')) {
+      setSalesPoints(snap.salesPoints);
+      saveState('sales_points', snap.salesPoints);
+    }
+    if (snap.salesClients && snap.salesClients.length > 0 && !pendingTables.has('sales_clients')) {
+      setSalesClients(snap.salesClients);
+      saveState('sales_clients', snap.salesClients);
+    }
+    if (snap.truckLoads !== undefined && !pendingTables.has('truck_loads')) {
+      setTruckLoads(snap.truckLoads);
+      saveState('truck_loads', snap.truckLoads);
+    }
+    if (snap.remissionNotes !== undefined && !pendingTables.has('remission_notes')) {
+      setRemissionNotes(snap.remissionNotes);
+      saveState('remission_notes', snap.remissionNotes);
+    }
+    if (snap.clientPayments !== undefined && !pendingTables.has('client_payments')) {
+      setClientPayments(snap.clientPayments);
+      saveState('client_payments', snap.clientPayments);
+    }
+    if (snap.supplyItems && snap.supplyItems.length > 0 && !pendingTables.has('supply_items')) {
+      setSupplyItems(snap.supplyItems);
+      saveState('supply_items', snap.supplyItems);
+    }
+    if (snap.supplyPurchases !== undefined && !pendingTables.has('supply_purchases')) {
+      setSupplyPurchases(snap.supplyPurchases);
+      saveState('supply_purchases', snap.supplyPurchases);
+    }
+    if (snap.greenhouseApplications !== undefined && !pendingTables.has('greenhouse_applications')) {
+      setGreenhouseApplications(snap.greenhouseApplications);
+      saveState('greenhouse_applications', snap.greenhouseApplications);
     }
     if (snap.modules) {
       setModules(snap.modules);
@@ -1916,6 +2276,600 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { ok: true, cloudSynced: res.ok };
   };
 
+  // ==================== PUNTOS DE VENTA, CLIENTES, CARGAS, REMISIONES Y COBRANZA ====================
+
+  const saveSalesPoint = async (
+    input: Omit<SalesPoint, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{ ok: boolean; entry?: SalesPoint; error?: string; cloudSynced?: boolean; cloudError?: string }> => {
+    const cleanName = input.name.trim();
+    if (!cleanName) return { ok: false, error: 'Ingresa el nombre del punto de venta.' };
+    const dup = salesPoints.find(
+      (p) => p.name.trim().toLowerCase() === cleanName.toLowerCase() && p.id !== existingId
+    );
+    if (dup) return { ok: false, error: `Ya existe el punto de venta "${cleanName}".` };
+
+    const now = new Date().toISOString();
+    const prevItem = existingId ? salesPoints.find((p) => p.id === existingId) : undefined;
+    const entry: SalesPoint = {
+      ...input,
+      id: existingId || `pos-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: cleanName,
+      city: (input.city || '').trim(),
+      address: (input.address || '').trim(),
+      contactPhone: (input.contactPhone || '').trim(),
+      active: input.active !== false,
+      notes: (input.notes || '').trim(),
+      createdAt: prevItem?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setSalesPoints((prev) => {
+      const exists = prev.some((p) => p.id === entry.id);
+      const updated = exists ? prev.map((p) => (p.id === entry.id ? entry : p)) : [...prev, entry];
+      saveState('sales_points', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('sales_points', mapSalesPointToDb(entry));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapSalesPointFromDb(cloudRes.savedRow);
+      setSalesPoints((prev) => {
+        const updated = prev.map((p) => (p.id === entry.id ? synced : p));
+        saveState('sales_points', updated);
+        return updated;
+      });
+    }
+    addAuditLog('Puntos de Venta', `${existingId ? 'Actualizado' : 'Registrado'}: ${entry.name}`);
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteSalesPoint = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setSalesPoints((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      saveState('sales_points', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('sales_points', id);
+    addAuditLog('Puntos de Venta', `Punto de venta eliminado (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const saveSalesClient = async (
+    input: Omit<SalesClient, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{ ok: boolean; entry?: SalesClient; error?: string; cloudSynced?: boolean; cloudError?: string }> => {
+    const cleanName = input.name.trim();
+    if (!cleanName) return { ok: false, error: 'Ingresa el nombre del cliente.' };
+    const now = new Date().toISOString();
+    const prevItem = existingId ? salesClients.find((c) => c.id === existingId) : undefined;
+    const entry: SalesClient = {
+      ...input,
+      id: existingId || `cli-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: cleanName,
+      phone: (input.phone || '').trim(),
+      defaultSalesPointId: input.defaultSalesPointId || '',
+      defaultSalesPointName: (input.defaultSalesPointName || '').trim(),
+      creditLimit: Number(input.creditLimit || 0),
+      balance: Number(input.balance ?? prevItem?.balance ?? 0),
+      active: input.active !== false,
+      notes: (input.notes || '').trim(),
+      createdAt: prevItem?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setSalesClients((prev) => {
+      const exists = prev.some((c) => c.id === entry.id);
+      const updated = exists ? prev.map((c) => (c.id === entry.id ? entry : c)) : [...prev, entry];
+      saveState('sales_clients', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('sales_clients', mapSalesClientToDb(entry));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapSalesClientFromDb(cloudRes.savedRow);
+      setSalesClients((prev) => {
+        const updated = prev.map((c) => (c.id === entry.id ? synced : c));
+        saveState('sales_clients', updated);
+        return updated;
+      });
+    }
+    addAuditLog('Clientes', `${existingId ? 'Actualizado' : 'Registrado'}: ${entry.name}`);
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteSalesClient = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setSalesClients((prev) => {
+      const updated = prev.filter((c) => c.id !== id);
+      saveState('sales_clients', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('sales_clients', id);
+    addAuditLog('Clientes', `Cliente eliminado (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  // Recalcula el saldo del cliente basado en notas de remisión + abonos
+  const syncClientBalance = async (
+    clientId: string,
+    nextNotes: RemissionNote[],
+    nextPayments: ClientPayment[]
+  ) => {
+    const client = salesClients.find((c) => c.id === clientId);
+    if (!client) return;
+    const totalCreditCharges = nextNotes
+      .filter((n) => n.clientId === clientId)
+      .reduce((acc, n) => acc + Math.max(0, Number(n.totalAmount || 0) - Number(n.paidAmount || 0)), 0);
+    // Note: payments that specify a remissionNoteId already updated that note's paidAmount,
+    // while general account payments (no remissionNoteId) deduct from overall client balance.
+    const generalPayments = nextPayments
+      .filter((p) => p.clientId === clientId && !p.remissionNoteId)
+      .reduce((acc, p) => acc + Number(p.amount || 0), 0);
+    const computedBalance = Math.max(0, Number((totalCreditCharges - generalPayments).toFixed(2)));
+    const updatedClient: SalesClient = {
+      ...client,
+      balance: computedBalance,
+      updatedAt: new Date().toISOString(),
+    };
+    setSalesClients((prev) => {
+      const updated = prev.map((c) => (c.id === clientId ? updatedClient : c));
+      saveState('sales_clients', updated);
+      return updated;
+    });
+    await pushUpsertToSupabase('sales_clients', mapSalesClientToDb(updatedClient));
+  };
+
+  const saveTruckLoad = async (
+    input: Omit<TruckLoad, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{ entry: TruckLoad; cloudSynced: boolean; cloudError?: string }> => {
+    const now = new Date().toISOString();
+    const prevItem = existingId ? truckLoads.find((l) => l.id === existingId) : undefined;
+    const exp = input.expenses || { casetas: 0, gasolina: 0, pagoPiso: 0, comida: 0, extra: 0, extraNotes: '' };
+    const totalExpenses = Number(
+      (
+        Number(exp.casetas || 0) +
+        Number(exp.gasolina || 0) +
+        Number(exp.pagoPiso || 0) +
+        Number(exp.comida || 0) +
+        Number(exp.extra || 0)
+      ).toFixed(2)
+    );
+    const totalPackages = Number(input.totalPackages || 0);
+    const costPerPackage = totalPackages > 0 ? Number((totalExpenses / totalPackages).toFixed(4)) : 0;
+
+    const ownerShares = (input.ownerShares || []).map((o) => {
+      const pkg = Number(o.packages || 0);
+      const expenseShare = Number((pkg * costPerPackage).toFixed(2));
+      const grossSales = Number(o.grossSales || 0);
+      return {
+        ...o,
+        packages: pkg,
+        expenseShare,
+        grossSales,
+        netPayout: Number((grossSales - expenseShare).toFixed(2)),
+      };
+    });
+
+    const entry: TruckLoad = {
+      ...input,
+      id: existingId || `load-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      folio: input.folio?.trim() || `CARGA-${new Date().getFullYear()}-${String(truckLoads.length + 1).padStart(3, '0')}`,
+      totalPackages,
+      expenses: exp,
+      totalExpenses,
+      costPerPackage,
+      ownerShares,
+      createdAt: prevItem?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setTruckLoads((prev) => {
+      const exists = prev.some((l) => l.id === entry.id);
+      const updated = exists ? prev.map((l) => (l.id === entry.id ? entry : l)) : [entry, ...prev];
+      saveState('truck_loads', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('truck_loads', mapTruckLoadToDb(entry));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapTruckLoadFromDb(cloudRes.savedRow);
+      setTruckLoads((prev) => {
+        const updated = prev.map((l) => (l.id === entry.id ? synced : l));
+        saveState('truck_loads', updated);
+        return updated;
+      });
+    }
+    addAuditLog('Carga de Camioneta', `${entry.folio} (${entry.salesPointName} - ${entry.driverName}: ${entry.totalPackages} paq.)`);
+    return { entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteTruckLoad = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setTruckLoads((prev) => {
+      const updated = prev.filter((l) => l.id !== id);
+      saveState('truck_loads', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('truck_loads', id);
+    addAuditLog('Carga de Camioneta', `Carga eliminada (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const saveRemissionNote = async (
+    input: Omit<RemissionNote, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{ entry: RemissionNote; cloudSynced: boolean; cloudError?: string }> => {
+    const now = new Date().toISOString();
+    const prevItem = existingId ? remissionNotes.find((n) => n.id === existingId) : undefined;
+    const totalAmount = Number(input.totalAmount || 0);
+    const paidAmount = Math.min(totalAmount, Math.max(0, Number(input.paidAmount || 0)));
+    const balanceDue = Math.max(0, Number((totalAmount - paidAmount).toFixed(2)));
+    const paymentStatus: RemissionNote['paymentStatus'] =
+      balanceDue <= 0.01 ? 'pagado' : paidAmount > 0 ? 'parcial' : 'pendiente';
+
+    const entry: RemissionNote = {
+      ...input,
+      id: existingId || `rem-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      folio: input.folio?.trim() || `REM-${new Date().getFullYear()}-${String(remissionNotes.length + 1).padStart(3, '0')}`,
+      totalAmount,
+      paidAmount,
+      balanceDue,
+      paymentStatus,
+      deductsInventory: input.loadId ? false : input.deductsInventory !== false,
+      createdAt: prevItem?.createdAt || now,
+      updatedAt: now,
+    };
+
+    const nextNotes = remissionNotes.some((n) => n.id === entry.id)
+      ? remissionNotes.map((n) => (n.id === entry.id ? entry : n))
+      : [entry, ...remissionNotes];
+    setRemissionNotes(nextNotes);
+    saveState('remission_notes', nextNotes);
+
+    const cloudRes = await pushUpsertToSupabase('remission_notes', mapRemissionNoteToDb(entry));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapRemissionNoteFromDb(cloudRes.savedRow);
+      setRemissionNotes((prev) => {
+        const updated = prev.map((n) => (n.id === entry.id ? synced : n));
+        saveState('remission_notes', updated);
+        return updated;
+      });
+    }
+
+    if (entry.clientId) {
+      await syncClientBalance(entry.clientId, nextNotes, clientPayments);
+    }
+    if (prevItem?.clientId && prevItem.clientId !== entry.clientId) {
+      await syncClientBalance(prevItem.clientId, nextNotes, clientPayments);
+    }
+
+    addAuditLog('Nota de Remisión', `${entry.folio} (${entry.clientName} - $${entry.totalAmount.toLocaleString('es-MX')})`);
+    return { entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteRemissionNote = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    const target = remissionNotes.find((n) => n.id === id);
+    const nextNotes = remissionNotes.filter((n) => n.id !== id);
+    setRemissionNotes(nextNotes);
+    saveState('remission_notes', nextNotes);
+    const res = await pushDeleteToSupabase('remission_notes', id);
+    if (target?.clientId) {
+      await syncClientBalance(target.clientId, nextNotes, clientPayments);
+    }
+    addAuditLog('Nota de Remisión', `Nota eliminada (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const addClientPayment = async (
+    input: Omit<ClientPayment, 'id' | 'balanceAfter' | 'createdAt' | 'updatedAt'>
+  ): Promise<{ ok: boolean; entry?: ClientPayment; error?: string; cloudSynced?: boolean; cloudError?: string }> => {
+    const amt = Number(input.amount || 0);
+    if (amt <= 0) return { ok: false, error: 'El monto del pago debe ser mayor a $0.' };
+    const client = salesClients.find((c) => c.id === input.clientId);
+    if (!client) return { ok: false, error: 'Cliente no encontrado.' };
+
+    const now = new Date().toISOString();
+    let nextNotes = [...remissionNotes];
+
+    // Apply payment to a specific note or FIFO across client's pending notes
+    if (input.remissionNoteId) {
+      const targetNote = nextNotes.find((n) => n.id === input.remissionNoteId);
+      if (targetNote) {
+        const newPaid = Math.min(targetNote.totalAmount, Number((targetNote.paidAmount + amt).toFixed(2)));
+        const newBal = Math.max(0, Number((targetNote.totalAmount - newPaid).toFixed(2)));
+        const updatedNote: RemissionNote = {
+          ...targetNote,
+          paidAmount: newPaid,
+          balanceDue: newBal,
+          paymentStatus: newBal <= 0.01 ? 'pagado' : newPaid > 0 ? 'parcial' : 'pendiente',
+          updatedAt: now,
+        };
+        nextNotes = nextNotes.map((n) => (n.id === updatedNote.id ? updatedNote : n));
+        setRemissionNotes(nextNotes);
+        saveState('remission_notes', nextNotes);
+        await pushUpsertToSupabase('remission_notes', mapRemissionNoteToDb(updatedNote));
+      }
+    }
+
+    const totalPendingNotes = nextNotes
+      .filter((n) => n.clientId === input.clientId)
+      .reduce((acc, n) => acc + Math.max(0, Number(n.totalAmount || 0) - Number(n.paidAmount || 0)), 0);
+    const generalPaymentsBefore = clientPayments
+      .filter((p) => p.clientId === input.clientId && !p.remissionNoteId)
+      .reduce((acc, p) => acc + Number(p.amount || 0), 0);
+    const addedGeneral = input.remissionNoteId ? 0 : amt;
+    const balanceAfter = Math.max(0, Number((totalPendingNotes - generalPaymentsBefore - addedGeneral).toFixed(2)));
+
+    const entry: ClientPayment = {
+      ...input,
+      id: `cpay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      amount: amt,
+      balanceAfter,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const nextPayments = [entry, ...clientPayments];
+    setClientPayments(nextPayments);
+    saveState('client_payments', nextPayments);
+
+    const cloudRes = await pushUpsertToSupabase('client_payments', mapClientPaymentToDb(entry));
+    await syncClientBalance(input.clientId, nextNotes, nextPayments);
+
+    addAuditLog('Cuentas por Cobrar', `${input.paymentType === 'pago_total' ? 'Pago total' : 'Abono'} de ${client.name}: $${amt.toLocaleString('es-MX')}`);
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteClientPayment = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    const target = clientPayments.find((p) => p.id === id);
+    const nextPayments = clientPayments.filter((p) => p.id !== id);
+    setClientPayments(nextPayments);
+    saveState('client_payments', nextPayments);
+
+    let nextNotes = [...remissionNotes];
+    if (target?.remissionNoteId) {
+      const note = nextNotes.find((n) => n.id === target.remissionNoteId);
+      if (note) {
+        const revertedPaid = Math.max(0, Number((note.paidAmount - target.amount).toFixed(2)));
+        const revertedBal = Math.max(0, Number((note.totalAmount - revertedPaid).toFixed(2)));
+        const updatedNote: RemissionNote = {
+          ...note,
+          paidAmount: revertedPaid,
+          balanceDue: revertedBal,
+          paymentStatus: revertedBal <= 0.01 ? 'pagado' : revertedPaid > 0 ? 'parcial' : 'pendiente',
+          updatedAt: new Date().toISOString(),
+        };
+        nextNotes = nextNotes.map((n) => (n.id === updatedNote.id ? updatedNote : n));
+        setRemissionNotes(nextNotes);
+        saveState('remission_notes', nextNotes);
+        await pushUpsertToSupabase('remission_notes', mapRemissionNoteToDb(updatedNote));
+      }
+    }
+
+    const res = await pushDeleteToSupabase('client_payments', id);
+    if (target?.clientId) {
+      await syncClientBalance(target.clientId, nextNotes, nextPayments);
+    }
+    addAuditLog('Cuentas por Cobrar', `Abono eliminado (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  // ==================== INSUMOS POR ÁREA, COMPRAS Y APLICACIONES INVERNADERO ====================
+
+  const saveSupplyItem = async (
+    input: Omit<SupplyItem, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{ ok: boolean; entry?: SupplyItem; error?: string; cloudSynced?: boolean; cloudError?: string }> => {
+    const cleanName = input.name.trim();
+    if (!cleanName) return { ok: false, error: 'Ingresa el nombre del insumo o producto.' };
+    const now = new Date().toISOString();
+    const prevItem = existingId ? supplyItems.find((s) => s.id === existingId) : undefined;
+    const entry: SupplyItem = {
+      ...input,
+      id: existingId || `sup-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: cleanName,
+      category: (input.category || '').trim() || 'General',
+      purpose: (input.purpose || '').trim(),
+      activeIngredient: (input.activeIngredient || '').trim(),
+      recommendedDose: (input.recommendedDose || '').trim(),
+      unit: (input.unit || 'L').trim(),
+      stock: Number(input.stock || 0),
+      minStock: Number(input.minStock || 0),
+      unitCost: Number(input.unitCost || 0),
+      supplier: (input.supplier || '').trim(),
+      active: input.active !== false,
+      createdAt: prevItem?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setSupplyItems((prev) => {
+      const exists = prev.some((s) => s.id === entry.id);
+      const updated = exists ? prev.map((s) => (s.id === entry.id ? entry : s)) : [entry, ...prev];
+      saveState('supply_items', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('supply_items', mapSupplyItemToDb(entry));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapSupplyItemFromDb(cloudRes.savedRow);
+      setSupplyItems((prev) => {
+        const updated = prev.map((s) => (s.id === entry.id ? synced : s));
+        saveState('supply_items', updated);
+        return updated;
+      });
+    }
+    addAuditLog('Insumos', `${existingId ? 'Actualizado' : 'Registrado'}: ${entry.name} (${entry.area})`);
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteSupplyItem = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setSupplyItems((prev) => {
+      const updated = prev.filter((s) => s.id !== id);
+      saveState('supply_items', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('supply_items', id);
+    addAuditLog('Insumos', `Insumo eliminado (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const addSupplyPurchase = async (
+    input: Omit<SupplyPurchase, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<{ ok: boolean; entry?: SupplyPurchase; cloudSynced?: boolean; cloudError?: string }> => {
+    const now = new Date().toISOString();
+    const qty = Number(input.quantity || 0);
+    const unitCost = Number(input.unitCost || 0);
+    const totalCost = Number((input.totalCost || qty * unitCost).toFixed(2));
+    const entry: SupplyPurchase = {
+      ...input,
+      id: `pur-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      quantity: qty,
+      unitCost,
+      totalCost,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    setSupplyPurchases((prev) => {
+      const updated = [entry, ...prev];
+      saveState('supply_purchases', updated);
+      return updated;
+    });
+
+    // Automatically add stock to linked SupplyItem and update unitCost
+    if (entry.supplyItemId && qty > 0) {
+      const item = supplyItems.find((s) => s.id === entry.supplyItemId);
+      if (item) {
+        const updatedItem: SupplyItem = {
+          ...item,
+          stock: Number((item.stock + qty).toFixed(2)),
+          unitCost: unitCost > 0 ? unitCost : item.unitCost,
+          supplier: entry.supplierName || item.supplier,
+          updatedAt: now,
+        };
+        setSupplyItems((prev) => {
+          const updated = prev.map((s) => (s.id === item.id ? updatedItem : s));
+          saveState('supply_items', updated);
+          return updated;
+        });
+        await pushUpsertToSupabase('supply_items', mapSupplyItemToDb(updatedItem));
+      }
+    }
+
+    const cloudRes = await pushUpsertToSupabase('supply_purchases', mapSupplyPurchaseToDb(entry));
+    addAuditLog('Compra de Insumos', `${entry.supplyName} (+${qty} ${entry.unit} • $${totalCost.toLocaleString('es-MX')})`);
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteSupplyPurchase = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    const target = supplyPurchases.find((p) => p.id === id);
+    setSupplyPurchases((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      saveState('supply_purchases', updated);
+      return updated;
+    });
+    if (target?.supplyItemId && target.quantity > 0) {
+      const item = supplyItems.find((s) => s.id === target.supplyItemId);
+      if (item) {
+        const updatedItem: SupplyItem = {
+          ...item,
+          stock: Math.max(0, Number((item.stock - target.quantity).toFixed(2))),
+          updatedAt: new Date().toISOString(),
+        };
+        setSupplyItems((prev) => {
+          const updated = prev.map((s) => (s.id === item.id ? updatedItem : s));
+          saveState('supply_items', updated);
+          return updated;
+        });
+        await pushUpsertToSupabase('supply_items', mapSupplyItemToDb(updatedItem));
+      }
+    }
+    const res = await pushDeleteToSupabase('supply_purchases', id);
+    addAuditLog('Compra de Insumos', `Compra eliminada (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const addGreenhouseApplication = async (
+    input: Omit<GreenhouseApplication, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<{ ok: boolean; entry?: GreenhouseApplication; cloudSynced?: boolean; cloudError?: string }> => {
+    const now = new Date().toISOString();
+    const linkedItem = supplyItems.find((s) => s.id === input.supplyItemId);
+    const qtyUsed = Number(input.quantityUsed || 0);
+    const estimatedCost =
+      Number(input.totalCost || input.estimatedCost || 0) > 0
+        ? Number(input.totalCost || input.estimatedCost)
+        : Number((qtyUsed * Number(linkedItem?.unitCost || 0)).toFixed(2));
+
+    const entry: GreenhouseApplication = {
+      ...input,
+      id: `gapp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      supplyName: input.supplyName || linkedItem?.name || '',
+      supplyPurpose: input.supplyPurpose || linkedItem?.purpose || '',
+      unit: input.unit || linkedItem?.unit || 'L',
+      quantityUsed: qtyUsed,
+      totalCost: estimatedCost,
+      estimatedCost,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    setGreenhouseApplications((prev) => {
+      const updated = [entry, ...prev];
+      saveState('greenhouse_applications', updated);
+      return updated;
+    });
+
+    // Deduct stock from linked SupplyItem
+    if (linkedItem && qtyUsed > 0) {
+      const updatedItem: SupplyItem = {
+        ...linkedItem,
+        stock: Math.max(0, Number((linkedItem.stock - qtyUsed).toFixed(2))),
+        updatedAt: now,
+      };
+      setSupplyItems((prev) => {
+        const updated = prev.map((s) => (s.id === linkedItem.id ? updatedItem : s));
+        saveState('supply_items', updated);
+        return updated;
+      });
+      await pushUpsertToSupabase('supply_items', mapSupplyItemToDb(updatedItem));
+    }
+
+    const cloudRes = await pushUpsertToSupabase(
+      'greenhouse_applications',
+      mapGreenhouseApplicationToDb(entry)
+    );
+    addAuditLog('Aplicación Invernadero', `${entry.greenhouseName}: ${entry.supplyName} (${qtyUsed} ${entry.unit})`);
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteGreenhouseApplication = async (id: string): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    const target = greenhouseApplications.find((a) => a.id === id);
+    setGreenhouseApplications((prev) => {
+      const updated = prev.filter((a) => a.id !== id);
+      saveState('greenhouse_applications', updated);
+      return updated;
+    });
+    if (target?.supplyItemId && target.quantityUsed > 0) {
+      const item = supplyItems.find((s) => s.id === target.supplyItemId);
+      if (item) {
+        const updatedItem: SupplyItem = {
+          ...item,
+          stock: Number((item.stock + target.quantityUsed).toFixed(2)),
+          updatedAt: new Date().toISOString(),
+        };
+        setSupplyItems((prev) => {
+          const updated = prev.map((s) => (s.id === item.id ? updatedItem : s));
+          saveState('supply_items', updated);
+          return updated;
+        });
+        await pushUpsertToSupabase('supply_items', mapSupplyItemToDb(updatedItem));
+      }
+    }
+    const res = await pushDeleteToSupabase('greenhouse_applications', id);
+    addAuditLog('Aplicación Invernadero', `Aplicación eliminada (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
   // Demo data wipe function (as requested in the prompt)
   const clearAllDemoData = () => {
     setModules([]);
@@ -1939,6 +2893,11 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setPayrollWeeks([]);
     setEmployeeLoans([]);
     setSupplierPayments([]);
+    setTruckLoads([]);
+    setRemissionNotes([]);
+    setClientPayments([]);
+    setSupplyPurchases([]);
+    setGreenhouseApplications([]);
 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}demo_cleared`, 'true');
     localStorage.setItem(`${STORAGE_KEY_PREFIX}never_show_demo`, 'true');
@@ -1968,6 +2927,11 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'payroll_weeks',
       'employee_loans',
       'supplier_payments',
+      'truck_loads',
+      'remission_notes',
+      'client_payments',
+      'supply_purchases',
+      'greenhouse_applications',
     ];
     keys.forEach((k) => localStorage.removeItem(`${STORAGE_KEY_PREFIX}${k}`));
 
@@ -1997,6 +2961,14 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setPayrollWeeks(INITIAL_PAYROLL_WEEKS);
     setEmployeeLoans(INITIAL_EMPLOYEE_LOANS);
     setSupplierPayments(INITIAL_SUPPLIER_PAYMENTS);
+    setSalesPoints(INITIAL_SALES_POINTS);
+    setSalesClients(INITIAL_SALES_CLIENTS);
+    setTruckLoads(INITIAL_TRUCK_LOADS);
+    setRemissionNotes(INITIAL_REMISSION_NOTES);
+    setClientPayments(INITIAL_CLIENT_PAYMENTS);
+    setSupplyItems(INITIAL_SUPPLY_ITEMS);
+    setSupplyPurchases(INITIAL_SUPPLY_PURCHASES);
+    setGreenhouseApplications(INITIAL_GREENHOUSE_APPLICATIONS);
 
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}demo_cleared`);
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}never_show_demo`);
@@ -2057,6 +3029,14 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           payrollWeeks,
           employeeLoans,
           supplierPayments,
+          salesPoints,
+          salesClients,
+          truckLoads,
+          remissionNotes,
+          clientPayments,
+          supplyItems,
+          supplyPurchases,
+          greenhouseApplications,
           modules,
           tasks,
           irrigation,
@@ -2089,18 +3069,17 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const generateSupabaseSql = (): string => {
     if (onlyAromaFlowers) {
       return `-- ================================================================
--- AROMA FLOWER - ESQUEMA ACTUALIZADO PARA SUPABASE
+-- AROMA FLOWER - ESQUEMA COMPLETO ACTUALIZADO PARA SUPABASE (16 TABLAS)
 -- Roles Activos: Admin y Producción (con Mi Perfil en ambos)
--- Módulos: Producción del Día ( CEDA CDMX ), Resumen de Ventas, Catálogo,
---          Empleados (Credenciales + WhatsApp) y Pagos (Nómina, Préstamos, Proveedores)
+-- Módulos: Producción e Inventario General Único, Ventas y Puntos de Venta,
+--          Cargas de Camioneta y Prorrateo de Gastos, Notas de Remisión (Tablet),
+--          Cuentas por Cobrar, Empleados, Nómina y Pagos, Insumos y Aplicaciones
+--          Foliares/Fertilización, y Control de Costos de Producción.
 -- Proyecto: aromaflowers@appdesignsoftware.com's Project (syrchvrxkkwvwynvtzfq)
 -- IMPORTANTE: Pega este código en SQL Editor y haz clic en el botón verde "Run"
 -- ================================================================
 
--- 1. Eliminar tablas heredadas desactivadas para que Supabase detecte
---    únicamente las 8 tablas activas actuales:
---    app_users, app_products, daily_productions, daily_sales,
---    payroll_employees, payroll_weeks, employee_loans, supplier_payments
+-- 1. Eliminar tablas heredadas desactivadas para conservar únicamente las 16 tablas activas
 DROP TABLE IF EXISTS
   aroma_flower_sheets,
   active_loans,
@@ -2120,7 +3099,7 @@ DROP TABLE IF EXISTS
   workers
 CASCADE;
 
--- 2. Tabla de Usuarios, Credenciales, Roles y Módulo Perfil
+-- 2. Usuarios, Credenciales, Roles y Perfil
 CREATE TABLE IF NOT EXISTS app_users (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
@@ -2138,28 +3117,18 @@ CREATE TABLE IF NOT EXISTS app_users (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS job_title TEXT DEFAULT '';
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS department TEXT DEFAULT '';
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '';
-ALTER TABLE app_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+CREATE INDEX IF NOT EXISTS idx_app_users_username ON app_users (LOWER(username));
 
-CREATE INDEX IF NOT EXISTS idx_app_users_username
-  ON app_users (LOWER(username));
-
--- Credenciales iniciales (conserva correos/fotos/contraseñas ya editados si existen)
 INSERT INTO app_users (id, full_name, username, password, role, job_title, department, notes, active, created_at)
 VALUES
   ('usr-haroldo90', 'Harold Anguiano Morales', 'haroldo90', 'Chevropar#1970', 'admin', 'Administrador General', 'Dirección & Administración', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00'),
   ('usr-admin-1', 'Admin_1', 'Admin_1', 'Chevropar#1970', 'admin', 'Administrador del Sistema', 'Administración', 'Cuenta administrativa principal.', TRUE, '2026-11-18 05:00'),
   ('usr-aaron-mena', 'Aaron Mena', 'aaron_mena', 'Chevropar#1970', 'admin', 'Administrador de Producción', 'Producción & Ventas', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00'),
   ('usr-aaron-prod', 'Aaron', 'aaron', 'Chevropar#1970', 'produccion', 'Encargado de Producción', 'Producción Invernadero', 'Cuenta operativa de producción del día.', TRUE, '2026-11-18 05:00'),
-  ('usr-david-prod', 'David', 'david', 'Chevropar#1970', 'produccion', 'Encargado de Producción', 'Producción Invernadero', 'Cuenta operativa de producción del día.', TRUE, '2026-11-18 05:00')
+  ('usr-david-prod', 'David', 'david', 'Chevropar#1970', 'produccion', 'Chofer / Vendedor / Producción', 'Producción & Reparto', 'Cuenta operativa de producción y reparto.', TRUE, '2026-11-18 05:00')
 ON CONFLICT (username) DO NOTHING;
 
--- 3. Tabla de Catálogo Dinámico de Productos / Variedades (Administrado por Admin)
+-- 3. Catálogo de Productos / Variedades
 CREATE TABLE IF NOT EXISTS app_products (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -2170,8 +3139,7 @@ CREATE TABLE IF NOT EXISTS app_products (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_app_products_sort
-  ON app_products (sort_order ASC, name ASC);
+CREATE INDEX IF NOT EXISTS idx_app_products_sort ON app_products (sort_order ASC, name ASC);
 
 INSERT INTO app_products (id, name, capture_mode, sort_order, active, created_at)
 VALUES
@@ -2199,7 +3167,7 @@ VALUES
   ('prod-std-y-mol', 'STD Y MOL', 'direct_total', 22, TRUE, '2026-11-09 08:00')
 ON CONFLICT (name) DO NOTHING;
 
--- 4. Tabla de Producción del Día ( CEDA CDMX ) por Empleado
+-- 4. Producción del Día (Alimenta el Inventario General Único)
 CREATE TABLE IF NOT EXISTS daily_productions (
     id TEXT PRIMARY KEY,
     production_date TEXT NOT NULL,
@@ -2216,17 +3184,16 @@ CREATE TABLE IF NOT EXISTS daily_productions (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_daily_productions_date_emp
-  ON daily_productions (production_date DESC, employee_user_id);
+CREATE INDEX IF NOT EXISTS idx_daily_productions_date_emp ON daily_productions (production_date DESC, employee_user_id);
 
--- 5. Nueva Tabla de Resumen de Ventas Diarias ( CEDA CDMX ) por Empleado y Variedad
+-- 5. Resumen de Ventas Diarias
 CREATE TABLE IF NOT EXISTS daily_sales (
     id TEXT PRIMARY KEY,
     sale_date TEXT NOT NULL,
     employee_user_id TEXT NOT NULL,
     employee_username TEXT NOT NULL,
     employee_name TEXT NOT NULL,
-    channel TEXT NOT NULL DEFAULT 'CEDA CDMX',
+    channel TEXT NOT NULL DEFAULT 'Central de Abastos CDMX',
     rows JSONB NOT NULL DEFAULT '[]'::jsonb,
     total_packages INT NOT NULL DEFAULT 0,
     total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -2235,10 +3202,9 @@ CREATE TABLE IF NOT EXISTS daily_sales (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_daily_sales_date_emp
-  ON daily_sales (sale_date DESC, employee_user_id);
+CREATE INDEX IF NOT EXISTS idx_daily_sales_date_emp ON daily_sales (sale_date DESC, employee_user_id);
 
--- 6. Tabla de Empleados (Módulo Empleados + Sueldo Semanal + Saldo Préstamo + Vínculo Credencial)
+-- 6. Directorio de Empleados y Nómina
 CREATE TABLE IF NOT EXISTS payroll_employees (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
@@ -2260,10 +3226,8 @@ CREATE TABLE IF NOT EXISTS payroll_employees (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_payroll_employees_group_active
-  ON payroll_employees (team_group, active, full_name);
+CREATE INDEX IF NOT EXISTS idx_payroll_employees_group_active ON payroll_employees (team_group, active, full_name);
 
--- Empleados iniciales (Equipo AARON del archivo base - conserva ediciones si ya existen)
 INSERT INTO payroll_employees (id, full_name, team_group, job_title, weekly_salary, has_attendance_bonus, default_bonus_amount, loan_balance, hire_date, active, created_at)
 VALUES
   ('emp-fidel', 'FIDEL', 'AARON', 'Encargado de Campo', 3500.00, FALSE, 150.00, 0.00, '2026-01-05', TRUE, '2026-11-09 08:00'),
@@ -2281,7 +3245,7 @@ VALUES
   ('emp-regina', 'REGINA', 'AARON', 'Operaria Invernadero', 2300.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00')
 ON CONFLICT (id) DO NOTHING;
 
--- 7. Tabla de Nóminas Semanales (Módulo Pagos - Empleados)
+-- 7. Nóminas Semanales (Tambos 200L, Bonos/Descuentos AyP, Horas Extras, Trabajos Extras + Historial Anual)
 CREATE TABLE IF NOT EXISTS payroll_weeks (
     id TEXT PRIMARY KEY,
     week_label TEXT NOT NULL,
@@ -2307,10 +3271,9 @@ CREATE TABLE IF NOT EXISTS payroll_weeks (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_payroll_weeks_dates
-  ON payroll_weeks (start_date DESC, team_group);
+CREATE INDEX IF NOT EXISTS idx_payroll_weeks_dates ON payroll_weeks (start_date DESC, team_group);
 
--- 8. Tabla de Préstamos y Abonos / Descuentos de Empleados
+-- 8. Préstamos y Descuentos de Empleados
 CREATE TABLE IF NOT EXISTS employee_loans (
     id TEXT PRIMARY KEY,
     employee_id TEXT NOT NULL,
@@ -2326,10 +3289,9 @@ CREATE TABLE IF NOT EXISTS employee_loans (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_employee_loans_emp_date
-  ON employee_loans (employee_id, movement_date DESC);
+CREATE INDEX IF NOT EXISTS idx_employee_loans_emp_date ON employee_loans (employee_id, movement_date DESC);
 
--- 9. Tabla de Pagos a Proveedores y Otros Gastos Operativos
+-- 9. Pagos a Proveedores y Otros Gastos Operativos
 CREATE TABLE IF NOT EXISTS supplier_payments (
     id TEXT PRIMARY KEY,
     payment_date TEXT NOT NULL,
@@ -2346,10 +3308,199 @@ CREATE TABLE IF NOT EXISTS supplier_payments (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_supplier_payments_date
-  ON supplier_payments (payment_date DESC, status);
+CREATE INDEX IF NOT EXISTS idx_supplier_payments_date ON supplier_payments (payment_date DESC, status);
 
--- 10. Habilitar RLS y políticas de acceso para las 8 tablas activas de Aroma Flower
+-- 10. Puntos de Venta (Central de Abastos CDMX, Mercado Puebla y nuevos)
+CREATE TABLE IF NOT EXISTS sales_points (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    city TEXT DEFAULT '',
+    address TEXT DEFAULT '',
+    contact_phone TEXT DEFAULT '',
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO sales_points (id, name, city, address, active, notes, created_at)
+VALUES
+  ('pos-ceda-cdmx', 'Central de Abastos CDMX', 'Ciudad de México', 'Nave de Flores y Hortalizas, Iztapalapa', TRUE, 'Punto principal CDMX', '2026-11-09 08:00'),
+  ('pos-puebla', 'Mercado Puebla', 'Puebla', 'Central de Abastos Puebla, Zona Flores', TRUE, 'Ruta Puebla', '2026-11-09 08:00')
+ON CONFLICT (name) DO NOTHING;
+
+-- 11. Clientes Comerciales y Saldo de Cuentas por Cobrar
+CREATE TABLE IF NOT EXISTS sales_clients (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT DEFAULT '',
+    default_sales_point_id TEXT DEFAULT '',
+    default_sales_point_name TEXT DEFAULT '',
+    credit_limit NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    balance NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sales_clients_name ON sales_clients (name);
+
+INSERT INTO sales_clients (id, name, phone, default_sales_point_id, default_sales_point_name, credit_limit, balance, active, notes, created_at)
+VALUES
+  ('cli-chema', 'Chema', '5512345678', 'pos-ceda-cdmx', 'Central de Abastos CDMX', 25000.00, 4850.00, TRUE, 'Cliente mayorista frecuente en CDMX', '2026-11-09 08:00'),
+  ('cli-floreria-puebla', 'Florería Los Ángeles Puebla', '2223456789', 'pos-puebla', 'Mercado Puebla', 15000.00, 0.00, TRUE, 'Entrega semanal Puebla', '2026-11-09 08:00')
+ON CONFLICT (id) DO NOTHING;
+
+-- 12. Cargas de Camioneta, Gastos de Viaje y Prorrateo entre Dueños
+CREATE TABLE IF NOT EXISTS truck_loads (
+    id TEXT PRIMARY KEY,
+    folio TEXT NOT NULL,
+    load_date TEXT NOT NULL,
+    sales_point_id TEXT NOT NULL,
+    sales_point_name TEXT NOT NULL,
+    driver_user_id TEXT DEFAULT '',
+    driver_name TEXT NOT NULL,
+    vehicle_label TEXT DEFAULT '',
+    rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_lar INT NOT NULL DEFAULT 0,
+    total_med INT NOT NULL DEFAULT 0,
+    total_chi INT NOT NULL DEFAULT 0,
+    total_packages INT NOT NULL DEFAULT 0,
+    expenses JSONB NOT NULL DEFAULT '{}'::jsonb,
+    total_expenses NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    cost_per_package NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    owner_shares JSONB NOT NULL DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL DEFAULT 'en_ruta' CHECK (status IN ('en_ruta', 'liquidada')),
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_truck_loads_date ON truck_loads (load_date DESC, sales_point_id);
+
+-- 13. Notas de Remisión (Vendedor / Tablet / WhatsApp / Contado, Crédito, Depósito)
+CREATE TABLE IF NOT EXISTS remission_notes (
+    id TEXT PRIMARY KEY,
+    folio TEXT NOT NULL,
+    note_date TEXT NOT NULL,
+    load_id TEXT DEFAULT '',
+    load_folio TEXT DEFAULT '',
+    sales_point_id TEXT NOT NULL,
+    sales_point_name TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    client_phone TEXT DEFAULT '',
+    seller_user_id TEXT DEFAULT '',
+    seller_name TEXT NOT NULL,
+    owner_name TEXT DEFAULT 'Harold',
+    rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_packages INT NOT NULL DEFAULT 0,
+    total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    payment_method TEXT NOT NULL DEFAULT 'contado' CHECK (payment_method IN ('contado', 'credito', 'deposito')),
+    payment_status TEXT NOT NULL DEFAULT 'pagado' CHECK (payment_status IN ('pagado', 'parcial', 'pendiente')),
+    paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    balance_due NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    deducts_inventory BOOLEAN NOT NULL DEFAULT FALSE,
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_remission_notes_date_client ON remission_notes (note_date DESC, client_id);
+
+-- 14. Abonos y Pagos a Cuenta de Clientes (Estado de Cuenta)
+CREATE TABLE IF NOT EXISTS client_payments (
+    id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    remission_note_id TEXT DEFAULT '',
+    remission_folio TEXT DEFAULT '',
+    payment_date TEXT NOT NULL,
+    payment_type TEXT NOT NULL DEFAULT 'abono' CHECK (payment_type IN ('abono', 'pago_total')),
+    payment_method TEXT NOT NULL DEFAULT 'efectivo' CHECK (payment_method IN ('efectivo', 'deposito', 'transferencia')),
+    amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    balance_after NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    reference TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_payments_client_date ON client_payments (client_id, payment_date DESC);
+
+-- 15. Inventario de Insumos por Área (Invernadero, Empaque, Comida, Otros) + "¿Para qué sirve?"
+CREATE TABLE IF NOT EXISTS supply_items (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    area TEXT NOT NULL DEFAULT 'invernadero' CHECK (area IN ('invernadero', 'empaque', 'comida_trabajadores', 'comida', 'otros')),
+    category TEXT NOT NULL DEFAULT 'General',
+    purpose TEXT NOT NULL DEFAULT '',
+    active_ingredient TEXT DEFAULT '',
+    recommended_dose TEXT DEFAULT '',
+    unit TEXT NOT NULL DEFAULT 'L',
+    stock NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    min_stock NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    supplier TEXT DEFAULT '',
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_supply_items_area ON supply_items (area, active, name);
+
+INSERT INTO supply_items (id, name, area, category, purpose, active_ingredient, recommended_dose, unit, stock, min_stock, unit_cost, supplier, active, created_at)
+VALUES
+  ('sup-consist-max', 'Consist Max', 'invernadero', 'Fungicida Sistémico', 'Control preventivo y curativo de cenicilla (Oidio), roya y botrytis en rosa de corte. Protege follaje y botón floral.', 'Trifloxistrobin + Tebuconazol', '150 ml por tambo de 200L', 'L', 6.50, 2.00, 1450.00, 'AgroQuímicos del Valle', TRUE, '2026-11-01 08:00'),
+  ('sup-nitrato-calcio', 'Nitrato de Calcio Soluble', 'invernadero', 'Fertilizante', 'Aporta calcio asimilable y nitrógeno nítrico para fortalecer tallos largos, evitar cuello doblado y mejorar vida de florero.', 'Ca(NO3)2 15.5-0-0 + 26% CaO', '2 kg por 1,000L de solución', 'Kg', 125.00, 50.00, 32.00, 'Fertilizantes Florícolas MX', TRUE, '2026-11-01 08:00'),
+  ('sup-capuchones', 'Capuchones Kraft / Celofán x25', 'empaque', 'Material de Empaque', 'Protección y presentación comercial para ramos de 25 tallos listos para embarque y venta.', '', '1 pieza por paquete', 'Pza', 1800.00, 500.00, 2.80, 'Empaques Florales SA', TRUE, '2026-11-01 08:00'),
+  ('sup-despensa', 'Despensa Semanal Cuadrilla', 'comida_trabajadores', 'Comida Trabajadores', 'Insumos de alimentación, tortillas, agua purificada y despensa para el personal en invernadero.', '', 'Según semana operativa', 'Lote', 4.00, 1.00, 1250.00, 'Abarrotes La Central', TRUE, '2026-11-01 08:00')
+ON CONFLICT (id) DO NOTHING;
+
+-- 16. Compras de Insumos
+CREATE TABLE IF NOT EXISTS supply_purchases (
+    id TEXT PRIMARY KEY,
+    purchase_date TEXT NOT NULL,
+    supply_item_id TEXT DEFAULT '',
+    supply_name TEXT NOT NULL,
+    area TEXT NOT NULL DEFAULT 'invernadero' CHECK (area IN ('invernadero', 'empaque', 'comida_trabajadores', 'comida', 'otros')),
+    supplier_name TEXT NOT NULL DEFAULT '',
+    quantity NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    unit TEXT NOT NULL DEFAULT 'L',
+    unit_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    payment_method TEXT NOT NULL DEFAULT 'efectivo',
+    reference TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_supply_purchases_date ON supply_purchases (purchase_date DESC, area);
+
+-- 17. Aplicaciones Foliares y Fertilización por Invernadero
+CREATE TABLE IF NOT EXISTS greenhouse_applications (
+    id TEXT PRIMARY KEY,
+    application_date TEXT NOT NULL,
+    greenhouse_name TEXT NOT NULL,
+    application_type TEXT NOT NULL DEFAULT 'foliar' CHECK (application_type IN ('foliar', 'fertilizacion', 'drench', 'otro')),
+    supply_item_id TEXT DEFAULT '',
+    supply_name TEXT NOT NULL,
+    supply_purpose TEXT DEFAULT '',
+    quantity_used NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    unit TEXT NOT NULL DEFAULT 'L',
+    tambos_200l NUMERIC(8, 2) NOT NULL DEFAULT 1,
+    applicator_name TEXT NOT NULL DEFAULT '',
+    estimated_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_greenhouse_apps_date ON greenhouse_applications (application_date DESC, greenhouse_name);
+
+-- 18. Habilitar RLS y políticas de acceso para las 16 tablas activas de Aroma Flower
 DO $$
 DECLARE
   t TEXT;
@@ -2361,7 +3512,15 @@ DECLARE
     'payroll_employees',
     'payroll_weeks',
     'employee_loans',
-    'supplier_payments'
+    'supplier_payments',
+    'sales_points',
+    'sales_clients',
+    'truck_loads',
+    'remission_notes',
+    'client_payments',
+    'supply_items',
+    'supply_purchases',
+    'greenhouse_applications'
   ];
 BEGIN
   FOREACH t IN ARRAY tbls LOOP
@@ -2692,13 +3851,25 @@ END $$;
     if (onlyAromaFlowers) {
       return `-- ================================================================
 -- SCRIPT DE LIMPIEZA DE REGISTROS OPERATIVOS SUPABASE
--- Invernadero Aroma Flower (Mantiene usuarios, catálogo y empleados)
+-- Invernadero Aroma Flower (Mantiene usuarios, catálogo, puntos de venta, clientes, insumos y empleados)
 -- ================================================================
 BEGIN;
-TRUNCATE TABLE daily_productions, daily_sales, payroll_weeks, employee_loans, supplier_payments CASCADE;
+TRUNCATE TABLE
+  daily_productions,
+  daily_sales,
+  payroll_weeks,
+  employee_loans,
+  supplier_payments,
+  truck_loads,
+  remission_notes,
+  client_payments,
+  supply_purchases,
+  greenhouse_applications
+CASCADE;
 UPDATE payroll_employees SET loan_balance = 0;
+UPDATE sales_clients SET balance = 0;
 COMMIT;
--- Las 8 tablas activas permanecen listas para operación real.
+-- Las 16 tablas activas permanecen listas para operación real.
 `;
     }
 
@@ -2756,6 +3927,14 @@ COMMIT;
       payrollWeeks,
       employeeLoans,
       supplierPayments,
+      salesPoints,
+      salesClients,
+      truckLoads,
+      remissionNotes,
+      clientPayments,
+      supplyItems,
+      supplyPurchases,
+      greenhouseApplications,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -2785,6 +3964,14 @@ COMMIT;
       if (data.payrollWeeks) setPayrollWeeks(data.payrollWeeks);
       if (data.employeeLoans) setEmployeeLoans(data.employeeLoans);
       if (data.supplierPayments) setSupplierPayments(data.supplierPayments);
+      if (data.salesPoints) setSalesPoints(data.salesPoints);
+      if (data.salesClients) setSalesClients(data.salesClients);
+      if (data.truckLoads) setTruckLoads(data.truckLoads);
+      if (data.remissionNotes) setRemissionNotes(data.remissionNotes);
+      if (data.clientPayments) setClientPayments(data.clientPayments);
+      if (data.supplyItems) setSupplyItems(data.supplyItems);
+      if (data.supplyPurchases) setSupplyPurchases(data.supplyPurchases);
+      if (data.greenhouseApplications) setGreenhouseApplications(data.greenhouseApplications);
 
       setDemoDataCleared(false);
       addAuditLog('Restauración de Respaldo', 'Base de datos restaurada desde archivo JSON');
@@ -2858,6 +4045,31 @@ COMMIT;
         supplierPayments,
         saveSupplierPayment,
         deleteSupplierPayment,
+        generalInventory,
+        salesPoints,
+        saveSalesPoint,
+        deleteSalesPoint,
+        salesClients,
+        saveSalesClient,
+        deleteSalesClient,
+        truckLoads,
+        saveTruckLoad,
+        deleteTruckLoad,
+        remissionNotes,
+        saveRemissionNote,
+        deleteRemissionNote,
+        clientPayments,
+        addClientPayment,
+        deleteClientPayment,
+        supplyItems,
+        saveSupplyItem,
+        deleteSupplyItem,
+        supplyPurchases,
+        addSupplyPurchase,
+        deleteSupplyPurchase,
+        greenhouseApplications,
+        addGreenhouseApplication,
+        deleteGreenhouseApplication,
         refreshFromSupabase,
         addModule,
         updateModule,

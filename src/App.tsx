@@ -17,8 +17,11 @@ import { AdminRoleView } from './components/admin/AdminRoleView';
 import { AdminProductsView } from './components/admin/AdminProductsView';
 import { EmployeesView } from './components/admin/EmployeesView';
 import { PaymentsView } from './components/admin/PaymentsView';
+import { SuppliesAndAppsView } from './components/admin/SuppliesAndAppsView';
+import { CostControlView } from './components/admin/CostControlView';
 import { DailyProductionView } from './components/production/DailyProductionView';
 import { DailySalesView } from './components/sales/DailySalesView';
+import { SalesOperationsView } from './components/sales/SalesOperationsView';
 import { ProfileView } from './components/profile/ProfileView';
 import { ROLES } from './types/greenhouse';
 
@@ -54,17 +57,29 @@ const MainAppLayout: React.FC = () => {
         if (activeView === 'admin_pagos') {
           return <PaymentsView />;
         }
+        if (activeView === 'admin_insumos') {
+          return <SuppliesAndAppsView />;
+        }
+        if (activeView === 'admin_costos') {
+          return <CostControlView />;
+        }
         if (activeView === 'admin_productos') {
           return <AdminProductsView />;
         }
         if (activeView === 'produccion_dia') {
           return <DailyProductionView />;
         }
+        if (activeView === 'ventas_operacion') {
+          return <SalesOperationsView />;
+        }
         if (activeView === 'resumen_ventas') {
           return <DailySalesView />;
         }
         return <AdminRoleView />;
       case 'produccion':
+        if (activeView === 'ventas_operacion') {
+          return <SalesOperationsView />;
+        }
         if (activeView === 'resumen_ventas') {
           return <DailySalesView />;
         }

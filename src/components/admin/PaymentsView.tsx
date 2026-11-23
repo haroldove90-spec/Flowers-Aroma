@@ -19,6 +19,7 @@ import {
   Sliders,
   Search,
   RefreshCw,
+  Calendar,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import {
@@ -34,6 +35,9 @@ import {
 } from '../../types/greenhouse';
 import { AromaFlowersLogo } from '../common/AromaFlowersLogo';
 import {
+  AnnualPayrollSummaryRow,
+  exportAnnualPayrollHistoryExcel,
+  exportAnnualPayrollHistoryPdf,
   exportEmployeeLoansExcel,
   exportEmployeeLoansPdf,
   exportEmployeePaySlipPdf,
@@ -114,9 +118,11 @@ const recalculateRow = (row: PayrollWeekRow, workDaysPerWeek = 6): PayrollWeekRo
   const loanPrev = Math.max(0, round2(row.loanPreviousBalance));
   const loanPay = Math.max(0, round2(row.loanPayment));
   const loanRemaining = Math.max(0, round2(loanPrev - loanPay));
+  const attendanceDiscount = Math.max(0, round2(row.attendanceDiscount || 0));
   const totalNetPay = round2(
     weekPay +
-      Number(row.attendanceBonus || 0) +
+      Number(row.attendanceBonus || 0) -
+      attendanceDiscount +
       Number(row.fumigadasAmount || 0) +
       Number(row.cargadasAmount || 0) +
       Number(row.extraHoursAmount || 0) +
@@ -128,6 +134,7 @@ const recalculateRow = (row: PayrollWeekRow, workDaysPerWeek = 6): PayrollWeekRo
   return {
     ...row,
     weekPay,
+    attendanceDiscount,
     loanPreviousBalance: loanPrev,
     loanPayment: loanPay,
     loanRemainingBalance: loanRemaining,
@@ -140,6 +147,9 @@ const computeWeekTotals = (rows: PayrollWeekRow[]) => {
     (acc, r) => {
       acc.totalWeekPay = round2(acc.totalWeekPay + Number(r.weekPay || 0));
       acc.totalBonus = round2(acc.totalBonus + Number(r.attendanceBonus || 0));
+      acc.totalAttendanceDiscounts = round2(
+        acc.totalAttendanceDiscounts + Number(r.attendanceDiscount || 0)
+      );
       acc.totalFumigadas = round2(acc.totalFumigadas + Number(r.fumigadasAmount || 0));
       acc.totalCargadas = round2(acc.totalCargadas + Number(r.cargadasAmount || 0));
       acc.totalExtraHours = round2(acc.totalExtraHours + Number(r.extraHoursAmount || 0));
@@ -154,6 +164,7 @@ const computeWeekTotals = (rows: PayrollWeekRow[]) => {
     {
       totalWeekPay: 0,
       totalBonus: 0,
+      totalAttendanceDiscounts: 0,
       totalFumigadas: 0,
       totalCargadas: 0,
       totalExtraHours: 0,
@@ -184,7 +195,8 @@ export const PaymentsView: React.FC = () => {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  const [subTab, setSubTab] = useState<'nomina' | 'prestamos' | 'proveedores' | 'resumen'>('nomina');
+  const [subTab, setSubTab] = useState<'nomina' | 'prestamos' | 'proveedores' | 'resumen' | 'anual'>('nomina');
+  const [selectedYear, setSelectedYear] = useState<string>(today.slice(0, 4));
   const [feedback, setFeedback] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -247,6 +259,7 @@ export const PaymentsView: React.FC = () => {
           attendanceBonus: emp.hasAttendanceBonus
             ? Number(emp.defaultBonusAmount || rates.defaultBonus || 150)
             : 0,
+          attendanceDiscount: 0,
           fumigadasQty: 0,
           fumigadasAmount: 0,
           cargadasQty: 0,
@@ -257,6 +270,7 @@ export const PaymentsView: React.FC = () => {
           destajosAmount: 0,
           extraWorkQty: 0,
           extraWorkAmount: 0,
+          extraWorkDescription: '',
           otherDeductions: 0,
           loanPreviousBalance: Number(emp.loanBalance || 0),
           loanPayment: 0,
@@ -359,6 +373,7 @@ export const PaymentsView: React.FC = () => {
           attendanceBonus: emp.hasAttendanceBonus
             ? Number(emp.defaultBonusAmount || rates.defaultBonus || 150)
             : 0,
+          attendanceDiscount: 0,
           fumigadasQty: 0,
           fumigadasAmount: 0,
           cargadasQty: 0,
@@ -369,6 +384,7 @@ export const PaymentsView: React.FC = () => {
           destajosAmount: 0,
           extraWorkQty: 0,
           extraWorkAmount: 0,
+          extraWorkDescription: '',
           otherDeductions: 0,
           loanPreviousBalance: Number(emp.loanBalance || 0),
           loanPayment: 0,
@@ -396,7 +412,17 @@ export const PaymentsView: React.FC = () => {
     teamGroup: teamGroup || 'AARON',
     rates,
     rows,
-    ...weekTotals,
+    totalWeekPay: weekTotals.totalWeekPay,
+    totalBonus: weekTotals.totalBonus,
+    totalFumigadas: weekTotals.totalFumigadas,
+    totalCargadas: weekTotals.totalCargadas,
+    totalExtraHours: weekTotals.totalExtraHours,
+    totalDestajos: weekTotals.totalDestajos,
+    totalExtraWork: weekTotals.totalExtraWork,
+    totalOtherDeductions: round2(weekTotals.totalOtherDeductions + weekTotals.totalAttendanceDiscounts),
+    totalLoanPayments: weekTotals.totalLoanPayments,
+    totalLoanRemaining: weekTotals.totalLoanRemaining,
+    grandTotalPay: weekTotals.grandTotalPay,
     status: weekStatus,
     notes: weekNotes.trim() || undefined,
   });
@@ -644,6 +670,87 @@ export const PaymentsView: React.FC = () => {
     };
   }, [payrollWeeks, supplierPayments, payrollEmployees, employeeLoans]);
 
+  const availableYears = useMemo(() => {
+    const set = new Set<string>([today.slice(0, 4)]);
+    payrollWeeks.forEach((w) => {
+      const y = (w.startDate || w.endDate || '').slice(0, 4);
+      if (y && /^\d{4}$/.test(y)) set.add(y);
+    });
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [payrollWeeks, today]);
+
+  const annualHistory = useMemo<AnnualPayrollSummaryRow[]>(() => {
+    const map = new Map<string, AnnualPayrollSummaryRow>();
+    const filteredWeeks = payrollWeeks.filter((w) => {
+      if (selectedYear === 'ALL') return true;
+      return (w.startDate || w.endDate || '').startsWith(selectedYear);
+    });
+
+    filteredWeeks.forEach((w) => {
+      (w.rows || []).forEach((r) => {
+        const key = r.employeeId || r.employeeName.toUpperCase();
+        const existing = map.get(key) || {
+          employeeName: r.employeeName,
+          teamGroup: r.teamGroup || w.teamGroup || 'AARON',
+          weeksCount: 0,
+          totalDaysWorked: 0,
+          totalBasePay: 0,
+          totalBonusesAndExtras: 0,
+          totalFumigadasCount: 0,
+          totalExtraHours: 0,
+          totalDeductionsAndLoans: 0,
+          totalNetPaid: 0,
+        };
+        existing.weeksCount += 1;
+        existing.totalDaysWorked = round2(existing.totalDaysWorked + Number(r.daysWorked || 0));
+        existing.totalBasePay = round2(existing.totalBasePay + Number(r.weekPay || 0));
+        existing.totalFumigadasCount = round2(
+          existing.totalFumigadasCount + Number(r.fumigadasQty || 0)
+        );
+        existing.totalExtraHours = round2(
+          existing.totalExtraHours + Number(r.extraHoursQty || 0)
+        );
+        existing.totalBonusesAndExtras = round2(
+          existing.totalBonusesAndExtras +
+            Number(r.attendanceBonus || 0) +
+            Number(r.fumigadasAmount || 0) +
+            Number(r.cargadasAmount || 0) +
+            Number(r.extraHoursAmount || 0) +
+            Number(r.destajosAmount || 0) +
+            Number(r.extraWorkAmount || 0)
+        );
+        existing.totalDeductionsAndLoans = round2(
+          existing.totalDeductionsAndLoans +
+            Number(r.attendanceDiscount || 0) +
+            Number(r.otherDeductions || 0) +
+            Number(r.loanPayment || 0)
+        );
+        existing.totalNetPaid = round2(existing.totalNetPaid + Number(r.totalNetPay || 0));
+        map.set(key, existing);
+      });
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.totalNetPaid - a.totalNetPaid);
+  }, [payrollWeeks, selectedYear]);
+
+  const annualTotals = useMemo(
+    () =>
+      annualHistory.reduce(
+        (acc, r) => {
+          acc.days = round2(acc.days + r.totalDaysWorked);
+          acc.base = round2(acc.base + r.totalBasePay);
+          acc.fumigadasCount = round2(acc.fumigadasCount + r.totalFumigadasCount);
+          acc.extraHours = round2(acc.extraHours + r.totalExtraHours);
+          acc.bonusesExtras = round2(acc.bonusesExtras + r.totalBonusesAndExtras);
+          acc.deductions = round2(acc.deductions + r.totalDeductionsAndLoans);
+          acc.net = round2(acc.net + r.totalNetPaid);
+          return acc;
+        },
+        { days: 0, base: 0, fumigadasCount: 0, extraHours: 0, bonusesExtras: 0, deductions: 0, net: 0 }
+      ),
+    [annualHistory]
+  );
+
   const currentExportWeek: PayrollWeekEntry = useMemo(
     () => ({
       ...buildCurrentWeekObject(),
@@ -692,10 +799,16 @@ export const PaymentsView: React.FC = () => {
       </div>
 
       {/* Sub-Tabs Navigation */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {(
           [
             { id: 'nomina', label: 'Nómina Semanal', icon: Banknote, badge: `${payrollWeeks.length}` },
+            {
+              id: 'anual',
+              label: 'Historial Anual',
+              icon: Calendar,
+              badge: `${annualTotals.days} días`,
+            },
             {
               id: 'prestamos',
               label: 'Préstamos y Desc.',
@@ -804,7 +917,7 @@ export const PaymentsView: React.FC = () => {
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#FAF8F5] hover:bg-stone-200 text-[#000000] text-xs font-bold border border-stone-300 transition cursor-pointer"
                 >
                   <Sliders className="w-3.5 h-3.5 text-[#5C1125]" />
-                  <span>Tarifas (${rates.fumigadaRate}/fumig.)</span>
+                  <span>Tarifas (200L: ${rates.fumigadaRate} | H.Ext: ${rates.extraHourRate})</span>
                 </button>
                 <button
                   type="button"
@@ -900,11 +1013,11 @@ export const PaymentsView: React.FC = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                   {(
                     [
-                      ['fumigadaRate', 'Fumigada ($/u)'],
+                      ['fumigadaRate', 'Fumigada Tambo 200L ($)'],
                       ['cargadaRate', 'Cargada ($/u)'],
                       ['extraHourRate', 'Hora Extra ($/h)'],
                       ['destajoRate', 'Destajo ($/u)'],
-                      ['defaultBonus', 'Bono AyP ($)'],
+                      ['defaultBonus', 'Bono AyP Base ($)'],
                       ['workDaysPerWeek', 'Días Base Sem.'],
                     ] as const
                   ).map(([key, label]) => (
@@ -946,9 +1059,9 @@ export const PaymentsView: React.FC = () => {
               </p>
             </div>
             <div className="p-3.5 rounded-2xl bg-white border border-stone-200 shadow-xs">
-              <span className="text-[10px] font-bold uppercase text-amber-700">Abonos Préstamo</span>
+              <span className="text-[10px] font-bold uppercase text-amber-700">Desc. + Abonos Prést.</span>
               <p className="text-lg font-black text-amber-800 mt-0.5">
-                - {fmtMoney(weekTotals.totalLoanPayments + weekTotals.totalOtherDeductions)}
+                - {fmtMoney(weekTotals.totalLoanPayments + weekTotals.totalOtherDeductions + weekTotals.totalAttendanceDiscounts)}
               </p>
             </div>
             <div className="p-3.5 rounded-2xl bg-white border border-stone-200 shadow-xs">
@@ -995,7 +1108,7 @@ export const PaymentsView: React.FC = () => {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse min-w-[1380px]">
+              <table className="w-full text-xs border-collapse min-w-[1540px]">
                 <thead>
                   <tr className="bg-[#5C1125] text-white text-[10px] uppercase tracking-wider">
                     <th className="py-2.5 px-2.5 text-left sticky left-0 bg-[#5C1125] z-10 min-w-[130px]">
@@ -1004,21 +1117,22 @@ export const PaymentsView: React.FC = () => {
                     <th className="py-2.5 px-1.5 text-center w-14">Días</th>
                     <th className="py-2.5 px-1.5 text-right w-24">P/ Semanal</th>
                     <th className="py-2.5 px-2 text-right w-24">Semana</th>
-                    <th className="py-2.5 px-1.5 text-right w-20">Bono/AyP</th>
+                    <th className="py-2.5 px-1.5 text-right w-20">Bono AyP</th>
+                    <th className="py-2.5 px-1.5 text-right w-20">Desc. AyP</th>
                     <th className="py-2.5 px-1.5 text-center w-28">
-                      Fumig. (Cant / $)
+                      Fumig. 200L (Cant / $)
                     </th>
                     <th className="py-2.5 px-1.5 text-center w-28">
                       Carg. (Cant / $)
                     </th>
                     <th className="py-2.5 px-1.5 text-center w-28">
-                      H.Ext (Cant / $)
+                      H.Ext (Hrs / $)
                     </th>
                     <th className="py-2.5 px-1.5 text-center w-28">
                       Destajo (Cant / $)
                     </th>
-                    <th className="py-2.5 px-1.5 text-right w-24">Trab. Extra ($)</th>
-                    <th className="py-2.5 px-1.5 text-right w-20">Desc. ($)</th>
+                    <th className="py-2.5 px-1.5 text-left w-40">Trab. Extra ($ / Desc.)</th>
+                    <th className="py-2.5 px-1.5 text-right w-20">Otros Desc.</th>
                     <th className="py-2.5 px-1.5 text-right w-24">Pago Prést.</th>
                     <th className="py-2.5 px-1.5 text-right w-24">Préstamo</th>
                     <th className="py-2.5 px-2 text-right w-24">Resta Prést.</th>
@@ -1110,6 +1224,24 @@ export const PaymentsView: React.FC = () => {
                             }))
                           }
                           className="no-spinner w-full text-right px-1.5 py-1 border border-stone-200 rounded-lg font-semibold text-[#535B28] focus:ring-1 focus:ring-[#5C1125]"
+                        />
+                      </td>
+
+                      {/* DESCUENTO AyP (Asistencia y Puntualidad) */}
+                      <td className="py-1.5 px-1">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={r.attendanceDiscount ? String(r.attendanceDiscount) : ''}
+                          placeholder="0"
+                          title="Descuento por falta o retardo (Asistencia y Puntualidad)"
+                          onChange={(e) =>
+                            updateRowField(idx, (row) => ({
+                              ...row,
+                              attendanceDiscount: parseDec(e.target.value),
+                            }))
+                          }
+                          className="no-spinner w-full text-right px-1.5 py-1 border border-rose-200 rounded-lg font-semibold text-rose-700 focus:ring-1 focus:ring-[#5C1125]"
                         />
                       </td>
 
@@ -1252,21 +1384,35 @@ export const PaymentsView: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* TRABAJO EXTRA */}
+                      {/* TRABAJO EXTRA (Monto + Descripción abierta) */}
                       <td className="py-1.5 px-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={r.extraWorkAmount ? String(r.extraWorkAmount) : ''}
-                          placeholder="0"
-                          onChange={(e) =>
-                            updateRowField(idx, (row) => ({
-                              ...row,
-                              extraWorkAmount: parseDec(e.target.value),
-                            }))
-                          }
-                          className="no-spinner w-full text-right px-1.5 py-1 border border-stone-200 rounded-lg font-semibold focus:ring-1 focus:ring-[#5C1125]"
-                        />
+                        <div className="space-y-1">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={r.extraWorkAmount ? String(r.extraWorkAmount) : ''}
+                            placeholder="$ Monto"
+                            onChange={(e) =>
+                              updateRowField(idx, (row) => ({
+                                ...row,
+                                extraWorkAmount: parseDec(e.target.value),
+                              }))
+                            }
+                            className="no-spinner w-full text-right px-1.5 py-1 border border-stone-200 rounded-lg font-semibold focus:ring-1 focus:ring-[#5C1125]"
+                          />
+                          <input
+                            type="text"
+                            value={r.extraWorkDescription || ''}
+                            placeholder="Descripción trabajo extra..."
+                            onChange={(e) =>
+                              updateRowField(idx, (row) => ({
+                                ...row,
+                                extraWorkDescription: e.target.value,
+                              }))
+                            }
+                            className="w-full px-1.5 py-0.5 border border-stone-200 rounded-md text-[10px] text-stone-700 bg-[#FAF8F5] focus:ring-1 focus:ring-[#5C1125]"
+                          />
+                        </div>
                       </td>
 
                       {/* OTROS DESCUENTOS */}
@@ -1355,6 +1501,9 @@ export const PaymentsView: React.FC = () => {
                     </td>
                     <td className="py-3 px-1.5 text-right whitespace-nowrap">
                       {fmtMoney(weekTotals.totalBonus)}
+                    </td>
+                    <td className="py-3 px-1.5 text-right text-rose-300 whitespace-nowrap">
+                      -{fmtMoney(weekTotals.totalAttendanceDiscounts)}
                     </td>
                     <td className="py-3 px-1.5 text-right whitespace-nowrap">
                       {fmtMoney(weekTotals.totalFumigadas)}
@@ -2252,6 +2401,159 @@ export const PaymentsView: React.FC = () => {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== SUB-TAB 5: HISTORIAL ANUAL (DÍAS Y PAGOS) ==================== */}
+      {subTab === 'anual' && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl border border-stone-200 shadow-xs p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm sm:text-base font-extrabold text-[#000000] flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-[#5C1125]" />
+                <span>Historial Anual por Trabajador (Días Trabajados y Pagos Acumulados)</span>
+              </h2>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Consolidado automático de todas las nóminas semanales guardadas por año para control de antigüedad, aguinaldo y costo anual de mano de obra.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="px-3 py-2 border border-stone-300 rounded-xl text-xs font-bold bg-[#FAF8F5] text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
+              >
+                {availableYears.map((yr) => (
+                  <option key={yr} value={yr}>
+                    Año {yr}
+                  </option>
+                ))}
+                <option value="ALL">Todo el Historial</option>
+              </select>
+              <button
+                type="button"
+                onClick={() =>
+                  exportAnnualPayrollHistoryExcel(
+                    selectedYear === 'ALL' ? 'HISTORICO' : selectedYear,
+                    annualHistory
+                  )
+                }
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-[#C3A25D]" />
+                <span>Excel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  exportAnnualPayrollHistoryPdf(
+                    selectedYear === 'ALL' ? 'HISTORICO' : selectedYear,
+                    annualHistory
+                  )
+                }
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-bold cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5 text-[#C3A25D]" />
+                <span>PDF</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
+              <span className="text-[10px] font-bold uppercase text-stone-500">Trabajadores en Periodo</span>
+              <p className="text-2xl font-black text-[#000000] mt-0.5">{annualHistory.length}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
+              <span className="text-[10px] font-bold uppercase text-[#535B28]">Total Días Trabajados</span>
+              <p className="text-2xl font-black text-[#535B28] mt-0.5">{annualTotals.days.toLocaleString()}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
+              <span className="text-[10px] font-bold uppercase text-amber-800">Bonos + Fumig. + Extras</span>
+              <p className="text-2xl font-black text-amber-800 mt-0.5">
+                {fmtMoney(annualTotals.bonusesExtras)}
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-[#5C1125] text-white border border-[#C3A25D]/40 shadow-sm">
+              <span className="text-[10px] font-bold uppercase text-[#C3A25D]">Total Pagado en el Año</span>
+              <p className="text-2xl font-black mt-0.5">{fmtMoney(annualTotals.net)}</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse min-w-[900px]">
+                <thead>
+                  <tr className="bg-[#5C1125] text-white text-[10px] uppercase tracking-wider">
+                    <th className="py-3 px-3 text-left">Trabajador</th>
+                    <th className="py-3 px-2 text-center">Equipo</th>
+                    <th className="py-3 px-2 text-center">Semanas</th>
+                    <th className="py-3 px-2 text-center">Días Trabajados</th>
+                    <th className="py-3 px-2 text-right">Sueldo Base</th>
+                    <th className="py-3 px-2 text-center">Tambos 200L</th>
+                    <th className="py-3 px-2 text-center">Hrs Extra</th>
+                    <th className="py-3 px-2 text-right">Bonos y Extras ($)</th>
+                    <th className="py-3 px-2 text-right">Desc. / Prést.</th>
+                    <th className="py-3 px-3 text-right bg-[#3f0918] text-[#C3A25D]">Total Anual Pagado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {annualHistory.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-8 text-center text-stone-500">
+                        No hay nóminas guardadas en {selectedYear === 'ALL' ? 'el historial' : `el año ${selectedYear}`}.
+                      </td>
+                    </tr>
+                  ) : (
+                    annualHistory.map((row) => (
+                      <tr key={`${row.employeeName}-${row.teamGroup}`} className="hover:bg-[#FAF8F5]">
+                        <td className="py-2.5 px-3 font-extrabold text-[#000000]">{row.employeeName}</td>
+                        <td className="py-2.5 px-2 text-center">
+                          <span className="px-2 py-0.5 rounded bg-[#FAF8F5] border border-stone-200 text-[10px] font-bold text-[#535B28]">
+                            {row.teamGroup}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 text-center font-semibold">{row.weeksCount}</td>
+                        <td className="py-2.5 px-2 text-center font-black text-[#535B28]">
+                          {row.totalDaysWorked}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-semibold">{fmtMoney(row.totalBasePay)}</td>
+                        <td className="py-2.5 px-2 text-center font-semibold">{row.totalFumigadasCount}</td>
+                        <td className="py-2.5 px-2 text-center font-semibold">{row.totalExtraHours}</td>
+                        <td className="py-2.5 px-2 text-right font-semibold text-[#535B28]">
+                          {fmtMoney(row.totalBonusesAndExtras)}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-semibold text-rose-700">
+                          -{fmtMoney(row.totalDeductionsAndLoans)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-black text-[#5C1125] bg-[#FAF8F5]">
+                          {fmtMoney(row.totalNetPaid)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {annualHistory.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-[#000000] text-[#C3A25D] font-extrabold text-xs">
+                      <td className="py-3 px-3" colSpan={3}>
+                        TOTAL ACUMULADO ({annualHistory.length} trabajadores)
+                      </td>
+                      <td className="py-3 px-2 text-center text-white">{annualTotals.days}</td>
+                      <td className="py-3 px-2 text-right">{fmtMoney(annualTotals.base)}</td>
+                      <td className="py-3 px-2 text-center">{annualTotals.fumigadasCount}</td>
+                      <td className="py-3 px-2 text-center">{annualTotals.extraHours}</td>
+                      <td className="py-3 px-2 text-right">{fmtMoney(annualTotals.bonusesExtras)}</td>
+                      <td className="py-3 px-2 text-right text-rose-300">-{fmtMoney(annualTotals.deductions)}</td>
+                      <td className="py-3 px-3 text-right text-sm text-white bg-[#5C1125]">
+                        {fmtMoney(annualTotals.net)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             </div>
           </div>
         </div>

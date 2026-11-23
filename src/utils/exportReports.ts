@@ -4,14 +4,22 @@ import autoTable from 'jspdf-autotable';
 import {
   AppUser,
   AromaProduct,
+  ClientPayment,
   DailyProductionEntry,
   DailySalesEntry,
   EmployeeLoanMovement,
+  GreenhouseApplication,
   PayrollEmployee,
   PayrollWeekEntry,
   PayrollWeekRow,
+  RemissionNote,
+  SalesClient,
   SupplierPayment,
+  SupplyItem,
+  SupplyPurchase,
+  TruckLoad,
 } from '../types/greenhouse';
+import { GeneralInventoryRow } from '../context/GreenhouseContext';
 
 const BURGUNDY: [number, number, number] = [92, 17, 37]; // #5C1125
 const OLIVE: [number, number, number] = [83, 91, 40]; // #535B28
@@ -1815,5 +1823,848 @@ export function exportEmployeesDirectoryPdf(
   addPdfPageFooters(doc);
   doc.save(`AromaFlower_Empleados_${todayIso()}.pdf`);
 }
+
+// ==================== 8. INVENTARIO GENERAL ÚNICO ====================
+
+export function exportGeneralInventoryExcel(rows: GeneralInventoryRow[]) {
+  const wb = XLSX.utils.book_new();
+  const sheetRows: any[][] = [
+    ['INVENTARIO GENERAL ÚNICO DE FLORES / TALLOS - AROMA FLOWER', `Generado: ${todayIso()}`],
+    [],
+    [
+      'Variedad',
+      'Prod. LAR',
+      'Prod. MED',
+      'Prod. CHI',
+      'Total Producido',
+      'Desp. LAR',
+      'Desp. MED',
+      'Desp. CHI',
+      'Total Despachado',
+      'Disp. LAR',
+      'Disp. MED',
+      'Disp. CHI',
+      'Stock Disponible',
+      'Desglose Productores',
+    ],
+    ...rows.map((r) => [
+      r.productName,
+      r.captureMode === 'direct_total' ? 0 : r.producedLar,
+      r.captureMode === 'direct_total' ? 0 : r.producedMed,
+      r.captureMode === 'direct_total' ? 0 : r.producedChi,
+      r.producedTotal,
+      r.captureMode === 'direct_total' ? 0 : r.dispatchedLar,
+      r.captureMode === 'direct_total' ? 0 : r.dispatchedMed,
+      r.captureMode === 'direct_total' ? 0 : r.dispatchedChi,
+      r.dispatchedTotal,
+      r.captureMode === 'direct_total' ? 0 : r.availableLar,
+      r.captureMode === 'direct_total' ? 0 : r.availableMed,
+      r.captureMode === 'direct_total' ? 0 : r.availableChi,
+      r.availableTotal,
+      Object.entries(r.byProducer)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(' | '),
+    ]),
+    [
+      'TOTALES',
+      rows.reduce((a, r) => a + r.producedLar, 0),
+      rows.reduce((a, r) => a + r.producedMed, 0),
+      rows.reduce((a, r) => a + r.producedChi, 0),
+      rows.reduce((a, r) => a + r.producedTotal, 0),
+      rows.reduce((a, r) => a + r.dispatchedLar, 0),
+      rows.reduce((a, r) => a + r.dispatchedMed, 0),
+      rows.reduce((a, r) => a + r.dispatchedChi, 0),
+      rows.reduce((a, r) => a + r.dispatchedTotal, 0),
+      rows.reduce((a, r) => a + r.availableLar, 0),
+      rows.reduce((a, r) => a + r.availableMed, 0),
+      rows.reduce((a, r) => a + r.availableChi, 0),
+      rows.reduce((a, r) => a + r.availableTotal, 0),
+      '',
+    ],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+  setColumnWidths(ws, sheetRows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Inventario General');
+  XLSX.writeFile(wb, `AromaFlower_Inventario_General_${todayIso()}.xlsx`);
+}
+
+export function exportGeneralInventoryPdf(rows: GeneralInventoryRow[]) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const totProd = rows.reduce((a, r) => a + r.producedTotal, 0);
+  const totDisp = rows.reduce((a, r) => a + r.dispatchedTotal, 0);
+  const totAvail = rows.reduce((a, r) => a + r.availableTotal, 0);
+  addPdfHeader(
+    doc,
+    'Inventario General Único de Flores y Paquetes',
+    `Producido: ${totProd.toLocaleString()} • Despachado/Vendido: ${totDisp.toLocaleString()} • Stock Disponible: ${totAvail.toLocaleString()}`
+  );
+  autoTable(doc, {
+    startY: 32,
+    head: [['Variedad', 'Prod. Total', 'Despachado', 'Disp. LAR', 'Disp. MED', 'Disp. CHI', 'STOCK DISP.', 'Productores']],
+    body: rows.map((r) => [
+      r.productName,
+      r.producedTotal,
+      r.dispatchedTotal,
+      r.captureMode === 'direct_total' ? '—' : r.availableLar,
+      r.captureMode === 'direct_total' ? '—' : r.availableMed,
+      r.captureMode === 'direct_total' ? '—' : r.availableChi,
+      r.availableTotal,
+      Object.entries(r.byProducer)
+        .map(([k, v]) => `${k}(${v})`)
+        .join(', ') || '—',
+    ]),
+    foot: [
+      [
+        'TOTALES',
+        totProd,
+        totDisp,
+        rows.reduce((a, r) => a + r.availableLar, 0),
+        rows.reduce((a, r) => a + r.availableMed, 0),
+        rows.reduce((a, r) => a + r.availableChi, 0),
+        totAvail,
+        '',
+      ],
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 8 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.5, cellPadding: 1.8 },
+  });
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Inventario_General_${todayIso()}.pdf`);
+}
+
+// ==================== 9. REPORTE DE CARGA DE CAMIONETA (CHOFER) ====================
+
+export function exportTruckLoadReportPdf(load: TruckLoad) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  addPdfHeader(
+    doc,
+    `Reporte de Carga de Camioneta — ${load.folio}`,
+    `Fecha: ${load.loadDate} • Destino: ${load.salesPointName} • Chofer/Vendedor: ${load.driverName}`
+  );
+
+  let y = 34;
+  doc.setFontSize(9);
+  doc.setTextColor(40, 40, 40);
+  doc.text(`Vehículo: ${load.vehicleLabel || 'No especificado'}   |   Total Paquetes: ${load.totalPackages}   |   Estatus: ${load.status.toUpperCase()}`, 14, y);
+  y += 5;
+
+  const activeRows = load.rows.filter((r) => Number(r.total || 0) > 0);
+  autoTable(doc, {
+    startY: y,
+    head: [['Variedad', 'LAR', 'MED', 'CHI', 'TOTAL PAQUETES']],
+    body: activeRows.length
+      ? activeRows.map((r) => [
+          r.productName,
+          r.captureMode === 'direct_total' ? '(Directo)' : r.lar,
+          r.captureMode === 'direct_total' ? '—' : r.med,
+          r.captureMode === 'direct_total' ? '—' : r.chi,
+          r.total,
+        ])
+      : [['Sin paquetes cargados', 0, 0, 0, 0]],
+    foot: [['TOTAL CARGA', load.totalLar, load.totalMed, load.totalChi, load.totalPackages]],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8.5 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 8.5 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 8, cellPadding: 2 },
+  });
+
+  y = ((doc as any).lastAutoTable?.finalY || y) + 8;
+
+  // Expenses & Prorating
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...BURGUNDY);
+  doc.text('Gastos de Viaje y Prorrateo por Dueño de Mercancía', 14, y);
+  y += 3;
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Casetas', 'Gasolina', 'Pago de Piso', 'Comida', 'Extra', 'TOTAL GASTOS', 'Costo / Paquete']],
+    body: [
+      [
+        fmtMoney(load.expenses?.casetas || 0),
+        fmtMoney(load.expenses?.gasolina || 0),
+        fmtMoney(load.expenses?.pagoPiso || 0),
+        fmtMoney(load.expenses?.comida || 0),
+        fmtMoney(load.expenses?.extra || 0),
+        fmtMoney(load.totalExpenses || 0),
+        fmtMoney(load.costPerPackage || 0),
+      ],
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: OLIVE, textColor: 255, fontSize: 8 },
+    styles: { fontSize: 8, cellPadding: 2, halign: 'right' },
+  });
+
+  y = ((doc as any).lastAutoTable?.finalY || y) + 6;
+  if (load.ownerShares && load.ownerShares.length > 0) {
+    autoTable(doc, {
+      startY: y,
+      head: [['Dueño de Mercancía', 'Paquetes', '% Participación', 'Gasto Prorrateado', 'Venta Bruta', 'Pago Neto']],
+      body: load.ownerShares.map((o) => {
+        const pct = load.totalPackages > 0 ? ((o.packages / load.totalPackages) * 100).toFixed(1) : '0.0';
+        return [
+          o.ownerName,
+          o.packages,
+          `${pct}%`,
+          fmtMoney(o.expenseShare),
+          fmtMoney(o.grossSales),
+          fmtMoney(o.netPayout),
+        ];
+      }),
+      theme: 'grid',
+      headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8 },
+      styles: { fontSize: 8, cellPadding: 2 },
+    });
+  }
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Carga_${load.folio}_${load.loadDate}.pdf`);
+}
+
+// ==================== 10. NOTA DE REMISIÓN (TICKET / WHATSAPP) ====================
+
+export function exportRemissionNotePdf(note: RemissionNote) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  addPdfHeader(
+    doc,
+    `NOTA DE REMISIÓN — ${note.folio}`,
+    `Fecha: ${note.noteDate} • Punto de Venta: ${note.salesPointName} • Vendedor: ${note.sellerName}`
+  );
+
+  let y = 35;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...BLACK);
+  doc.text(`Cliente: ${note.clientName}`, 14, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.text(`Tel / WhatsApp: ${note.clientPhone || '—'}   |   Forma de Pago: ${note.paymentMethod.toUpperCase()}   |   Estatus: ${note.paymentStatus.toUpperCase()}`, 14, y + 6);
+  if (note.loadFolio) {
+    doc.text(`Carga de Camioneta: ${note.loadFolio}`, 14, y + 11);
+    y += 16;
+  } else {
+    y += 12;
+  }
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Variedad', 'Color / Nota', 'LAR', 'MED', 'CHI', 'Paq.', 'Precio Unit.', 'Subtotal']],
+    body: note.rows.map((r) => [
+      r.productName,
+      r.colorNote || '—',
+      r.lar,
+      r.med,
+      r.chi,
+      r.totalPackages,
+      fmtMoney(r.unitPrice),
+      fmtMoney(r.subtotal),
+    ]),
+    foot: [
+      [
+        'TOTAL NOTA',
+        '',
+        note.rows.reduce((a, r) => a + Number(r.lar || 0), 0),
+        note.rows.reduce((a, r) => a + Number(r.med || 0), 0),
+        note.rows.reduce((a, r) => a + Number(r.chi || 0), 0),
+        note.totalPackages,
+        '',
+        fmtMoney(note.totalAmount),
+      ],
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8.5 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 8.5 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 8, cellPadding: 2 },
+  });
+
+  y = ((doc as any).lastAutoTable?.finalY || y) + 8;
+  autoTable(doc, {
+    startY: y,
+    head: [['Total Nota', 'Monto Pagado / Abonado', 'Saldo Pendiente']],
+    body: [[fmtMoney(note.totalAmount), fmtMoney(note.paidAmount), fmtMoney(note.balanceDue)]],
+    theme: 'grid',
+    headStyles: { fillColor: OLIVE, textColor: 255, fontSize: 9 },
+    styles: { fontSize: 10, fontStyle: 'bold', halign: 'center', cellPadding: 3 },
+  });
+
+  if (note.notes) {
+    const ny = ((doc as any).lastAutoTable?.finalY || y) + 8;
+    doc.setFontSize(8.5);
+    doc.setTextColor(70, 70, 70);
+    doc.text(`Observaciones: ${note.notes}`, 14, ny);
+  }
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Remision_${note.folio}_${note.clientName.replace(/\s+/g, '_')}.pdf`);
+}
+
+// ==================== 11. LIQUIDACIÓN DE VENTA POR CHOFER / VENDEDOR ====================
+
+export interface DriverLiquidationSummary {
+  driverName: string;
+  dateLabel: string;
+  totalPackagesSold: number;
+  totalSales: number;
+  cashSales: number;
+  depositSales: number;
+  creditSales: number;
+  creditCollectedAtDelivery: number;
+  tripExpenses: number;
+  netCashToDeliver: number;
+  notes: RemissionNote[];
+  loads: TruckLoad[];
+}
+
+export function exportDriverLiquidationExcel(summary: DriverLiquidationSummary) {
+  const wb = XLSX.utils.book_new();
+  const resumen: any[][] = [
+    ['REPORTE DE LIQUIDACIÓN DE VENTA — AROMA FLOWER'],
+    ['Chofer / Vendedor', summary.driverName, 'Periodo', summary.dateLabel],
+    [],
+    ['Concepto', 'Monto ($ MXN)'],
+    ['Total Vendido (Bruto)', summary.totalSales],
+    ['Ventas de Contado (Efectivo)', summary.cashSales],
+    ['Cobros Parciales en Entrega (Crédito)', summary.creditCollectedAtDelivery],
+    ['Ventas por Depósito / Transferencia', summary.depositSales],
+    ['Saldo Quedado a Crédito', summary.creditSales],
+    ['(-) Gastos de Viaje Comprobados', summary.tripExpenses],
+    ['EFECTIVO NETO A ENTREGAR', summary.netCashToDeliver],
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(resumen);
+  setColumnWidths(ws1, resumen);
+  XLSX.utils.book_append_sheet(wb, ws1, 'Liquidación');
+
+  const detalle: any[][] = [
+    ['Folio', 'Fecha', 'Punto de Venta', 'Cliente', 'Paquetes', 'Método', 'Total', 'Cobrado', 'Saldo Crédito'],
+    ...summary.notes.map((n) => [
+      n.folio,
+      n.noteDate,
+      n.salesPointName,
+      n.clientName,
+      n.totalPackages,
+      n.paymentMethod.toUpperCase(),
+      n.totalAmount,
+      n.paidAmount,
+      n.balanceDue,
+    ]),
+  ];
+  const ws2 = XLSX.utils.aoa_to_sheet(detalle);
+  setColumnWidths(ws2, detalle);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Notas de Remisión');
+
+  XLSX.writeFile(wb, `AromaFlower_Liquidacion_${summary.driverName.replace(/\s+/g, '_')}_${todayIso()}.xlsx`);
+}
+
+export function exportDriverLiquidationPdf(summary: DriverLiquidationSummary) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  addPdfHeader(
+    doc,
+    `Liquidación de Venta — ${summary.driverName}`,
+    `Periodo: ${summary.dateLabel} • ${summary.notes.length} notas • ${summary.totalPackagesSold} paquetes vendidos`
+  );
+
+  autoTable(doc, {
+    startY: 34,
+    head: [['Concepto de Liquidación', 'Importe ($ MXN)']],
+    body: [
+      ['Total Vendido (Contado + Depósito + Crédito)', fmtMoney(summary.totalSales)],
+      ['Ventas de Contado (Efectivo Recibido)', fmtMoney(summary.cashSales)],
+      ['Abonos en Efectivo Recibidos en Entrega', fmtMoney(summary.creditCollectedAtDelivery)],
+      ['Ventas por Depósito Bancario (No efectivo en mano)', fmtMoney(summary.depositSales)],
+      ['Saldo Pendiente a Crédito (Cuentas por Cobrar)', fmtMoney(summary.creditSales)],
+      ['(-) Gastos de Viaje (Casetas, Gasolina, Piso, Comida, Extra)', `- ${fmtMoney(summary.tripExpenses)}`],
+    ],
+    foot: [['EFECTIVO NETO A ENTREGAR POR EL CHOFER', fmtMoney(summary.netCashToDeliver)]],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 9 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 10 },
+    styles: { fontSize: 8.5, cellPadding: 2.5 },
+    columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } },
+  });
+
+  const y = ((doc as any).lastAutoTable?.finalY || 90) + 8;
+  autoTable(doc, {
+    startY: y,
+    head: [['Folio', 'Fecha', 'Cliente', 'Punto', 'Paq.', 'Método', 'Total', 'Cobrado', 'Pendiente']],
+    body: summary.notes.map((n) => [
+      n.folio,
+      n.noteDate,
+      n.clientName,
+      n.salesPointName,
+      n.totalPackages,
+      n.paymentMethod.toUpperCase(),
+      fmtMoney(n.totalAmount),
+      fmtMoney(n.paidAmount),
+      fmtMoney(n.balanceDue),
+    ]),
+    theme: 'grid',
+    headStyles: { fillColor: OLIVE, textColor: 255, fontSize: 7.5 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.2, cellPadding: 1.6 },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Liquidacion_${summary.driverName.replace(/\s+/g, '_')}_${todayIso()}.pdf`);
+}
+
+// ==================== 12. ESTADO DE CUENTA POR CLIENTE (CUENTAS POR COBRAR) ====================
+
+export function exportClientStatementExcel(
+  client: SalesClient,
+  notes: RemissionNote[],
+  payments: ClientPayment[]
+) {
+  const wb = XLSX.utils.book_new();
+  const notasSheet: any[][] = [
+    ['ESTADO DE CUENTA CLIENTE — AROMA FLOWER'],
+    ['Cliente', client.name, 'Teléfono', client.phone || '', 'Saldo Pendiente Actual', client.balance],
+    [],
+    ['Folio', 'Fecha', 'Punto de Venta', 'Paquetes', 'Método', 'Total Nota', 'Pagado', 'Saldo Pendiente', 'Estatus'],
+    ...notes.map((n) => [
+      n.folio,
+      n.noteDate,
+      n.salesPointName,
+      n.totalPackages,
+      n.paymentMethod.toUpperCase(),
+      n.totalAmount,
+      n.paidAmount,
+      n.balanceDue,
+      n.paymentStatus.toUpperCase(),
+    ]),
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(notasSheet);
+  setColumnWidths(ws1, notasSheet);
+  XLSX.utils.book_append_sheet(wb, ws1, 'Notas y Créditos');
+
+  const pagosSheet: any[][] = [
+    ['Fecha', 'Tipo', 'Método', 'Nota Aplicada', 'Referencia', 'Monto Pagado', 'Notas'],
+    ...payments.map((p) => [
+      p.paymentDate,
+      p.paymentType === 'pago_total' ? 'PAGO TOTAL' : 'ABONO',
+      p.paymentMethod.toUpperCase(),
+      p.remissionFolio || 'Saldo general',
+      p.reference || '',
+      p.amount,
+      p.notes || '',
+    ]),
+  ];
+  const ws2 = XLSX.utils.aoa_to_sheet(pagosSheet);
+  setColumnWidths(ws2, pagosSheet);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Abonos y Pagos');
+
+  XLSX.writeFile(wb, `AromaFlower_EstadoCuenta_${client.name.replace(/\s+/g, '_')}_${todayIso()}.xlsx`);
+}
+
+export function exportClientStatementPdf(
+  client: SalesClient,
+  notes: RemissionNote[],
+  payments: ClientPayment[]
+) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const totBilled = notes.reduce((a, n) => a + Number(n.totalAmount || 0), 0);
+  const totPaid = notes.reduce((a, n) => a + Number(n.paidAmount || 0), 0);
+
+  addPdfHeader(
+    doc,
+    `Estado de Cuenta — ${client.name}`,
+    `Tel: ${client.phone || '—'} • Punto habitual: ${client.defaultSalesPointName || '—'} • Saldo Pendiente: ${fmtMoney(client.balance)}`
+  );
+
+  autoTable(doc, {
+    startY: 34,
+    head: [['Folio', 'Fecha', 'Punto de Venta', 'Paq.', 'Total', 'Pagado', 'Pendiente', 'Estatus']],
+    body: notes.length
+      ? notes.map((n) => [
+          n.folio,
+          n.noteDate,
+          n.salesPointName,
+          n.totalPackages,
+          fmtMoney(n.totalAmount),
+          fmtMoney(n.paidAmount),
+          fmtMoney(n.balanceDue),
+          n.paymentStatus.toUpperCase(),
+        ])
+      : [['—', 'Sin notas registradas', '—', 0, '$0.00', '$0.00', '$0.00', '—']],
+    foot: [['TOTALES', `${notes.length} notas`, '', notes.reduce((a, n) => a + n.totalPackages, 0), fmtMoney(totBilled), fmtMoney(totPaid), fmtMoney(client.balance), '']],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 8 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.5, cellPadding: 1.8 },
+  });
+
+  const y = ((doc as any).lastAutoTable?.finalY || 60) + 8;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...OLIVE);
+  doc.text('Historial de Abonos y Pagos a Cuenta', 14, y);
+  autoTable(doc, {
+    startY: y + 3,
+    head: [['Fecha', 'Tipo', 'Método', 'Nota', 'Referencia', 'Monto', 'Notas']],
+    body: payments.length
+      ? payments.map((p) => [
+          p.paymentDate,
+          p.paymentType === 'pago_total' ? 'PAGO TOTAL' : 'ABONO',
+          p.paymentMethod.toUpperCase(),
+          p.remissionFolio || 'General',
+          p.reference || '—',
+          fmtMoney(p.amount),
+          p.notes || '—',
+        ])
+      : [['—', 'Sin abonos registrados', '—', '—', '—', '$0.00', '—']],
+    theme: 'grid',
+    headStyles: { fillColor: OLIVE, textColor: 255, fontSize: 8 },
+    styles: { fontSize: 7.5, cellPadding: 1.8 },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_EstadoCuenta_${client.name.replace(/\s+/g, '_')}_${todayIso()}.pdf`);
+}
+
+// ==================== 13. HISTORIAL ANUAL DE NÓMINA ====================
+
+export interface AnnualPayrollSummaryRow {
+  employeeName: string;
+  teamGroup: string;
+  weeksCount: number;
+  totalDaysWorked: number;
+  totalBasePay: number;
+  totalBonusesAndExtras: number;
+  totalFumigadasCount: number;
+  totalExtraHours: number;
+  totalDeductionsAndLoans: number;
+  totalNetPaid: number;
+}
+
+export function exportAnnualPayrollHistoryExcel(year: string, rows: AnnualPayrollSummaryRow[]) {
+  const wb = XLSX.utils.book_new();
+  const data: any[][] = [
+    [`HISTORIAL ANUAL DE NÓMINA Y DÍAS TRABAJADOS — AÑO ${year}`],
+    [],
+    ['Trabajador', 'Equipo', 'Semanas', 'Días Trabajados', 'Sueldo Base', 'Fumigadas (200L)', 'Horas Extra', 'Bonos y Extras', 'Descuentos/Préstamos', 'Total Pagado Año'],
+    ...rows.map((r) => [
+      r.employeeName,
+      r.teamGroup,
+      r.weeksCount,
+      r.totalDaysWorked,
+      r.totalBasePay,
+      r.totalFumigadasCount,
+      r.totalExtraHours,
+      r.totalBonusesAndExtras,
+      r.totalDeductionsAndLoans,
+      r.totalNetPaid,
+    ]),
+    [
+      'TOTAL ANUAL',
+      '',
+      '',
+      rows.reduce((a, r) => a + r.totalDaysWorked, 0),
+      rows.reduce((a, r) => a + r.totalBasePay, 0),
+      rows.reduce((a, r) => a + r.totalFumigadasCount, 0),
+      rows.reduce((a, r) => a + r.totalExtraHours, 0),
+      rows.reduce((a, r) => a + r.totalBonusesAndExtras, 0),
+      rows.reduce((a, r) => a + r.totalDeductionsAndLoans, 0),
+      rows.reduce((a, r) => a + r.totalNetPaid, 0),
+    ],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  setColumnWidths(ws, data);
+  XLSX.utils.book_append_sheet(wb, ws, `Historial ${year}`);
+  XLSX.writeFile(wb, `AromaFlower_Historial_Nomina_${year}.xlsx`);
+}
+
+export function exportAnnualPayrollHistoryPdf(year: string, rows: AnnualPayrollSummaryRow[]) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const grandTotal = rows.reduce((a, r) => a + r.totalNetPaid, 0);
+  const grandDays = rows.reduce((a, r) => a + r.totalDaysWorked, 0);
+  addPdfHeader(
+    doc,
+    `Historial Anual de Nómina y Días Trabajados — Año ${year}`,
+    `${rows.length} trabajadores • Total Días Trabajados: ${grandDays} • Total Pagado en el Año: ${fmtMoney(grandTotal)}`
+  );
+  autoTable(doc, {
+    startY: 32,
+    head: [['Trabajador', 'Equipo', 'Sem.', 'Días Trab.', 'Sueldo Base', 'Tambos 200L', 'Hrs Extra', 'Bonos/Extras', 'Desc./Prést.', 'TOTAL PAGADO']],
+    body: rows.map((r) => [
+      r.employeeName,
+      r.teamGroup,
+      r.weeksCount,
+      r.totalDaysWorked,
+      fmtMoney(r.totalBasePay),
+      r.totalFumigadasCount,
+      r.totalExtraHours,
+      fmtMoney(r.totalBonusesAndExtras),
+      fmtMoney(r.totalDeductionsAndLoans),
+      fmtMoney(r.totalNetPaid),
+    ]),
+    foot: [
+      [
+        'TOTAL ANUAL',
+        '',
+        '',
+        grandDays,
+        fmtMoney(rows.reduce((a, r) => a + r.totalBasePay, 0)),
+        rows.reduce((a, r) => a + r.totalFumigadasCount, 0),
+        rows.reduce((a, r) => a + r.totalExtraHours, 0),
+        fmtMoney(rows.reduce((a, r) => a + r.totalBonusesAndExtras, 0)),
+        fmtMoney(rows.reduce((a, r) => a + r.totalDeductionsAndLoans, 0)),
+        fmtMoney(grandTotal),
+      ],
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 8 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.5, cellPadding: 1.8 },
+  });
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Historial_Nomina_${year}.pdf`);
+}
+
+// ==================== 14. INSUMOS, COMPRAS Y APLICACIONES ====================
+
+export function exportSuppliesAndAppsExcel(
+  items: SupplyItem[],
+  purchases: SupplyPurchase[],
+  apps: GreenhouseApplication[]
+) {
+  const wb = XLSX.utils.book_new();
+  const s1: any[][] = [
+    ['Nombre', 'Área', 'Categoría', '¿Para qué sirve?', 'Dosis Recomendada', 'Stock', 'Stock Mín.', 'Unidad', 'Costo Unit.', 'Proveedor'],
+    ...items.map((i) => [
+      i.name,
+      i.area.toUpperCase(),
+      i.category,
+      i.purpose,
+      i.recommendedDose || '',
+      i.stock,
+      i.minStock,
+      i.unit,
+      i.unitCost,
+      i.supplier || '',
+    ]),
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(s1);
+  setColumnWidths(ws1, s1);
+  XLSX.utils.book_append_sheet(wb, ws1, 'Inventario Insumos');
+
+  const s2: any[][] = [
+    ['Fecha', 'Insumo', 'Área', 'Proveedor', 'Cantidad', 'Unidad', 'Costo Unit.', 'Total', 'Factura/Ref.', 'Notas'],
+    ...purchases.map((p) => [
+      p.purchaseDate,
+      p.supplyName,
+      p.area.toUpperCase(),
+      p.supplierName,
+      p.quantity,
+      p.unit,
+      p.unitCost,
+      p.totalCost,
+      p.invoiceRef || '',
+      p.notes || '',
+    ]),
+  ];
+  const ws2 = XLSX.utils.aoa_to_sheet(s2);
+  setColumnWidths(ws2, s2);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Compras');
+
+  const s3: any[][] = [
+    ['Fecha', 'Invernadero', 'Tipo', 'Producto', '¿Para qué sirve?', 'Cantidad Usada', 'Unidad', 'Tambos 200L', 'Aplicador', 'Costo Total'],
+    ...apps.map((a) => [
+      a.applicationDate,
+      a.greenhouseName,
+      a.applicationType.toUpperCase(),
+      a.supplyName,
+      a.supplyPurpose,
+      a.quantityUsed,
+      a.unit,
+      a.drums200L || 0,
+      a.applicatorName,
+      a.totalCost,
+    ]),
+  ];
+  const ws3 = XLSX.utils.aoa_to_sheet(s3);
+  setColumnWidths(ws3, s3);
+  XLSX.utils.book_append_sheet(wb, ws3, 'Aplicaciones Invernadero');
+
+  XLSX.writeFile(wb, `AromaFlower_Insumos_y_Aplicaciones_${todayIso()}.xlsx`);
+}
+
+export function exportSuppliesAndAppsPdf(
+  items: SupplyItem[],
+  purchases: SupplyPurchase[],
+  apps: GreenhouseApplication[]
+) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const totPurchases = purchases.reduce((a, p) => a + Number(p.totalCost || 0), 0);
+  addPdfHeader(
+    doc,
+    'Reporte de Insumos por Área, Compras y Aplicaciones en Invernaderos',
+    `${items.length} insumos • ${purchases.length} compras (${fmtMoney(totPurchases)}) • ${apps.length} aplicaciones registradas`
+  );
+
+  autoTable(doc, {
+    startY: 32,
+    head: [['Insumo', 'Área', 'Categoría', '¿Para qué sirve?', 'Stock', 'Costo Unit.']],
+    body: items.map((i) => [
+      i.name,
+      i.area.toUpperCase(),
+      i.category,
+      i.purpose,
+      `${i.stock} ${i.unit}`,
+      fmtMoney(i.unitCost),
+    ]),
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.3, cellPadding: 1.8 },
+    columnStyles: { 3: { cellWidth: 105 } },
+  });
+
+  doc.addPage();
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...OLIVE);
+  doc.text('Bitácora de Aplicaciones Foliares y Fertilización', 14, 18);
+  autoTable(doc, {
+    startY: 22,
+    head: [['Fecha', 'Invernadero', 'Tipo', 'Producto', '¿Para qué sirve?', 'Cant.', 'Tambos 200L', 'Aplicador', 'Costo']],
+    body: apps.map((a) => [
+      a.applicationDate,
+      a.greenhouseName,
+      a.applicationType.toUpperCase(),
+      a.supplyName,
+      a.supplyPurpose,
+      `${a.quantityUsed} ${a.unit}`,
+      a.drums200L || 0,
+      a.applicatorName,
+      fmtMoney(a.totalCost),
+    ]),
+    theme: 'grid',
+    headStyles: { fillColor: OLIVE, textColor: 255, fontSize: 7.5 },
+    styles: { fontSize: 7.2, cellPadding: 1.6 },
+    columnStyles: { 4: { cellWidth: 85 } },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Insumos_y_Aplicaciones_${todayIso()}.pdf`);
+}
+
+// ==================== 15. CONTROL DE COSTOS DE PRODUCCIÓN Y UTILIDAD REAL ====================
+
+export interface CostAnalysisExportData {
+  periodLabel: string;
+  stemsPerPackage: number;
+  totalPackagesProduced: number;
+  totalStemsProduced: number;
+  totalPackagesSold: number;
+  payrollCost: number;
+  suppliesAndAppsCost: number;
+  supplierOpsCost: number;
+  productionTotalCost: number;
+  logisticsTripCost: number;
+  totalCombinedCost: number;
+  totalRevenue: number;
+  costPerStem: number;
+  costPerPackageGreenhouse: number;
+  deliveryCostPerPackage: number;
+  totalCostPerPackageDelivered: number;
+  avgSalePricePerPackage: number;
+  netProfit: number;
+  profitMarginPct: number;
+}
+
+export function exportCostAnalysisExcel(data: CostAnalysisExportData) {
+  const wb = XLSX.utils.book_new();
+  const rows: any[][] = [
+    ['CONTROL DE COSTOS DE PRODUCCIÓN Y UTILIDAD REAL — AROMA FLOWER'],
+    ['Periodo Analizado', data.periodLabel, 'Tallos por Paquete', data.stemsPerPackage],
+    [],
+    ['INDICADOR FINANCIERO / OPERATIVO', 'VALOR'],
+    ['Total Paquetes Producidos', data.totalPackagesProduced],
+    ['Total Tallos Producidos', data.totalStemsProduced],
+    ['Total Paquetes Vendidos / Despachados', data.totalPackagesSold],
+    [],
+    ['DESGLOSE DE COSTOS', 'MONTO ($ MXN)'],
+    ['Nómina y Mano de Obra', data.payrollCost],
+    ['Compras de Insumos / Aplicaciones Invernadero', data.suppliesAndAppsCost],
+    ['Pagos a Proveedores y Gastos Operativos', data.supplierOpsCost],
+    ['TOTAL COSTO DE PRODUCCIÓN (EN INVERNADERO)', data.productionTotalCost],
+    ['Gastos de Viaje y Traslado a Puntos de Venta', data.logisticsTripCost],
+    ['COSTO TOTAL INTEGRADO (PRODUCCIÓN + ENTREGA)', data.totalCombinedCost],
+    [],
+    ['COSTOS UNITARIOS Y UTILIDAD REAL', 'RESULTADO'],
+    ['Costo Real por Tallo Producido ($)', Number(data.costPerStem.toFixed(4))],
+    ['Costo Real por Paquete en Invernadero ($)', Number(data.costPerPackageGreenhouse.toFixed(2))],
+    ['Costo de Llevar 1 Paquete al Punto de Venta ($)', Number(data.deliveryCostPerPackage.toFixed(2))],
+    ['Costo Total Puesto en Punto de Venta ($/paq.)', Number(data.totalCostPerPackageDelivered.toFixed(2))],
+    ['Precio Promedio de Venta por Paquete ($)', Number(data.avgSalePricePerPackage.toFixed(2))],
+    ['Ingresos Totales por Ventas ($)', data.totalRevenue],
+    ['UTILIDAD NETA REAL ($ MXN)', data.netProfit],
+    ['MARGEN DE UTILIDAD REAL (%)', `${data.profitMarginPct.toFixed(2)}%`],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  setColumnWidths(ws, rows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Costos y Utilidad');
+  XLSX.writeFile(wb, `AromaFlower_Control_Costos_${todayIso()}.xlsx`);
+}
+
+export function exportCostAnalysisPdf(data: CostAnalysisExportData) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  addPdfHeader(
+    doc,
+    'Análisis de Costos de Producción y Utilidad Real',
+    `Periodo: ${data.periodLabel} • ${data.totalPackagesProduced.toLocaleString()} paquetes (${data.totalStemsProduced.toLocaleString()} tallos)`
+  );
+
+  autoTable(doc, {
+    startY: 34,
+    head: [['Indicador Unitario Clave', 'Valor Real']],
+    body: [
+      ['Costo Real por 1 Tallo Producido', `$${data.costPerStem.toFixed(2)} MXN`],
+      [`Costo Real por 1 Paquete (${data.stemsPerPackage} tallos) en Invernadero`, fmtMoney(data.costPerPackageGreenhouse)],
+      ['Costo de Traslado al Punto de Venta (por Paquete)', fmtMoney(data.deliveryCostPerPackage)],
+      ['Costo Total Puesto en Punto de Venta (por Paquete)', fmtMoney(data.totalCostPerPackageDelivered)],
+      ['Precio Promedio de Venta por Paquete', fmtMoney(data.avgSalePricePerPackage)],
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 9 },
+    styles: { fontSize: 9, cellPadding: 2.5 },
+    columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } },
+  });
+
+  const y = ((doc as any).lastAutoTable?.finalY || 80) + 8;
+  autoTable(doc, {
+    startY: y,
+    head: [['Estado de Resultados Operativo', 'Monto ($ MXN)']],
+    body: [
+      ['Ingresos Totales por Ventas', fmtMoney(data.totalRevenue)],
+      ['(-) Nómina de Trabajadores', `- ${fmtMoney(data.payrollCost)}`],
+      ['(-) Compras de Insumos y Aplicaciones', `- ${fmtMoney(data.suppliesAndAppsCost)}`],
+      ['(-) Proveedores y Gastos Operativos', `- ${fmtMoney(data.supplierOpsCost)}`],
+      ['(-) Gastos de Viaje / Venta (Casetas, Gasolina, Piso)', `- ${fmtMoney(data.logisticsTripCost)}`],
+    ],
+    foot: [
+      [
+        `UTILIDAD NETA REAL (Margen: ${data.profitMarginPct.toFixed(1)}%)`,
+        fmtMoney(data.netProfit),
+      ],
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: OLIVE, textColor: 255, fontSize: 9 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 10 },
+    styles: { fontSize: 9, cellPadding: 2.5 },
+    columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Control_Costos_${todayIso()}.pdf`);
+}
+
 
 
