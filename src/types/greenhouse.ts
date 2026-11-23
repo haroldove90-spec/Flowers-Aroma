@@ -222,6 +222,136 @@ export interface DailySalesEntry {
   updatedAt?: string;
 }
 
+// ==================== EMPLEADOS & PAGOS / NÓMINA ====================
+
+export interface PayrollEmployee {
+  id: string;
+  fullName: string;
+  teamGroup: string; // ej. 'AARON', 'DAVID', 'INVERNADERO'
+  jobTitle: string;
+  phone: string;
+  email: string;
+  weeklySalary: number; // P/ SEMANAL (base 6 días)
+  hasAttendanceBonus: boolean; // BONO/AyP automático si cumple 6 días
+  defaultBonusAmount: number; // default $150.00
+  loanBalance: number; // Saldo actual de préstamo pendiente
+  hireDate: string; // YYYY-MM-DD
+  terminationDate?: string; // Fecha de baja si active === false
+  terminationReason?: string;
+  active: boolean;
+  linkedUserId?: string; // Vínculo opcional con app_users.id
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PayrollRates {
+  fumigadaRate: number; // default 20
+  cargadaRate: number; // configurable
+  extraHourRate: number; // configurable
+  destajoRate: number; // configurable
+  defaultBonus: number; // default 150
+  workDaysPerWeek: number; // default 6
+}
+
+export interface PayrollWeekRow {
+  employeeId: string;
+  employeeName: string;
+  teamGroup: string;
+  daysWorked: number; // DIAS (base 6)
+  weeklySalary: number; // P/ SEMANAL
+  weekPay: number; // SEMANA = (weeklySalary / 6) * daysWorked
+  attendanceBonus: number; // BONO/AyP
+  fumigadasQty: number;
+  fumigadasAmount: number;
+  cargadasQty: number;
+  cargadasAmount: number;
+  extraHoursQty: number;
+  extraHoursAmount: number;
+  destajosQty: number;
+  destajosAmount: number;
+  extraWorkQty: number;
+  extraWorkAmount: number; // TRABAJO EXTRA
+  otherDeductions: number; // Otros descuentos (faltas, vales, etc.)
+  loanPreviousBalance: number; // PRESTAMO (saldo antes del abono)
+  loanPayment: number; // PAGO DE PRESTAMO (descuento en esta nómina)
+  loanRemainingBalance: number; // RESTA DEL PRESTAMO = max(0, loanPreviousBalance - loanPayment)
+  totalNetPay: number; // TOTAL neto a pagar
+  paid: boolean;
+  notes?: string;
+}
+
+export interface PayrollWeekEntry {
+  id: string;
+  weekLabel: string; // ej. 'DEL 9 DE NOVIEMBRE AL 14 DE NOVIEMBRE'
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  teamGroup: string; // ej. 'AARON' o 'TODOS'
+  rates: PayrollRates;
+  rows: PayrollWeekRow[];
+  totalWeekPay: number;
+  totalBonus: number;
+  totalFumigadas: number;
+  totalCargadas: number;
+  totalExtraHours: number;
+  totalDestajos: number;
+  totalExtraWork: number;
+  totalOtherDeductions: number;
+  totalLoanPayments: number;
+  totalLoanRemaining: number;
+  grandTotalPay: number;
+  status: 'borrador' | 'pagada';
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type EmployeeLoanMovementType = 'prestamo' | 'abono' | 'descuento';
+
+export interface EmployeeLoanMovement {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  movementDate: string; // YYYY-MM-DD
+  movementType: EmployeeLoanMovementType;
+  amount: number;
+  balanceAfter: number;
+  concept: string;
+  payrollWeekId?: string; // Si fue descontado desde una nómina semanal
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type SupplierPaymentCategory =
+  | 'agroquimicos'
+  | 'fertilizantes'
+  | 'empaques'
+  | 'fletes_transporte'
+  | 'servicios'
+  | 'renta'
+  | 'mantenimiento'
+  | 'otros';
+
+export type SupplierPaymentMethod = 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta';
+export type SupplierPaymentStatus = 'pagado' | 'pendiente' | 'parcial';
+
+export interface SupplierPayment {
+  id: string;
+  paymentDate: string; // YYYY-MM-DD
+  supplierName: string;
+  category: SupplierPaymentCategory;
+  concept: string;
+  reference?: string; // Factura / folio
+  amount: number;
+  paidAmount: number;
+  paymentMethod: SupplierPaymentMethod;
+  status: SupplierPaymentStatus;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export type AromaFlowerModuleType =
   | 'fi_general'
   | 'produccion_aaron'

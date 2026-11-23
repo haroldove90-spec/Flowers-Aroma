@@ -47,9 +47,10 @@ export const BottomBar: React.FC = () => {
       case 'admin':
         return [
           { id: 'admin_panel', label: 'Admin', icon: ShieldCheck },
-          { id: 'produccion_dia', label: 'CEDA CDMX', icon: Sparkles },
+          { id: 'produccion_dia', label: 'CEDA', icon: Sparkles },
           { id: 'resumen_ventas', label: 'Ventas', icon: TrendingUp },
-          { id: 'admin_productos', label: 'Productos', icon: Boxes },
+          { id: 'admin_pagos', label: 'Pagos', icon: Wallet },
+          { id: 'admin_empleados', label: 'Personal', icon: Users },
           { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
         ];
       case 'produccion':

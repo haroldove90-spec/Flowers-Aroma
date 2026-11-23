@@ -18,6 +18,7 @@ import {
   Boxes,
   Layers,
   TrendingUp,
+  Wallet,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AppUser, AppUserRole } from '../../types/greenhouse';
@@ -36,6 +37,9 @@ export const AdminRoleView: React.FC = () => {
     aromaProducts,
     dailyProductions,
     dailySales,
+    payrollEmployees,
+    payrollWeeks,
+    supplierPayments,
     setActiveRole,
     setActiveView,
   } = useGreenhouse();
@@ -62,14 +66,26 @@ export const AdminRoleView: React.FC = () => {
     const totalProductos = aromaProducts.filter((p) => p.active !== false).length;
     const totalAdmins = appUsers.filter((u) => u.role === 'admin' && u.active !== false).length;
     const totalProd = appUsers.filter((u) => u.role === 'produccion' && u.active !== false).length;
+    const activeEmployees = payrollEmployees.filter((e) => e.active !== false).length;
+    const totalLoanPending = payrollEmployees
+      .filter((e) => e.active !== false)
+      .reduce((acc, e) => acc + Number(e.loanBalance || 0), 0);
+    const lastWeekTotal = payrollWeeks[0]?.grandTotalPay || 0;
+    const pendingSuppliers = supplierPayments
+      .filter((s) => s.status !== 'pagado')
+      .reduce((acc, s) => acc + Math.max(0, Number(s.amount || 0) - Number(s.paidAmount || 0)), 0);
     return {
       totalHoy,
       empleadosHoy: todayEntries.length,
       totalProductos,
       totalAdmins,
       totalProd,
+      activeEmployees,
+      totalLoanPending,
+      lastWeekTotal,
+      pendingSuppliers,
     };
-  }, [dailyProductions, aromaProducts, appUsers, today]);
+  }, [dailyProductions, aromaProducts, appUsers, payrollEmployees, payrollWeeks, supplierPayments, today]);
 
   const resetForm = () => {
     setEditingUserId(null);
@@ -176,17 +192,35 @@ export const AdminRoleView: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setActiveView('produccion_dia')}
+              onClick={() => setActiveView('admin_pagos')}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-bold shadow-md transition cursor-pointer"
             >
-              <Layers className="w-4 h-4" />
+              <Wallet className="w-4 h-4" />
+              <span>Pagos y Nómina</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('admin_empleados')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
+            >
+              <Users className="w-4 h-4 text-[#C3A25D]" />
+              <span>Empleados ({kpis.activeEmployees})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('produccion_dia')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
+            >
+              <Layers className="w-4 h-4 text-[#C3A25D]" />
               <span>Producción del Día ( CEDA CDMX )</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveView('resumen_ventas')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
             >
               <TrendingUp className="w-4 h-4 text-[#C3A25D]" />
               <span>Resumen de Ventas</span>
@@ -195,7 +229,7 @@ export const AdminRoleView: React.FC = () => {
             <button
               type="button"
               onClick={() => setActiveView('admin_productos')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
             >
               <Boxes className="w-4 h-4 text-[#C3A25D]" />
               <span>Productos ({kpis.totalProductos})</span>
@@ -210,7 +244,7 @@ export const AdminRoleView: React.FC = () => {
               className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
             >
               <PackageCheck className="w-4 h-4 text-[#C3A25D]" />
-              <span>Ir a Rol Producción</span>
+              <span>Rol Producción</span>
               <ArrowRight className="w-4 h-4" />
             </button>
 
@@ -227,7 +261,7 @@ export const AdminRoleView: React.FC = () => {
       </div>
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <button
           type="button"
           onClick={() => setActiveView('produccion_dia')}
@@ -246,31 +280,49 @@ export const AdminRoleView: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => setActiveView('admin_productos')}
+          onClick={() => setActiveView('admin_pagos')}
+          className="text-left p-4 rounded-2xl bg-white border border-stone-200 hover:border-[#C3A25D] shadow-xs transition cursor-pointer"
+        >
+          <span className="text-[11px] font-bold text-[#8a6d2b] uppercase tracking-wider">
+            Última Nómina
+          </span>
+          <p className="mt-1 text-2xl font-black text-[#000000]">
+            ${kpis.lastWeekTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <span className="text-[10px] text-stone-500">
+            Préstamos: ${kpis.totalLoanPending.toLocaleString('es-MX', { minimumFractionDigits: 2 })} &bull; Prov. pend: ${kpis.pendingSuppliers.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveView('admin_empleados')}
           className="text-left p-4 rounded-2xl bg-white border border-stone-200 hover:border-[#535B28] shadow-xs transition cursor-pointer"
         >
           <span className="text-[11px] font-bold text-[#535B28] uppercase tracking-wider">
-            Productos Activos
+            Empleados Activos
           </span>
-          <p className="mt-1 text-2xl font-black text-[#000000]">{kpis.totalProductos}</p>
-          <span className="text-[10px] text-stone-500">Ver / editar catálogo</span>
+          <p className="mt-1 text-2xl font-black text-[#000000]">{kpis.activeEmployees}</p>
+          <span className="text-[10px] text-stone-500">
+            Alta, bajas, credenciales y WhatsApp
+          </span>
         </button>
 
-        <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
-          <span className="text-[11px] font-bold text-[#C3A25D] uppercase tracking-wider">
-            Cuentas Admin
-          </span>
-          <p className="mt-1 text-2xl font-black text-[#000000]">{kpis.totalAdmins}</p>
-          <span className="text-[10px] text-stone-500">Acceso Admin + Producción</span>
-        </div>
-
-        <div className="p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
+        <button
+          type="button"
+          onClick={() => setActiveView('admin_productos')}
+          className="text-left p-4 rounded-2xl bg-white border border-stone-200 hover:border-[#5C1125] shadow-xs transition cursor-pointer"
+        >
           <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider">
-            Empleados Producción
+            Productos / Cuentas
           </span>
-          <p className="mt-1 text-2xl font-black text-[#000000]">{kpis.totalProd}</p>
-          <span className="text-[10px] text-stone-500">Aaron, David y equipo</span>
-        </div>
+          <p className="mt-1 text-2xl font-black text-[#000000]">
+            {kpis.totalProductos} <span className="text-sm font-bold text-stone-400">/ {kpis.totalAdmins + kpis.totalProd}</span>
+          </p>
+          <span className="text-[10px] text-stone-500">
+            {kpis.totalAdmins} Admin &bull; {kpis.totalProd} Producción
+          </span>
+        </button>
       </div>
 
       {/* Export All Admin Records Bar (Excel & PDF) */}

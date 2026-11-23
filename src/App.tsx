@@ -15,6 +15,8 @@ import { AromaFlowersRoleView } from './components/aroma_flowers/AromaFlowersRol
 import { LoginView } from './components/auth/LoginView';
 import { AdminRoleView } from './components/admin/AdminRoleView';
 import { AdminProductsView } from './components/admin/AdminProductsView';
+import { EmployeesView } from './components/admin/EmployeesView';
+import { PaymentsView } from './components/admin/PaymentsView';
 import { DailyProductionView } from './components/production/DailyProductionView';
 import { DailySalesView } from './components/sales/DailySalesView';
 import { ProfileView } from './components/profile/ProfileView';
@@ -46,6 +48,12 @@ const MainAppLayout: React.FC = () => {
 
     switch (activeRole) {
       case 'admin':
+        if (activeView === 'admin_empleados') {
+          return <EmployeesView />;
+        }
+        if (activeView === 'admin_pagos') {
+          return <PaymentsView />;
+        }
         if (activeView === 'admin_productos') {
           return <AdminProductsView />;
         }

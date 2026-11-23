@@ -78,6 +78,8 @@ export const Sidebar: React.FC = () => {
           { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
           { id: 'produccion_dia', label: 'Producción del Día ( CEDA CDMX )', icon: Layers },
           { id: 'resumen_ventas', label: 'Resumen de Ventas', icon: TrendingUp },
+          { id: 'admin_pagos', label: 'Pagos y Nómina', icon: Wallet },
+          { id: 'admin_empleados', label: 'Empleados', icon: Users },
           { id: 'admin_productos', label: 'Catálogo de Productos', icon: Boxes },
           { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
         ];

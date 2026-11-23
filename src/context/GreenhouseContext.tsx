@@ -21,6 +21,10 @@ import {
   DailyProductionEntry,
   DailySalesEntry,
   AppUser,
+  PayrollEmployee,
+  PayrollWeekEntry,
+  EmployeeLoanMovement,
+  SupplierPayment,
   ROLES,
 } from '../types/greenhouse';
 import {
@@ -44,6 +48,10 @@ import {
   INITIAL_DAILY_PRODUCTIONS,
   INITIAL_DAILY_SALES,
   INITIAL_APP_USERS,
+  INITIAL_PAYROLL_EMPLOYEES,
+  INITIAL_PAYROLL_WEEKS,
+  INITIAL_EMPLOYEE_LOANS,
+  INITIAL_SUPPLIER_PAYMENTS,
 } from '../data/mockData';
 import {
   DEFAULT_SUPABASE_KEY,
@@ -66,6 +74,8 @@ import {
   mapDailyProductionToDb,
   mapDailySaleFromDb,
   mapDailySaleToDb,
+  mapEmployeeLoanFromDb,
+  mapEmployeeLoanToDb,
   mapEquipmentToDb,
   mapHarvestToDb,
   mapInventoryToDb,
@@ -74,7 +84,13 @@ import {
   mapModuleToDb,
   mapMovementToDb,
   mapOrderToDb,
+  mapPayrollEmployeeFromDb,
+  mapPayrollEmployeeToDb,
+  mapPayrollWeekFromDb,
+  mapPayrollWeekToDb,
   mapPestToDb,
+  mapSupplierPaymentFromDb,
+  mapSupplierPaymentToDb,
   mapTaskToDb,
   mapWorkerToDb,
   normalizeSupabaseUrl,
@@ -107,7 +123,13 @@ interface GreenhouseContextType {
   saveAppUser: (
     userInput: Omit<AppUser, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
-  ) => Promise<{ ok: boolean; error?: string; cloudSynced?: boolean; cloudError?: string }>;
+  ) => Promise<{
+    ok: boolean;
+    error?: string;
+    cloudSynced?: boolean;
+    cloudError?: string;
+    user?: AppUser;
+  }>;
   updateCurrentProfile: (
     updates: Partial<AppUser>
   ) => Promise<{ ok: boolean; error?: string; cloudSynced?: boolean; cloudError?: string }>;
@@ -163,6 +185,46 @@ interface GreenhouseContextType {
     existingId?: string
   ) => Promise<{ entry: DailySalesEntry; cloudSynced: boolean; cloudError?: string }>;
   deleteDailySale: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  // Empleados, Nómina Semanal, Préstamos y Pagos a Proveedores
+  payrollEmployees: PayrollEmployee[];
+  savePayrollEmployee: (
+    empInput: Omit<PayrollEmployee, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{
+    ok: boolean;
+    error?: string;
+    employee?: PayrollEmployee;
+    cloudSynced?: boolean;
+    cloudError?: string;
+  }>;
+  setPayrollEmployeeActive: (
+    id: string,
+    active: boolean,
+    terminationReason?: string
+  ) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+  deletePayrollEmployee: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  payrollWeeks: PayrollWeekEntry[];
+  savePayrollWeek: (
+    weekInput: Omit<PayrollWeekEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string,
+    syncLoanBalances?: boolean
+  ) => Promise<{ entry: PayrollWeekEntry; cloudSynced: boolean; cloudError?: string }>;
+  deletePayrollWeek: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  employeeLoans: EmployeeLoanMovement[];
+  addEmployeeLoanMovement: (
+    input: Omit<EmployeeLoanMovement, 'id' | 'balanceAfter' | 'createdAt' | 'updatedAt'>
+  ) => Promise<{ ok: boolean; error?: string; movement?: EmployeeLoanMovement; cloudSynced?: boolean; cloudError?: string }>;
+  deleteEmployeeLoanMovement: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  supplierPayments: SupplierPayment[];
+  saveSupplierPayment: (
+    input: Omit<SupplierPayment, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ entry: SupplierPayment; cloudSynced: boolean; cloudError?: string }>;
+  deleteSupplierPayment: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
 
   refreshFromSupabase: () => Promise<boolean>;
 
@@ -369,6 +431,35 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     loadInitial('daily_sales', INITIAL_DAILY_SALES)
   );
 
+  // Empleados de Nómina & Directorio (keeps 13 seeded workers unless cleared/modified)
+  const [payrollEmployees, setPayrollEmployees] = useState<PayrollEmployee[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}payroll_employees`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {
+        return INITIAL_PAYROLL_EMPLOYEES;
+      }
+    }
+    return INITIAL_PAYROLL_EMPLOYEES;
+  });
+
+  // Nóminas Semanales (Módulo Pagos)
+  const [payrollWeeks, setPayrollWeeks] = useState<PayrollWeekEntry[]>(() =>
+    loadInitial('payroll_weeks', INITIAL_PAYROLL_WEEKS)
+  );
+
+  // Préstamos y Descuentos de Empleados
+  const [employeeLoans, setEmployeeLoans] = useState<EmployeeLoanMovement[]>(() =>
+    loadInitial('employee_loans', INITIAL_EMPLOYEE_LOANS)
+  );
+
+  // Pagos a Proveedores y Otros Gastos
+  const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>(() =>
+    loadInitial('supplier_payments', INITIAL_SUPPLIER_PAYMENTS)
+  );
+
   // Sync online status
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -415,13 +506,17 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!supabaseConfig.isConnected) {
       return { ok: false, error: 'Supabase no está configurado.' };
     }
-    if (
-      onlyAromaFlowers &&
-      table !== 'app_users' &&
-      table !== 'app_products' &&
-      table !== 'daily_productions' &&
-      table !== 'daily_sales'
-    ) {
+    const ACTIVE_AROMA_TABLES = new Set([
+      'app_users',
+      'app_products',
+      'daily_productions',
+      'daily_sales',
+      'payroll_employees',
+      'payroll_weeks',
+      'employee_loans',
+      'supplier_payments',
+    ]);
+    if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
     }
     if (!isOnline) {
@@ -455,13 +550,17 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!supabaseConfig.isConnected) {
       return { ok: false, error: 'Supabase no está configurado.' };
     }
-    if (
-      onlyAromaFlowers &&
-      table !== 'app_users' &&
-      table !== 'app_products' &&
-      table !== 'daily_productions' &&
-      table !== 'daily_sales'
-    ) {
+    const ACTIVE_AROMA_TABLES = new Set([
+      'app_users',
+      'app_products',
+      'daily_productions',
+      'daily_sales',
+      'payroll_employees',
+      'payroll_weeks',
+      'employee_loans',
+      'supplier_payments',
+    ]);
+    if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
     }
     if (!isOnline) {
@@ -532,6 +631,22 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (snap.dailySales !== undefined && !pendingTables.has('daily_sales')) {
       setDailySales(snap.dailySales);
       saveState('daily_sales', snap.dailySales);
+    }
+    if (snap.payrollEmployees && snap.payrollEmployees.length > 0 && !pendingTables.has('payroll_employees')) {
+      setPayrollEmployees(snap.payrollEmployees);
+      saveState('payroll_employees', snap.payrollEmployees);
+    }
+    if (snap.payrollWeeks !== undefined && !pendingTables.has('payroll_weeks')) {
+      setPayrollWeeks(snap.payrollWeeks);
+      saveState('payroll_weeks', snap.payrollWeeks);
+    }
+    if (snap.employeeLoans !== undefined && !pendingTables.has('employee_loans')) {
+      setEmployeeLoans(snap.employeeLoans);
+      saveState('employee_loans', snap.employeeLoans);
+    }
+    if (snap.supplierPayments !== undefined && !pendingTables.has('supplier_payments')) {
+      setSupplierPayments(snap.supplierPayments);
+      saveState('supplier_payments', snap.supplierPayments);
     }
     if (snap.modules) {
       setModules(snap.modules);
@@ -1156,6 +1271,427 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { ok: true, cloudSynced: res.ok };
   };
 
+  // ---------- Empleados, Nómina Semanal, Préstamos y Proveedores (Admin) ----------
+  const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
+  const savePayrollEmployee = async (
+    empInput: Omit<PayrollEmployee, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    employee?: PayrollEmployee;
+    cloudSynced?: boolean;
+    cloudError?: string;
+  }> => {
+    const cleanName = empInput.fullName.trim().toUpperCase();
+    if (!cleanName) {
+      return { ok: false, error: 'El nombre del empleado es obligatorio.' };
+    }
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const existing = existingId ? payrollEmployees.find((e) => e.id === existingId) : undefined;
+    const saved: PayrollEmployee = {
+      ...empInput,
+      fullName: cleanName,
+      teamGroup: (empInput.teamGroup || 'AARON').trim().toUpperCase(),
+      jobTitle: (empInput.jobTitle || '').trim(),
+      phone: (empInput.phone || '').trim(),
+      email: (empInput.email || '').trim(),
+      weeklySalary: round2(empInput.weeklySalary),
+      defaultBonusAmount: round2(empInput.defaultBonusAmount ?? 150),
+      loanBalance: Math.max(0, round2(empInput.loanBalance)),
+      id:
+        existingId ||
+        `emp-${cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 20)}-${Date.now().toString(36)}`,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setPayrollEmployees((prev) => {
+      const exists = prev.some((e) => e.id === saved.id);
+      const updated = exists
+        ? prev.map((e) => (e.id === saved.id ? saved : e))
+        : [...prev, saved];
+      saveState('payroll_employees', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('payroll_employees', mapPayrollEmployeeToDb(saved));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapPayrollEmployeeFromDb(cloudRes.savedRow);
+      setPayrollEmployees((prev) => {
+        const updated = prev.map((e) => (e.id === saved.id ? synced : e));
+        saveState('payroll_employees', updated);
+        return updated;
+      });
+    }
+    addAuditLog('Empleados', `Empleado ${saved.fullName} (${saved.teamGroup}) guardado`);
+    return {
+      ok: true,
+      employee: saved,
+      cloudSynced: cloudRes.ok,
+      cloudError: cloudRes.error,
+    };
+  };
+
+  const setPayrollEmployeeActive = async (
+    id: string,
+    active: boolean,
+    terminationReason?: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    const existing = payrollEmployees.find((e) => e.id === id);
+    if (!existing) return { ok: false };
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const today = new Date().toISOString().slice(0, 10);
+    const updatedEmp: PayrollEmployee = {
+      ...existing,
+      active,
+      terminationDate: active ? undefined : today,
+      terminationReason: active ? undefined : terminationReason?.trim() || 'Baja registrada por Admin',
+      updatedAt: now,
+    };
+
+    setPayrollEmployees((prev) => {
+      const updated = prev.map((e) => (e.id === id ? updatedEmp : e));
+      saveState('payroll_employees', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase(
+      'payroll_employees',
+      mapPayrollEmployeeToDb(updatedEmp)
+    );
+
+    // Also synchronize linked system credential active status if linked (prevent terminated employee login)
+    if (existing.linkedUserId) {
+      const linkedUser = appUsers.find((u) => u.id === existing.linkedUserId);
+      if (linkedUser && linkedUser.id !== currentUser?.id) {
+        const updatedUser: AppUser = {
+          ...linkedUser,
+          active,
+          updatedAt: new Date().toISOString(),
+        };
+        setAppUsers((prev) => {
+          const next = prev.map((u) => (u.id === updatedUser.id ? updatedUser : u));
+          saveState('app_users', next);
+          return next;
+        });
+        await pushUpsertToSupabase('app_users', mapAppUserToDb(updatedUser));
+      }
+    }
+
+    addAuditLog(
+      'Empleados',
+      active ? `Empleado ${existing.fullName} reactivado` : `Baja de empleado ${existing.fullName}`
+    );
+    return { ok: true, cloudSynced: cloudRes.ok };
+  };
+
+  const deletePayrollEmployee = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setPayrollEmployees((prev) => {
+      const updated = prev.filter((e) => e.id !== id);
+      saveState('payroll_employees', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('payroll_employees', id);
+    addAuditLog('Empleados', `Empleado eliminado (ID: ${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const savePayrollWeek = async (
+    weekInput: Omit<PayrollWeekEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string,
+    syncLoanBalances = true
+  ): Promise<{ entry: PayrollWeekEntry; cloudSynced: boolean; cloudError?: string }> => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const existing = existingId ? payrollWeeks.find((w) => w.id === existingId) : undefined;
+    const saved: PayrollWeekEntry = {
+      ...weekInput,
+      id:
+        existingId ||
+        `pw-${weekInput.startDate}-${(weekInput.teamGroup || 'general').toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString(36)}`,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setPayrollWeeks((prev) => {
+      const exists = prev.some((w) => w.id === saved.id);
+      const updated = exists
+        ? prev.map((w) => (w.id === saved.id ? saved : w))
+        : [saved, ...prev];
+      saveState('payroll_weeks', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('payroll_weeks', mapPayrollWeekToDb(saved));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapPayrollWeekFromDb(cloudRes.savedRow);
+      setPayrollWeeks((prev) => {
+        const updated = prev.map((w) => (w.id === saved.id ? synced : w));
+        saveState('payroll_weeks', updated);
+        return updated;
+      });
+    }
+
+    // Automatically sync employee loan balances and record deterministic loan payment movements
+    if (syncLoanBalances) {
+      const employeesToSync: PayrollEmployee[] = [];
+      const loansToSync: EmployeeLoanMovement[] = [];
+
+      for (const row of saved.rows) {
+        const emp = payrollEmployees.find((e) => e.id === row.employeeId);
+        if (!emp) continue;
+        const targetBalance = Math.max(0, round2(row.loanRemainingBalance));
+        if (row.loanPayment > 0 || (row.loanPreviousBalance > 0 && targetBalance !== emp.loanBalance)) {
+          employeesToSync.push({
+            ...emp,
+            loanBalance: targetBalance,
+            updatedAt: now,
+          });
+        }
+        if (row.loanPayment > 0) {
+          const movementId = `eln-pw-${saved.id}-${row.employeeId}`;
+          loansToSync.push({
+            id: movementId,
+            employeeId: row.employeeId,
+            employeeName: row.employeeName,
+            movementDate: saved.endDate || saved.startDate,
+            movementType: 'abono',
+            amount: round2(row.loanPayment),
+            balanceAfter: targetBalance,
+            concept: `Pago de préstamo en nómina ${saved.weekLabel}`,
+            payrollWeekId: saved.id,
+            notes: `Saldo anterior: $${round2(row.loanPreviousBalance).toFixed(2)} → Resta: $${targetBalance.toFixed(2)}`,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+
+      if (employeesToSync.length > 0) {
+        const mapById = new Map(employeesToSync.map((e) => [e.id, e]));
+        setPayrollEmployees((prev) => {
+          const updated = prev.map((e) => mapById.get(e.id) || e);
+          saveState('payroll_employees', updated);
+          return updated;
+        });
+        for (const emp of employeesToSync) {
+          await pushUpsertToSupabase('payroll_employees', mapPayrollEmployeeToDb(emp));
+        }
+      }
+
+      if (loansToSync.length > 0) {
+        setEmployeeLoans((prev) => {
+          const byId = new Map(prev.map((m) => [m.id, m]));
+          loansToSync.forEach((m) => byId.set(m.id, m));
+          const updated = Array.from(byId.values()).sort((a, b) =>
+            b.movementDate.localeCompare(a.movementDate)
+          );
+          saveState('employee_loans', updated);
+          return updated;
+        });
+        for (const loanMov of loansToSync) {
+          await pushUpsertToSupabase('employee_loans', mapEmployeeLoanToDb(loanMov));
+        }
+      }
+    }
+
+    addAuditLog(
+      'Pagos y Nómina',
+      `Nómina ${saved.weekLabel} (${saved.teamGroup}) guardada por $${saved.grandTotalPay.toFixed(2)}`
+    );
+    return { entry: saved, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deletePayrollWeek = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setPayrollWeeks((prev) => {
+      const updated = prev.filter((w) => w.id !== id);
+      saveState('payroll_weeks', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('payroll_weeks', id);
+    addAuditLog('Pagos y Nómina', `Nómina semanal eliminada (ID: ${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const addEmployeeLoanMovement = async (
+    input: Omit<EmployeeLoanMovement, 'id' | 'balanceAfter' | 'createdAt' | 'updatedAt'>
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    movement?: EmployeeLoanMovement;
+    cloudSynced?: boolean;
+    cloudError?: string;
+  }> => {
+    const emp = payrollEmployees.find((e) => e.id === input.employeeId);
+    if (!emp) {
+      return { ok: false, error: 'Selecciona un empleado válido.' };
+    }
+    const cleanAmount = round2(input.amount);
+    if (cleanAmount <= 0) {
+      return { ok: false, error: 'Ingresa un monto mayor a cero.' };
+    }
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const newBalance =
+      input.movementType === 'prestamo'
+        ? round2((emp.loanBalance || 0) + cleanAmount)
+        : Math.max(0, round2((emp.loanBalance || 0) - cleanAmount));
+
+    const movement: EmployeeLoanMovement = {
+      ...input,
+      employeeName: emp.fullName,
+      amount: cleanAmount,
+      balanceAfter: newBalance,
+      id: `eln-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const updatedEmp: PayrollEmployee = {
+      ...emp,
+      loanBalance: newBalance,
+      updatedAt: now,
+    };
+
+    setEmployeeLoans((prev) => {
+      const updated = [movement, ...prev];
+      saveState('employee_loans', updated);
+      return updated;
+    });
+
+    setPayrollEmployees((prev) => {
+      const updated = prev.map((e) => (e.id === emp.id ? updatedEmp : e));
+      saveState('payroll_employees', updated);
+      return updated;
+    });
+
+    const [loanRes, empRes] = await Promise.all([
+      pushUpsertToSupabase('employee_loans', mapEmployeeLoanToDb(movement)),
+      pushUpsertToSupabase('payroll_employees', mapPayrollEmployeeToDb(updatedEmp)),
+    ]);
+
+    if (loanRes.ok && loanRes.savedRow) {
+      const synced = mapEmployeeLoanFromDb(loanRes.savedRow);
+      setEmployeeLoans((prev) => {
+        const updated = prev.map((m) => (m.id === movement.id ? synced : m));
+        saveState('employee_loans', updated);
+        return updated;
+      });
+    }
+
+    addAuditLog(
+      'Préstamos Empleados',
+      `${input.movementType.toUpperCase()} $${cleanAmount.toFixed(2)} a ${emp.fullName} (Saldo: $${newBalance.toFixed(2)})`
+    );
+    return {
+      ok: true,
+      movement,
+      cloudSynced: loanRes.ok && empRes.ok,
+      cloudError: loanRes.error || empRes.error,
+    };
+  };
+
+  const deleteEmployeeLoanMovement = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    const target = employeeLoans.find((m) => m.id === id);
+    setEmployeeLoans((prev) => {
+      const updated = prev.filter((m) => m.id !== id);
+      saveState('employee_loans', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('employee_loans', id);
+
+    // Revert balance on employee cleanly
+    if (target) {
+      const emp = payrollEmployees.find((e) => e.id === target.employeeId);
+      if (emp) {
+        const revertedBalance =
+          target.movementType === 'prestamo'
+            ? Math.max(0, round2(emp.loanBalance - target.amount))
+            : round2(emp.loanBalance + target.amount);
+        const updatedEmp: PayrollEmployee = {
+          ...emp,
+          loanBalance: revertedBalance,
+          updatedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        };
+        setPayrollEmployees((prev) => {
+          const updated = prev.map((e) => (e.id === emp.id ? updatedEmp : e));
+          saveState('payroll_employees', updated);
+          return updated;
+        });
+        await pushUpsertToSupabase('payroll_employees', mapPayrollEmployeeToDb(updatedEmp));
+      }
+    }
+
+    addAuditLog('Préstamos Empleados', `Movimiento eliminado (ID: ${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const saveSupplierPayment = async (
+    input: Omit<SupplierPayment, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{ entry: SupplierPayment; cloudSynced: boolean; cloudError?: string }> => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const existing = existingId ? supplierPayments.find((s) => s.id === existingId) : undefined;
+    const saved: SupplierPayment = {
+      ...input,
+      supplierName: input.supplierName.trim(),
+      concept: input.concept.trim(),
+      amount: round2(input.amount),
+      paidAmount:
+        input.status === 'pagado'
+          ? round2(input.amount)
+          : input.status === 'pendiente'
+          ? 0
+          : round2(input.paidAmount),
+      id: existingId || `sp-${input.paymentDate}-${Date.now().toString(36)}`,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setSupplierPayments((prev) => {
+      const exists = prev.some((s) => s.id === saved.id);
+      const updated = exists
+        ? prev.map((s) => (s.id === saved.id ? saved : s))
+        : [saved, ...prev];
+      saveState('supplier_payments', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('supplier_payments', mapSupplierPaymentToDb(saved));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapSupplierPaymentFromDb(cloudRes.savedRow);
+      setSupplierPayments((prev) => {
+        const updated = prev.map((s) => (s.id === saved.id ? synced : s));
+        saveState('supplier_payments', updated);
+        return updated;
+      });
+    }
+    addAuditLog(
+      'Pagos Proveedores',
+      `${saved.supplierName} - $${saved.amount.toFixed(2)} (${saved.status})`
+    );
+    return { entry: saved, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteSupplierPayment = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setSupplierPayments((prev) => {
+      const updated = prev.filter((s) => s.id !== id);
+      saveState('supplier_payments', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('supplier_payments', id);
+    addAuditLog('Pagos Proveedores', `Pago eliminado (ID: ${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
   // ---------- Authentication, Permissions & User Profile Management ----------
   const canAccessRole = (role: UserRole): boolean => {
     if (!currentUser) return false;
@@ -1253,7 +1789,13 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const saveAppUser = async (
     userInput: Omit<AppUser, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
-  ): Promise<{ ok: boolean; error?: string; cloudSynced?: boolean; cloudError?: string }> => {
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    cloudSynced?: boolean;
+    cloudError?: string;
+    user?: AppUser;
+  }> => {
     const cleanUsername = userInput.username.trim();
     if (!cleanUsername || !userInput.fullName.trim() || !userInput.password) {
       return { ok: false, error: 'Nombre, usuario y contraseña son obligatorio.' };
@@ -1286,16 +1828,22 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     const cloudRes = await pushUpsertToSupabase('app_users', mapAppUserToDb(saved));
+    let finalUser = saved;
     if (cloudRes.ok && cloudRes.savedRow) {
-      const synced = mapAppUserFromDb(cloudRes.savedRow);
+      finalUser = mapAppUserFromDb(cloudRes.savedRow);
       setAppUsers((prev) => {
-        const updated = prev.map((u) => (u.id === saved.id ? synced : u));
+        const updated = prev.map((u) => (u.id === saved.id ? finalUser : u));
         saveState('app_users', updated);
         return updated;
       });
     }
-    addAuditLog('Gestión de Usuarios', `Usuario ${saved.username} (${saved.role}) guardado`);
-    return { ok: true, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+    addAuditLog('Gestión de Usuarios', `Usuario ${finalUser.username} (${finalUser.role}) guardado`);
+    return {
+      ok: true,
+      user: finalUser,
+      cloudSynced: cloudRes.ok,
+      cloudError: cloudRes.error,
+    };
   };
 
   const updateCurrentProfile = async (
@@ -1388,6 +1936,9 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setAromaSheets([]);
     setDailyProductions([]);
     setDailySales([]);
+    setPayrollWeeks([]);
+    setEmployeeLoans([]);
+    setSupplierPayments([]);
 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}demo_cleared`, 'true');
     localStorage.setItem(`${STORAGE_KEY_PREFIX}never_show_demo`, 'true');
@@ -1414,6 +1965,9 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'aroma_sheets',
       'daily_productions',
       'daily_sales',
+      'payroll_weeks',
+      'employee_loans',
+      'supplier_payments',
     ];
     keys.forEach((k) => localStorage.removeItem(`${STORAGE_KEY_PREFIX}${k}`));
 
@@ -1439,6 +1993,10 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setAromaSheets(INITIAL_AROMA_FLOWER_SHEETS);
     setDailyProductions(INITIAL_DAILY_PRODUCTIONS);
     setDailySales(INITIAL_DAILY_SALES);
+    setPayrollEmployees(INITIAL_PAYROLL_EMPLOYEES);
+    setPayrollWeeks(INITIAL_PAYROLL_WEEKS);
+    setEmployeeLoans(INITIAL_EMPLOYEE_LOANS);
+    setSupplierPayments(INITIAL_SUPPLIER_PAYMENTS);
 
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}demo_cleared`);
     localStorage.removeItem(`${STORAGE_KEY_PREFIX}never_show_demo`);
@@ -1495,6 +2053,10 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           aromaProducts,
           dailyProductions,
           dailySales,
+          payrollEmployees,
+          payrollWeeks,
+          employeeLoans,
+          supplierPayments,
           modules,
           tasks,
           irrigation,
@@ -1529,13 +2091,16 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return `-- ================================================================
 -- AROMA FLOWER - ESQUEMA ACTUALIZADO PARA SUPABASE
 -- Roles Activos: Admin y Producción (con Mi Perfil en ambos)
--- Módulos: Producción del Día ( CEDA CDMX ), Resumen de Ventas y Catálogo
+-- Módulos: Producción del Día ( CEDA CDMX ), Resumen de Ventas, Catálogo,
+--          Empleados (Credenciales + WhatsApp) y Pagos (Nómina, Préstamos, Proveedores)
 -- Proyecto: aromaflowers@appdesignsoftware.com's Project (syrchvrxkkwvwynvtzfq)
 -- IMPORTANTE: Pega este código en SQL Editor y haz clic en el botón verde "Run"
 -- ================================================================
 
 -- 1. Eliminar tablas heredadas desactivadas para que Supabase detecte
---    únicamente las 4 tablas actuales: app_users, app_products, daily_productions, daily_sales
+--    únicamente las 8 tablas activas actuales:
+--    app_users, app_products, daily_productions, daily_sales,
+--    payroll_employees, payroll_weeks, employee_loans, supplier_payments
 DROP TABLE IF EXISTS
   aroma_flower_sheets,
   active_loans,
@@ -1673,26 +2238,141 @@ CREATE TABLE IF NOT EXISTS daily_sales (
 CREATE INDEX IF NOT EXISTS idx_daily_sales_date_emp
   ON daily_sales (sale_date DESC, employee_user_id);
 
--- 6. Habilitar RLS y políticas de acceso para las 4 tablas activas de Aroma Flower
-ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "aroma_flower_full_access" ON app_users;
-CREATE POLICY "aroma_flower_full_access"
-  ON app_users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+-- 6. Tabla de Empleados (Módulo Empleados + Sueldo Semanal + Saldo Préstamo + Vínculo Credencial)
+CREATE TABLE IF NOT EXISTS payroll_employees (
+    id TEXT PRIMARY KEY,
+    full_name TEXT NOT NULL,
+    team_group TEXT NOT NULL DEFAULT 'AARON',
+    job_title TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    weekly_salary NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    has_attendance_bonus BOOLEAN NOT NULL DEFAULT TRUE,
+    default_bonus_amount NUMERIC(10, 2) NOT NULL DEFAULT 150,
+    loan_balance NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    hire_date TEXT NOT NULL DEFAULT '',
+    termination_date TEXT,
+    termination_reason TEXT,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    linked_user_id TEXT,
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-ALTER TABLE app_products ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "aroma_flower_full_access" ON app_products;
-CREATE POLICY "aroma_flower_full_access"
-  ON app_products FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE INDEX IF NOT EXISTS idx_payroll_employees_group_active
+  ON payroll_employees (team_group, active, full_name);
 
-ALTER TABLE daily_productions ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "aroma_flower_full_access" ON daily_productions;
-CREATE POLICY "aroma_flower_full_access"
-  ON daily_productions FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+-- Empleados iniciales (Equipo AARON del archivo base - conserva ediciones si ya existen)
+INSERT INTO payroll_employees (id, full_name, team_group, job_title, weekly_salary, has_attendance_bonus, default_bonus_amount, loan_balance, hire_date, active, created_at)
+VALUES
+  ('emp-fidel', 'FIDEL', 'AARON', 'Encargado de Campo', 3500.00, FALSE, 150.00, 0.00, '2026-01-05', TRUE, '2026-11-09 08:00'),
+  ('emp-ing-ana', 'ING ANA', 'AARON', 'Ingeniera Agrónoma', 3000.00, FALSE, 150.00, 0.00, '2026-01-05', TRUE, '2026-11-09 08:00'),
+  ('emp-guillermo', 'GUILLERMO', 'AARON', 'Operario Invernadero', 2500.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-samuel', 'SAMUEL', 'AARON', 'Operario / Fumigación', 2400.00, TRUE, 150.00, 400.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-alex', 'ALEX', 'AARON', 'Operario / Fumigación', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-bruno', 'BRUNO', 'AARON', 'Operario / Fumigación', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-casimiro', 'CASIMIRO', 'AARON', 'Operario / Fumigación', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-alejandra', 'ALEJANDRA', 'AARON', 'Operaria de Corte y Empaque', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-mary', 'MARY', 'AARON', 'Operaria de Corte y Empaque', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-marilu', 'MARILU', 'AARON', 'Operaria de Corte y Empaque', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-armando', 'ARMANDO', 'AARON', 'Operario / Fumigación', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-sergio', 'SERGIO', 'AARON', 'Operario / Fumigación', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
+  ('emp-regina', 'REGINA', 'AARON', 'Operaria Invernadero', 2300.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00')
+ON CONFLICT (id) DO NOTHING;
 
-ALTER TABLE daily_sales ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "aroma_flower_full_access" ON daily_sales;
-CREATE POLICY "aroma_flower_full_access"
-  ON daily_sales FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+-- 7. Tabla de Nóminas Semanales (Módulo Pagos - Empleados)
+CREATE TABLE IF NOT EXISTS payroll_weeks (
+    id TEXT PRIMARY KEY,
+    week_label TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    team_group TEXT NOT NULL DEFAULT 'AARON',
+    rates JSONB NOT NULL DEFAULT '{}'::jsonb,
+    rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_week_pay NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_bonus NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_fumigadas NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_cargadas NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_extra_hours NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_destajos NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_extra_work NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_other_deductions NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_loan_payments NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_loan_remaining NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    grand_total_pay NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'borrador' CHECK (status IN ('borrador', 'pagada')),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payroll_weeks_dates
+  ON payroll_weeks (start_date DESC, team_group);
+
+-- 8. Tabla de Préstamos y Abonos / Descuentos de Empleados
+CREATE TABLE IF NOT EXISTS employee_loans (
+    id TEXT PRIMARY KEY,
+    employee_id TEXT NOT NULL,
+    employee_name TEXT NOT NULL,
+    movement_date TEXT NOT NULL,
+    movement_type TEXT NOT NULL CHECK (movement_type IN ('prestamo', 'abono', 'descuento')),
+    amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    balance_after NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    concept TEXT NOT NULL DEFAULT '',
+    payroll_week_id TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_employee_loans_emp_date
+  ON employee_loans (employee_id, movement_date DESC);
+
+-- 9. Tabla de Pagos a Proveedores y Otros Gastos Operativos
+CREATE TABLE IF NOT EXISTS supplier_payments (
+    id TEXT PRIMARY KEY,
+    payment_date TEXT NOT NULL,
+    supplier_name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'otros',
+    concept TEXT NOT NULL DEFAULT '',
+    reference TEXT DEFAULT '',
+    amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    payment_method TEXT NOT NULL DEFAULT 'efectivo',
+    status TEXT NOT NULL DEFAULT 'pagado' CHECK (status IN ('pagado', 'pendiente', 'parcial')),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_payments_date
+  ON supplier_payments (payment_date DESC, status);
+
+-- 10. Habilitar RLS y políticas de acceso para las 8 tablas activas de Aroma Flower
+DO $$
+DECLARE
+  t TEXT;
+  tbls TEXT[] := ARRAY[
+    'app_users',
+    'app_products',
+    'daily_productions',
+    'daily_sales',
+    'payroll_employees',
+    'payroll_weeks',
+    'employee_loans',
+    'supplier_payments'
+  ];
+BEGIN
+  FOREACH t IN ARRAY tbls LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY;', t);
+    EXECUTE format('DROP POLICY IF EXISTS "aroma_flower_full_access" ON %I;', t);
+    EXECUTE format(
+      'CREATE POLICY "aroma_flower_full_access" ON %I FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);',
+      t
+    );
+  END LOOP;
+END $$;
 `;
     }
 
@@ -2011,13 +2691,14 @@ END $$;
   const generateSupabaseCleanupSql = (): string => {
     if (onlyAromaFlowers) {
       return `-- ================================================================
--- SCRIPT DE LIMPIEZA DE REGISTROS DE PRODUCCIÓN Y VENTAS SUPABASE
--- Invernadero Aroma Flower (Mantiene usuarios y catálogo de productos)
+-- SCRIPT DE LIMPIEZA DE REGISTROS OPERATIVOS SUPABASE
+-- Invernadero Aroma Flower (Mantiene usuarios, catálogo y empleados)
 -- ================================================================
 BEGIN;
-TRUNCATE TABLE daily_productions, daily_sales CASCADE;
+TRUNCATE TABLE daily_productions, daily_sales, payroll_weeks, employee_loans, supplier_payments CASCADE;
+UPDATE payroll_employees SET loan_balance = 0;
 COMMIT;
--- Las tablas app_users, app_products, daily_productions y daily_sales permanecen listas.
+-- Las 8 tablas activas permanecen listas para operación real.
 `;
     }
 
@@ -2071,6 +2752,10 @@ COMMIT;
       aromaProducts,
       dailyProductions,
       dailySales,
+      payrollEmployees,
+      payrollWeeks,
+      employeeLoans,
+      supplierPayments,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -2096,6 +2781,10 @@ COMMIT;
       if (data.aromaProducts) setAromaProducts(data.aromaProducts);
       if (data.dailyProductions) setDailyProductions(data.dailyProductions);
       if (data.dailySales) setDailySales(data.dailySales);
+      if (data.payrollEmployees) setPayrollEmployees(data.payrollEmployees);
+      if (data.payrollWeeks) setPayrollWeeks(data.payrollWeeks);
+      if (data.employeeLoans) setEmployeeLoans(data.employeeLoans);
+      if (data.supplierPayments) setSupplierPayments(data.supplierPayments);
 
       setDemoDataCleared(false);
       addAuditLog('Restauración de Respaldo', 'Base de datos restaurada desde archivo JSON');
@@ -2156,6 +2845,19 @@ COMMIT;
         dailySales,
         saveDailySale,
         deleteDailySale,
+        payrollEmployees,
+        savePayrollEmployee,
+        setPayrollEmployeeActive,
+        deletePayrollEmployee,
+        payrollWeeks,
+        savePayrollWeek,
+        deletePayrollWeek,
+        employeeLoans,
+        addEmployeeLoanMovement,
+        deleteEmployeeLoanMovement,
+        supplierPayments,
+        saveSupplierPayment,
+        deleteSupplierPayment,
         refreshFromSupabase,
         addModule,
         updateModule,

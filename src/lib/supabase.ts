@@ -10,15 +10,19 @@ import {
   Customer,
   DailyProductionEntry,
   DailySalesEntry,
+  EmployeeLoanMovement,
   EquipmentAsset,
   FinancialMovement,
   GreenhouseModule,
   HarvestRecord,
   InventoryItem,
   IrrigationLog,
+  PayrollEmployee,
+  PayrollWeekEntry,
   PestMonitoring,
   PhytosanitaryApplication,
   SalesOrder,
+  SupplierPayment,
   UserRole,
   Worker,
 } from '../types/greenhouse';
@@ -89,19 +93,33 @@ export async function testSupabaseConnection(
   }
 
   try {
-    const [usersRes, productsRes, prodRes, salesRes] = await Promise.all([
-      client.from('app_users').select('id').limit(1),
-      client.from('app_products').select('id').limit(1),
-      client.from('daily_productions').select('id').limit(1),
-      client.from('daily_sales').select('id').limit(1),
-    ]);
-    const error = usersRes.error || productsRes.error || prodRes.error || salesRes.error;
+    const [usersRes, productsRes, prodRes, salesRes, empRes, weekRes, loanRes, supRes] =
+      await Promise.all([
+        client.from('app_users').select('id').limit(1),
+        client.from('app_products').select('id').limit(1),
+        client.from('daily_productions').select('id').limit(1),
+        client.from('daily_sales').select('id').limit(1),
+        client.from('payroll_employees').select('id').limit(1),
+        client.from('payroll_weeks').select('id').limit(1),
+        client.from('employee_loans').select('id').limit(1),
+        client.from('supplier_payments').select('id').limit(1),
+      ]);
+    const error =
+      usersRes.error ||
+      productsRes.error ||
+      prodRes.error ||
+      salesRes.error ||
+      empRes.error ||
+      weekRes.error ||
+      loanRes.error ||
+      supRes.error;
     if (!error) {
       return {
         ok: true,
         tablesReady: true,
         status: 'connected',
-        message: 'Conexión exitosa y tablas activas listas en Supabase (app_users, app_products, daily_productions y daily_sales).',
+        message:
+          'Conexión exitosa y las 8 tablas activas están listas en Supabase (Usuarios, Productos, Producción, Ventas, Empleados, Nóminas, Préstamos y Proveedores).',
       };
     }
 
@@ -115,7 +133,7 @@ export async function testSupabaseConnection(
         tablesReady: false,
         status: 'missing_tables',
         message:
-          'Proyecto Supabase conectado, pero falta ejecutar el SQL actualizado (incluye daily_sales) en Supabase → SQL Editor (botón Run).',
+          'Proyecto Supabase conectado, pero falta ejecutar el SQL actualizado (incluye Empleados y Pagos) en Supabase → SQL Editor (botón Run).',
       };
     }
 
@@ -733,6 +751,177 @@ export const mapDailySaleFromDb = (r: any): DailySalesEntry => ({
   updatedAt: r.updated_at || undefined,
 });
 
+export const mapPayrollEmployeeToDb = (e: PayrollEmployee) => ({
+  id: e.id,
+  full_name: e.fullName,
+  team_group: e.teamGroup || 'AARON',
+  job_title: e.jobTitle || '',
+  phone: e.phone || '',
+  email: e.email || '',
+  weekly_salary: Number(e.weeklySalary || 0),
+  has_attendance_bonus: Boolean(e.hasAttendanceBonus),
+  default_bonus_amount: Number(e.defaultBonusAmount || 150),
+  loan_balance: Number(e.loanBalance || 0),
+  hire_date: e.hireDate || '',
+  termination_date: e.terminationDate || null,
+  termination_reason: e.terminationReason || null,
+  active: e.active !== false,
+  linked_user_id: e.linkedUserId || null,
+  notes: e.notes || '',
+  created_at: e.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapPayrollEmployeeFromDb = (r: any): PayrollEmployee => ({
+  id: String(r.id),
+  fullName: r.full_name || '',
+  teamGroup: r.team_group || 'AARON',
+  jobTitle: r.job_title || '',
+  phone: r.phone || '',
+  email: r.email || '',
+  weeklySalary: Number(r.weekly_salary || 0),
+  hasAttendanceBonus: Boolean(r.has_attendance_bonus),
+  defaultBonusAmount: Number(r.default_bonus_amount ?? 150),
+  loanBalance: Number(r.loan_balance || 0),
+  hireDate: r.hire_date || '',
+  terminationDate: r.termination_date || undefined,
+  terminationReason: r.termination_reason || undefined,
+  active: r.active !== false,
+  linkedUserId: r.linked_user_id || undefined,
+  notes: r.notes || '',
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapPayrollWeekToDb = (w: PayrollWeekEntry) => ({
+  id: w.id,
+  week_label: w.weekLabel,
+  start_date: w.startDate,
+  end_date: w.endDate,
+  team_group: w.teamGroup || 'AARON',
+  rates: w.rates || {
+    fumigadaRate: 20,
+    cargadaRate: 0,
+    extraHourRate: 0,
+    destajoRate: 0,
+    defaultBonus: 150,
+    workDaysPerWeek: 6,
+  },
+  rows: w.rows || [],
+  total_week_pay: Number(w.totalWeekPay || 0),
+  total_bonus: Number(w.totalBonus || 0),
+  total_fumigadas: Number(w.totalFumigadas || 0),
+  total_cargadas: Number(w.totalCargadas || 0),
+  total_extra_hours: Number(w.totalExtraHours || 0),
+  total_destajos: Number(w.totalDestajos || 0),
+  total_extra_work: Number(w.totalExtraWork || 0),
+  total_other_deductions: Number(w.totalOtherDeductions || 0),
+  total_loan_payments: Number(w.totalLoanPayments || 0),
+  total_loan_remaining: Number(w.totalLoanRemaining || 0),
+  grand_total_pay: Number(w.grandTotalPay || 0),
+  status: w.status || 'borrador',
+  notes: w.notes || null,
+  created_at: w.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapPayrollWeekFromDb = (r: any): PayrollWeekEntry => ({
+  id: String(r.id),
+  weekLabel: r.week_label || '',
+  startDate: r.start_date || '',
+  endDate: r.end_date || '',
+  teamGroup: r.team_group || 'AARON',
+  rates: r.rates || {
+    fumigadaRate: 20,
+    cargadaRate: 0,
+    extraHourRate: 0,
+    destajoRate: 0,
+    defaultBonus: 150,
+    workDaysPerWeek: 6,
+  },
+  rows: Array.isArray(r.rows) ? r.rows : [],
+  totalWeekPay: Number(r.total_week_pay || 0),
+  totalBonus: Number(r.total_bonus || 0),
+  totalFumigadas: Number(r.total_fumigadas || 0),
+  totalCargadas: Number(r.total_cargadas || 0),
+  totalExtraHours: Number(r.total_extra_hours || 0),
+  totalDestajos: Number(r.total_destajos || 0),
+  totalExtraWork: Number(r.total_extra_work || 0),
+  totalOtherDeductions: Number(r.total_other_deductions || 0),
+  totalLoanPayments: Number(r.total_loan_payments || 0),
+  totalLoanRemaining: Number(r.total_loan_remaining || 0),
+  grandTotalPay: Number(r.grand_total_pay || 0),
+  status: r.status === 'pagada' ? 'pagada' : 'borrador',
+  notes: r.notes || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapEmployeeLoanToDb = (l: EmployeeLoanMovement) => ({
+  id: l.id,
+  employee_id: l.employeeId,
+  employee_name: l.employeeName,
+  movement_date: l.movementDate,
+  movement_type: l.movementType,
+  amount: Number(l.amount || 0),
+  balance_after: Number(l.balanceAfter || 0),
+  concept: l.concept || '',
+  payroll_week_id: l.payrollWeekId || null,
+  notes: l.notes || null,
+  created_at: l.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapEmployeeLoanFromDb = (r: any): EmployeeLoanMovement => ({
+  id: String(r.id),
+  employeeId: r.employee_id || '',
+  employeeName: r.employee_name || '',
+  movementDate: r.movement_date || '',
+  movementType:
+    r.movement_type === 'abono' || r.movement_type === 'descuento'
+      ? r.movement_type
+      : 'prestamo',
+  amount: Number(r.amount || 0),
+  balanceAfter: Number(r.balance_after || 0),
+  concept: r.concept || '',
+  payrollWeekId: r.payroll_week_id || undefined,
+  notes: r.notes || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapSupplierPaymentToDb = (s: SupplierPayment) => ({
+  id: s.id,
+  payment_date: s.paymentDate,
+  supplier_name: s.supplierName,
+  category: s.category || 'otros',
+  concept: s.concept || '',
+  reference: s.reference || '',
+  amount: Number(s.amount || 0),
+  paid_amount: Number(s.paidAmount || 0),
+  payment_method: s.paymentMethod || 'efectivo',
+  status: s.status || 'pagado',
+  notes: s.notes || null,
+  created_at: s.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapSupplierPaymentFromDb = (r: any): SupplierPayment => ({
+  id: String(r.id),
+  paymentDate: r.payment_date || '',
+  supplierName: r.supplier_name || '',
+  category: r.category || 'otros',
+  concept: r.concept || '',
+  reference: r.reference || '',
+  amount: Number(r.amount || 0),
+  paidAmount: Number(r.paid_amount || 0),
+  paymentMethod: r.payment_method || 'efectivo',
+  status: r.status === 'pendiente' || r.status === 'parcial' ? r.status : 'pagado',
+  notes: r.notes || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
 // ---------- Sync Helpers ----------
 
 export async function upsertRowsToSupabase(
@@ -857,6 +1046,10 @@ export interface RemoteSnapshot {
   aromaProducts?: AromaProduct[];
   dailyProductions?: DailyProductionEntry[];
   dailySales?: DailySalesEntry[];
+  payrollEmployees?: PayrollEmployee[];
+  payrollWeeks?: PayrollWeekEntry[];
+  employeeLoans?: EmployeeLoanMovement[];
+  supplierPayments?: SupplierPayment[];
   modules?: GreenhouseModule[];
   tasks?: CulturalTask[];
   irrigation?: IrrigationLog[];
@@ -878,12 +1071,17 @@ export async function fetchAllFromSupabase(
   client: SupabaseClient,
   onlyAromaFlowers = false
 ): Promise<RemoteSnapshot> {
-  const [usersRes, productsRes, prodRes, salesRes] = await Promise.all([
-    client.from('app_users').select('*'),
-    client.from('app_products').select('*').order('sort_order', { ascending: true }),
-    client.from('daily_productions').select('*').order('production_date', { ascending: false }),
-    client.from('daily_sales').select('*').order('sale_date', { ascending: false }),
-  ]);
+  const [usersRes, productsRes, prodRes, salesRes, empRes, weekRes, loanRes, supRes] =
+    await Promise.all([
+      client.from('app_users').select('*'),
+      client.from('app_products').select('*').order('sort_order', { ascending: true }),
+      client.from('daily_productions').select('*').order('production_date', { ascending: false }),
+      client.from('daily_sales').select('*').order('sale_date', { ascending: false }),
+      client.from('payroll_employees').select('*').order('full_name', { ascending: true }),
+      client.from('payroll_weeks').select('*').order('start_date', { ascending: false }),
+      client.from('employee_loans').select('*').order('movement_date', { ascending: false }),
+      client.from('supplier_payments').select('*').order('payment_date', { ascending: false }),
+    ]);
 
   const isMissingTable = (err: any) =>
     err &&
@@ -895,7 +1093,11 @@ export async function fetchAllFromSupabase(
     isMissingTable(usersRes.error) ||
     isMissingTable(productsRes.error) ||
     isMissingTable(prodRes.error) ||
-    isMissingTable(salesRes.error)
+    isMissingTable(salesRes.error) ||
+    isMissingTable(empRes.error) ||
+    isMissingTable(weekRes.error) ||
+    isMissingTable(loanRes.error) ||
+    isMissingTable(supRes.error)
   ) {
     return {
       status: 'missing_tables',
@@ -903,10 +1105,23 @@ export async function fetchAllFromSupabase(
       aromaProducts: !productsRes.error && productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
       dailyProductions: !prodRes.error && prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
       dailySales: !salesRes.error && salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
+      payrollEmployees: !empRes.error && empRes.data?.length ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
+      payrollWeeks: !weekRes.error && weekRes.data ? weekRes.data.map(mapPayrollWeekFromDb) : undefined,
+      employeeLoans: !loanRes.error && loanRes.data ? loanRes.data.map(mapEmployeeLoanFromDb) : undefined,
+      supplierPayments: !supRes.error && supRes.data ? supRes.data.map(mapSupplierPaymentFromDb) : undefined,
     };
   }
 
-  if (usersRes.error || productsRes.error || prodRes.error || salesRes.error) {
+  if (
+    usersRes.error ||
+    productsRes.error ||
+    prodRes.error ||
+    salesRes.error ||
+    empRes.error ||
+    weekRes.error ||
+    loanRes.error ||
+    supRes.error
+  ) {
     return { status: 'error' };
   }
 
@@ -917,6 +1132,10 @@ export async function fetchAllFromSupabase(
       aromaProducts: productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
       dailyProductions: prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
       dailySales: salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
+      payrollEmployees: empRes.data?.length ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
+      payrollWeeks: weekRes.data ? weekRes.data.map(mapPayrollWeekFromDb) : undefined,
+      employeeLoans: loanRes.data ? loanRes.data.map(mapEmployeeLoanFromDb) : undefined,
+      supplierPayments: supRes.data ? supRes.data.map(mapSupplierPaymentFromDb) : undefined,
     };
   }
 
@@ -963,6 +1182,10 @@ export async function fetchAllFromSupabase(
     aromaProducts: productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
     dailyProductions: prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
     dailySales: salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
+    payrollEmployees: empRes.data?.length ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
+    payrollWeeks: weekRes.data ? weekRes.data.map(mapPayrollWeekFromDb) : undefined,
+    employeeLoans: loanRes.data ? loanRes.data.map(mapEmployeeLoanFromDb) : undefined,
+    supplierPayments: supRes.data ? supRes.data.map(mapSupplierPaymentFromDb) : undefined,
     modules: modulesRes.data?.length ? modulesRes.data.map(mapModuleFromDb) : undefined,
     tasks: tasksRes.data?.length ? tasksRes.data.map(mapTaskFromDb) : undefined,
     irrigation: irrigationRes.data?.length ? irrigationRes.data.map(mapIrrigationFromDb) : undefined,
@@ -987,6 +1210,10 @@ export interface LocalStateSnapshot {
   aromaProducts: AromaProduct[];
   dailyProductions: DailyProductionEntry[];
   dailySales: DailySalesEntry[];
+  payrollEmployees: PayrollEmployee[];
+  payrollWeeks: PayrollWeekEntry[];
+  employeeLoans: EmployeeLoanMovement[];
+  supplierPayments: SupplierPayment[];
   modules: GreenhouseModule[];
   tasks: CulturalTask[];
   irrigation: IrrigationLog[];
@@ -1015,12 +1242,20 @@ export async function pushAllLocalToSupabase(
         { table: 'app_products', rows: state.aromaProducts.map(mapAromaProductToDb) },
         { table: 'daily_productions', rows: state.dailyProductions.map(mapDailyProductionToDb) },
         { table: 'daily_sales', rows: state.dailySales.map(mapDailySaleToDb) },
+        { table: 'payroll_employees', rows: state.payrollEmployees.map(mapPayrollEmployeeToDb) },
+        { table: 'payroll_weeks', rows: state.payrollWeeks.map(mapPayrollWeekToDb) },
+        { table: 'employee_loans', rows: state.employeeLoans.map(mapEmployeeLoanToDb) },
+        { table: 'supplier_payments', rows: state.supplierPayments.map(mapSupplierPaymentToDb) },
       ]
     : [
         { table: 'app_users', rows: state.appUsers.map(mapAppUserToDb) },
         { table: 'app_products', rows: state.aromaProducts.map(mapAromaProductToDb) },
         { table: 'daily_productions', rows: state.dailyProductions.map(mapDailyProductionToDb) },
         { table: 'daily_sales', rows: state.dailySales.map(mapDailySaleToDb) },
+        { table: 'payroll_employees', rows: state.payrollEmployees.map(mapPayrollEmployeeToDb) },
+        { table: 'payroll_weeks', rows: state.payrollWeeks.map(mapPayrollWeekToDb) },
+        { table: 'employee_loans', rows: state.employeeLoans.map(mapEmployeeLoanToDb) },
+        { table: 'supplier_payments', rows: state.supplierPayments.map(mapSupplierPaymentToDb) },
         { table: 'aroma_flower_sheets', rows: state.aromaSheets.map(mapAromaSheetToDb) },
         { table: 'modules', rows: state.modules.map(mapModuleToDb) },
         { table: 'cultural_tasks', rows: state.tasks.map(mapTaskToDb) },

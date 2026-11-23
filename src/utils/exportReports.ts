@@ -6,6 +6,11 @@ import {
   AromaProduct,
   DailyProductionEntry,
   DailySalesEntry,
+  EmployeeLoanMovement,
+  PayrollEmployee,
+  PayrollWeekEntry,
+  PayrollWeekRow,
+  SupplierPayment,
 } from '../types/greenhouse';
 
 const BURGUNDY: [number, number, number] = [92, 17, 37]; // #5C1125
@@ -1312,4 +1317,503 @@ export function exportSingleSalePdf(entry: DailySalesEntry) {
   addPdfPageFooters(doc);
   doc.save(`Venta_${entry.employeeName}_${entry.saleDate}.pdf`);
 }
+
+// ==================== 7. PAYROLL, LOANS, SUPPLIERS & EMPLOYEES EXPORTS ====================
+
+const fmtMoney = (n: number) =>
+  `$${Number(n || 0).toLocaleString('es-MX', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
+  const wb = XLSX.utils.book_new();
+  const rows: any[][] = [
+    [week.weekLabel, '', 'EQUIPO / GRUPO:', week.teamGroup, 'ESTATUS:', week.status.toUpperCase()],
+    [
+      'NOMBRE',
+      'DIAS',
+      'P/ SEMANAL',
+      'SEMANA',
+      'TOTAL',
+      'BONO/AyP',
+      'FUMIGADAS (Cant)',
+      'FUMIGADAS ($)',
+      'CARGADAS (Cant)',
+      'CARGADAS ($)',
+      'HORAS EXTRAS (Cant)',
+      'HORAS EXTRAS ($)',
+      'DESTAJOS (Cant)',
+      'DESTAJOS ($)',
+      'TRABAJO EXTRA ($)',
+      'OTROS DESC ($)',
+      'PAGO DE PRESTAMO',
+      'PRESTAMO',
+      'RESTA DEL PRESTAMO',
+      'PAGADO',
+    ],
+    ...week.rows.map((r) => [
+      r.employeeName,
+      Number(r.daysWorked || 0),
+      Number(r.weeklySalary || 0),
+      Number(r.weekPay || 0),
+      Number(r.totalNetPay || 0),
+      Number(r.attendanceBonus || 0),
+      Number(r.fumigadasQty || 0),
+      Number(r.fumigadasAmount || 0),
+      Number(r.cargadasQty || 0),
+      Number(r.cargadasAmount || 0),
+      Number(r.extraHoursQty || 0),
+      Number(r.extraHoursAmount || 0),
+      Number(r.destajosQty || 0),
+      Number(r.destajosAmount || 0),
+      Number(r.extraWorkAmount || 0),
+      Number(r.otherDeductions || 0),
+      Number(r.loanPayment || 0),
+      Number(r.loanPreviousBalance || 0),
+      Number(r.loanRemainingBalance || 0),
+      r.paid ? 'SI' : 'NO',
+    ]),
+    [
+      'TOTAL',
+      '',
+      '',
+      Number(week.totalWeekPay || 0),
+      Number(week.grandTotalPay || 0),
+      Number(week.totalBonus || 0),
+      '',
+      Number(week.totalFumigadas || 0),
+      '',
+      Number(week.totalCargadas || 0),
+      '',
+      Number(week.totalExtraHours || 0),
+      '',
+      Number(week.totalDestajos || 0),
+      Number(week.totalExtraWork || 0),
+      Number(week.totalOtherDeductions || 0),
+      Number(week.totalLoanPayments || 0),
+      '',
+      Number(week.totalLoanRemaining || 0),
+      '',
+    ],
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  setColumnWidths(ws, rows);
+  const safeSheet = `Nomina ${week.startDate}`.slice(0, 31);
+  XLSX.utils.book_append_sheet(wb, ws, safeSheet);
+  XLSX.writeFile(wb, `AromaFlower_Nomina_${week.startDate}_${week.teamGroup}.xlsx`);
+}
+
+export function exportPayrollWeekPdf(week: PayrollWeekEntry) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  addPdfHeader(
+    doc,
+    `Nómina Semanal: ${week.weekLabel}`,
+    `Equipo: ${week.teamGroup} • Del ${week.startDate} al ${week.endDate} • Total Neto a Pagar: ${fmtMoney(week.grandTotalPay)}`
+  );
+
+  autoTable(doc, {
+    startY: 32,
+    head: [
+      [
+        'NOMBRE',
+        'DIAS',
+        'P/SEM',
+        'SEMANA',
+        'BONO',
+        'FUMIG.',
+        'CARG.',
+        'H.EXT',
+        'DEST.',
+        'TR.EXT',
+        'DESC.',
+        'ABONO PR.',
+        'PRESTAMO',
+        'RESTA PR.',
+        'TOTAL NETO',
+      ],
+    ],
+    body: week.rows.map((r) => [
+      r.employeeName,
+      r.daysWorked,
+      fmtMoney(r.weeklySalary),
+      fmtMoney(r.weekPay),
+      fmtMoney(r.attendanceBonus),
+      r.fumigadasQty ? `${r.fumigadasQty} (${fmtMoney(r.fumigadasAmount)})` : '$0.00',
+      fmtMoney(r.cargadasAmount),
+      fmtMoney(r.extraHoursAmount),
+      fmtMoney(r.destajosAmount),
+      fmtMoney(r.extraWorkAmount),
+      fmtMoney(r.otherDeductions),
+      fmtMoney(r.loanPayment),
+      fmtMoney(r.loanPreviousBalance),
+      fmtMoney(r.loanRemainingBalance),
+      fmtMoney(r.totalNetPay),
+    ]),
+    foot: [
+      [
+        'TOTALES',
+        `${week.rows.length} emp.`,
+        '—',
+        fmtMoney(week.totalWeekPay),
+        fmtMoney(week.totalBonus),
+        fmtMoney(week.totalFumigadas),
+        fmtMoney(week.totalCargadas),
+        fmtMoney(week.totalExtraHours),
+        fmtMoney(week.totalDestajos),
+        fmtMoney(week.totalExtraWork),
+        fmtMoney(week.totalOtherDeductions),
+        fmtMoney(week.totalLoanPayments),
+        '—',
+        fmtMoney(week.totalLoanRemaining),
+        fmtMoney(week.grandTotalPay),
+      ],
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 6.8, fontStyle: 'bold' },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 7, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 6.6, cellPadding: 1.5 },
+    columnStyles: {
+      1: { halign: 'center' },
+      14: { halign: 'right', fontStyle: 'bold' },
+    },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Nomina_${week.startDate}_${week.teamGroup}.pdf`);
+}
+
+export function exportEmployeePaySlipPdf(week: PayrollWeekEntry, row: PayrollWeekRow) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  addPdfHeader(
+    doc,
+    `Recibo Individual de Pago — ${row.employeeName}`,
+    `Periodo: ${week.weekLabel} (${week.startDate} al ${week.endDate}) • Grupo: ${row.teamGroup || week.teamGroup}`
+  );
+
+  let y = 36;
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...BURGUNDY);
+  doc.text('Detalle de Percepciones y Deducciones', 14, y);
+  y += 4;
+
+  const lines: Array<[string, string, string]> = [
+    ['Sueldo Semanal Base (6 días)', `${row.daysWorked} días trabajados`, fmtMoney(row.weekPay)],
+    ['Bono de Asistencia y Puntualidad (AyP)', row.attendanceBonus > 0 ? 'Aplicado' : 'No aplica', fmtMoney(row.attendanceBonus)],
+    ['Fumigadas', `${row.fumigadasQty || 0} u.`, fmtMoney(row.fumigadasAmount)],
+    ['Cargadas', `${row.cargadasQty || 0} u.`, fmtMoney(row.cargadasAmount)],
+    ['Horas Extras', `${row.extraHoursQty || 0} hrs`, fmtMoney(row.extraHoursAmount)],
+    ['Destajos (Estajos)', `${row.destajosQty || 0} u.`, fmtMoney(row.destajosAmount)],
+    ['Trabajo Extra', row.extraWorkAmount > 0 ? 'Extra registrado' : '—', fmtMoney(row.extraWorkAmount)],
+    ['Descuento / Abono a Préstamo', `Saldo anterior: ${fmtMoney(row.loanPreviousBalance)}`, row.loanPayment > 0 ? `- ${fmtMoney(row.loanPayment)}` : '$0.00'],
+    ['Otros Descuentos', row.otherDeductions > 0 ? 'Aplicado' : '—', row.otherDeductions > 0 ? `- ${fmtMoney(row.otherDeductions)}` : '$0.00'],
+  ];
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Concepto', 'Referencia / Cantidad', 'Importe ($ MXN)']],
+    body: lines,
+    foot: [['TOTAL NETO A RECIBIR', row.paid ? 'ESTATUS: PAGADO' : 'ESTATUS: PENDIENTE', fmtMoney(row.totalNetPay)]],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 9, fontStyle: 'bold' },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 10, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 8.8, cellPadding: 2.8 },
+    columnStyles: { 2: { halign: 'right', fontStyle: 'bold' } },
+  });
+
+  y = ((doc as any).lastAutoTable?.finalY || y) + 10;
+  doc.setFontSize(9.5);
+  doc.setTextColor(40, 40, 40);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Estado de Préstamo Personal:`, 14, y);
+  doc.setFont('helvetica', 'normal');
+  doc.text(
+    `Saldo Anterior: ${fmtMoney(row.loanPreviousBalance)}   |   Abono en esta Nómina: ${fmtMoney(row.loanPayment)}   |   Saldo Restante: ${fmtMoney(row.loanRemainingBalance)}`,
+    14,
+    y + 6
+  );
+
+  y += 28;
+  doc.setDrawColor(140, 140, 140);
+  doc.line(20, y, 85, y);
+  doc.line(125, y, 190, y);
+  doc.setFontSize(8.5);
+  doc.text(`Firma de Conformidad (${row.employeeName})`, 52.5, y + 5, { align: 'center' });
+  doc.text('Autorización Administración Aroma Flower', 157.5, y + 5, { align: 'center' });
+
+  addPdfPageFooters(doc);
+  doc.save(`Recibo_${row.employeeName}_${week.startDate}.pdf`);
+}
+
+export function exportEmployeeLoansExcel(
+  employees: PayrollEmployee[],
+  movements: EmployeeLoanMovement[]
+) {
+  const wb = XLSX.utils.book_new();
+  const balRows: any[][] = [
+    ['Empleado', 'Equipo', 'Sueldo Semanal', 'Saldo Pendiente ($ MXN)', 'Estado'],
+    ...employees.map((e) => [
+      e.fullName,
+      e.teamGroup,
+      Number(e.weeklySalary || 0),
+      Number(e.loanBalance || 0),
+      e.active ? 'Activo' : 'Baja',
+    ]),
+  ];
+  const wsBal = XLSX.utils.aoa_to_sheet(balRows);
+  setColumnWidths(wsBal, balRows);
+  XLSX.utils.book_append_sheet(wb, wsBal, 'Saldos Préstamos');
+
+  const movRows: any[][] = [
+    ['Fecha', 'Empleado', 'Tipo', 'Monto ($ MXN)', 'Saldo Después', 'Concepto', 'Notas'],
+    ...movements.map((m) => [
+      m.movementDate,
+      m.employeeName,
+      m.movementType.toUpperCase(),
+      Number(m.amount || 0),
+      Number(m.balanceAfter || 0),
+      m.concept,
+      m.notes || '',
+    ]),
+  ];
+  const wsMov = XLSX.utils.aoa_to_sheet(movRows);
+  setColumnWidths(wsMov, movRows);
+  XLSX.utils.book_append_sheet(wb, wsMov, 'Historial Movimientos');
+
+  XLSX.writeFile(wb, `AromaFlower_Prestamos_Empleados_${todayIso()}.xlsx`);
+}
+
+export function exportEmployeeLoansPdf(
+  employees: PayrollEmployee[],
+  movements: EmployeeLoanMovement[]
+) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const totalDebt = employees.reduce((acc, e) => acc + Number(e.loanBalance || 0), 0);
+  addPdfHeader(
+    doc,
+    'Control de Préstamos y Descuentos a Empleados',
+    `Saldo Total por Cobrar: ${fmtMoney(totalDebt)} • ${movements.length} movimientos registrados`
+  );
+
+  const activeDebtors = employees.filter((e) => Number(e.loanBalance || 0) > 0);
+  autoTable(doc, {
+    startY: 34,
+    head: [['Empleado', 'Grupo', 'Sueldo Semanal', 'Saldo Pendiente']],
+    body: activeDebtors.length
+      ? activeDebtors.map((e) => [
+          e.fullName,
+          e.teamGroup,
+          fmtMoney(e.weeklySalary),
+          fmtMoney(e.loanBalance),
+        ])
+      : [['Sin adeudos pendientes', '—', '—', '$0.00']],
+    foot: [['TOTAL CARTERA DE PRÉSTAMOS', `${activeDebtors.length} emp.`, '—', fmtMoney(totalDebt)]],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8.5 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 8.5 },
+    styles: { fontSize: 8, cellPadding: 2 },
+  });
+
+  const y = ((doc as any).lastAutoTable?.finalY || 50) + 10;
+  autoTable(doc, {
+    startY: y,
+    head: [['Fecha', 'Empleado', 'Tipo', 'Monto', 'Saldo Final', 'Concepto']],
+    body: movements.length
+      ? movements.map((m) => [
+          m.movementDate,
+          m.employeeName,
+          m.movementType.toUpperCase(),
+          fmtMoney(m.amount),
+          fmtMoney(m.balanceAfter),
+          m.concept,
+        ])
+      : [['—', 'Sin movimientos', '—', '$0.00', '$0.00', '—']],
+    theme: 'grid',
+    headStyles: { fillColor: OLIVE, textColor: 255, fontSize: 8 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.5, cellPadding: 1.8 },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Prestamos_Empleados_${todayIso()}.pdf`);
+}
+
+export function exportSupplierPaymentsExcel(payments: SupplierPayment[]) {
+  const wb = XLSX.utils.book_new();
+  const rows: any[][] = [
+    ['Fecha', 'Proveedor / Beneficiario', 'Categoría', 'Concepto', 'Referencia', 'Monto Total', 'Pagado', 'Saldo Pendiente', 'Método', 'Estatus', 'Notas'],
+    ...payments.map((p) => [
+      p.paymentDate,
+      p.supplierName,
+      p.category,
+      p.concept,
+      p.reference || '',
+      Number(p.amount || 0),
+      Number(p.paidAmount || 0),
+      Math.max(0, Number(p.amount || 0) - Number(p.paidAmount || 0)),
+      p.paymentMethod,
+      p.status.toUpperCase(),
+      p.notes || '',
+    ]),
+    [
+      'TOTALES',
+      `${payments.length} registros`,
+      '',
+      '',
+      '',
+      payments.reduce((a, p) => a + Number(p.amount || 0), 0),
+      payments.reduce((a, p) => a + Number(p.paidAmount || 0), 0),
+      payments.reduce((a, p) => a + Math.max(0, Number(p.amount || 0) - Number(p.paidAmount || 0)), 0),
+      '',
+      '',
+      '',
+    ],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  setColumnWidths(ws, rows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Pagos Proveedores');
+  XLSX.writeFile(wb, `AromaFlower_Pagos_Proveedores_${todayIso()}.xlsx`);
+}
+
+export function exportSupplierPaymentsPdf(payments: SupplierPayment[]) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const totAmt = payments.reduce((a, p) => a + Number(p.amount || 0), 0);
+  const totPaid = payments.reduce((a, p) => a + Number(p.paidAmount || 0), 0);
+  addPdfHeader(
+    doc,
+    'Reporte de Pagos a Proveedores y Gastos Operativos',
+    `${payments.length} registros • Total Facturado: ${fmtMoney(totAmt)} • Total Pagado: ${fmtMoney(totPaid)}`
+  );
+
+  autoTable(doc, {
+    startY: 32,
+    head: [['Fecha', 'Proveedor', 'Categoría', 'Concepto', 'Ref.', 'Monto', 'Pagado', 'Método', 'Estatus']],
+    body: payments.length
+      ? payments.map((p) => [
+          p.paymentDate,
+          p.supplierName,
+          p.category,
+          p.concept,
+          p.reference || '—',
+          fmtMoney(p.amount),
+          fmtMoney(p.paidAmount),
+          p.paymentMethod,
+          p.status.toUpperCase(),
+        ])
+      : [['—', 'Sin pagos registrados', '—', '—', '—', '$0.00', '$0.00', '—', '—']],
+    foot: [
+      [
+        'TOTALES',
+        `${payments.length} pagos`,
+        '',
+        '',
+        '',
+        fmtMoney(totAmt),
+        fmtMoney(totPaid),
+        '',
+        '',
+      ],
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 8 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.5, cellPadding: 1.8 },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Pagos_Proveedores_${todayIso()}.pdf`);
+}
+
+export function exportEmployeesDirectoryExcel(
+  employees: PayrollEmployee[],
+  appUsers: AppUser[]
+) {
+  const wb = XLSX.utils.book_new();
+  const rows: any[][] = [
+    [
+      'Nombre',
+      'Equipo / Grupo',
+      'Puesto',
+      'Teléfono WhatsApp',
+      'Correo',
+      'Sueldo Semanal',
+      'Bono AyP',
+      'Saldo Préstamo',
+      'Usuario Sistema',
+      'Rol Acceso',
+      'Estatus',
+      'Fecha Ingreso',
+      'Fecha Baja',
+      'Motivo Baja',
+    ],
+    ...employees.map((e) => {
+      const linked = e.linkedUserId ? appUsers.find((u) => u.id === e.linkedUserId) : undefined;
+      return [
+        e.fullName,
+        e.teamGroup,
+        e.jobTitle,
+        e.phone,
+        e.email,
+        Number(e.weeklySalary || 0),
+        e.hasAttendanceBonus ? Number(e.defaultBonusAmount || 150) : 0,
+        Number(e.loanBalance || 0),
+        linked ? linked.username : 'Sin acceso',
+        linked ? linked.role.toUpperCase() : '—',
+        e.active ? 'ACTIVO' : 'BAJA',
+        e.hireDate || '',
+        e.terminationDate || '',
+        e.terminationReason || '',
+      ];
+    }),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  setColumnWidths(ws, rows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Empleados');
+  XLSX.writeFile(wb, `AromaFlower_Empleados_${todayIso()}.xlsx`);
+}
+
+export function exportEmployeesDirectoryPdf(
+  employees: PayrollEmployee[],
+  appUsers: AppUser[]
+) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const activos = employees.filter((e) => e.active !== false).length;
+  addPdfHeader(
+    doc,
+    'Directorio Oficial de Empleados y Credenciales',
+    `Total: ${employees.length} • Activos: ${activos} • Bajas: ${employees.length - activos}`
+  );
+
+  autoTable(doc, {
+    startY: 32,
+    head: [['Nombre', 'Equipo', 'Puesto', 'WhatsApp', 'Sueldo Sem.', 'Bono AyP', 'Préstamo', 'Usuario', 'Estatus']],
+    body: employees.map((e) => {
+      const linked = e.linkedUserId ? appUsers.find((u) => u.id === e.linkedUserId) : undefined;
+      return [
+        e.fullName,
+        e.teamGroup,
+        e.jobTitle || '—',
+        e.phone || '—',
+        fmtMoney(e.weeklySalary),
+        e.hasAttendanceBonus ? fmtMoney(e.defaultBonusAmount || 150) : 'No',
+        fmtMoney(e.loanBalance),
+        linked ? `@${linked.username} (${linked.role})` : 'Sin cuenta',
+        e.active !== false ? 'ACTIVO' : `BAJA (${e.terminationDate || ''})`,
+      ];
+    }),
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.5, cellPadding: 1.8 },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Empleados_${todayIso()}.pdf`);
+}
+
 
