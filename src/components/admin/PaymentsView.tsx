@@ -20,6 +20,8 @@ import {
   Search,
   RefreshCw,
   Calendar,
+  Building2,
+  Sparkles,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import {
@@ -119,6 +121,7 @@ const recalculateRow = (row: PayrollWeekRow, workDaysPerWeek = 6): PayrollWeekRo
   const loanPay = Math.max(0, round2(row.loanPayment));
   const loanRemaining = Math.max(0, round2(loanPrev - loanPay));
   const attendanceDiscount = Math.max(0, round2(row.attendanceDiscount || 0));
+  const commissionBonusAmount = Math.max(0, round2(row.commissionBonusAmount || 0));
   const totalNetPay = round2(
     weekPay +
       Number(row.attendanceBonus || 0) -
@@ -127,7 +130,8 @@ const recalculateRow = (row: PayrollWeekRow, workDaysPerWeek = 6): PayrollWeekRo
       Number(row.cargadasAmount || 0) +
       Number(row.extraHoursAmount || 0) +
       Number(row.destajosAmount || 0) +
-      Number(row.extraWorkAmount || 0) -
+      Number(row.extraWorkAmount || 0) +
+      commissionBonusAmount -
       loanPay -
       Number(row.otherDeductions || 0)
   );
@@ -135,6 +139,7 @@ const recalculateRow = (row: PayrollWeekRow, workDaysPerWeek = 6): PayrollWeekRo
     ...row,
     weekPay,
     attendanceDiscount,
+    commissionBonusAmount,
     loanPreviousBalance: loanPrev,
     loanPayment: loanPay,
     loanRemainingBalance: loanRemaining,
@@ -155,6 +160,7 @@ const computeWeekTotals = (rows: PayrollWeekRow[]) => {
       acc.totalExtraHours = round2(acc.totalExtraHours + Number(r.extraHoursAmount || 0));
       acc.totalDestajos = round2(acc.totalDestajos + Number(r.destajosAmount || 0));
       acc.totalExtraWork = round2(acc.totalExtraWork + Number(r.extraWorkAmount || 0));
+      acc.totalCommissions = round2(acc.totalCommissions + Number(r.commissionBonusAmount || 0));
       acc.totalOtherDeductions = round2(acc.totalOtherDeductions + Number(r.otherDeductions || 0));
       acc.totalLoanPayments = round2(acc.totalLoanPayments + Number(r.loanPayment || 0));
       acc.totalLoanRemaining = round2(acc.totalLoanRemaining + Number(r.loanRemainingBalance || 0));
@@ -170,6 +176,7 @@ const computeWeekTotals = (rows: PayrollWeekRow[]) => {
       totalExtraHours: 0,
       totalDestajos: 0,
       totalExtraWork: 0,
+      totalCommissions: 0,
       totalOtherDeductions: 0,
       totalLoanPayments: 0,
       totalLoanRemaining: 0,
@@ -187,6 +194,7 @@ export const PaymentsView: React.FC = () => {
     employeeLoans,
     addEmployeeLoanMovement,
     deleteEmployeeLoanMovement,
+    employeeAdjustments,
     supplierPayments,
     saveSupplierPayment,
     deleteSupplierPayment,
@@ -232,7 +240,79 @@ export const PaymentsView: React.FC = () => {
     setRows(week.rows.map((r) => recalculateRow(r, week.rates?.workDaysPerWeek || 6)));
   };
 
-  // Start a brand-new automated payroll week from active employees + live loan balances
+  const pendingAdjustments = useMemo(
+    () => employeeAdjustments.filter((a) => a.status === 'pendiente'),
+    [employeeAdjustments]
+  );
+
+  const applyPendingIncidentsToRows = (
+    targetRows: PayrollWeekRow[],
+    workDaysPerWeek: number,
+    refreshLoans: boolean
+  ) => {
+    let appliedCount = 0;
+    let loansSynced = 0;
+
+    const updatedRows = targetRows.map((row) => {
+      const empRef = payrollEmployees.find(
+        (e) =>
+          e.id === row.employeeId ||
+          e.fullName.trim().toUpperCase() === row.employeeName.trim().toUpperCase()
+      );
+      const alreadyApplied = new Set(row.appliedAdjustmentIds || []);
+      const matchingPending = pendingAdjustments.filter((adj) => {
+        if (alreadyApplied.has(adj.id)) return false;
+        return (
+          adj.employeeId === row.employeeId ||
+          adj.employeeName.trim().toUpperCase() === row.employeeName.trim().toUpperCase()
+        );
+      });
+
+      let attendanceDiscount = Number(row.attendanceDiscount || 0);
+      let otherDeductions = Number(row.otherDeductions || 0);
+      let commissionBonusAmount = Number(row.commissionBonusAmount || 0);
+      const notesList = row.commissionBonusNotes ? [row.commissionBonusNotes] : [];
+      const nextAppliedIds = [...alreadyApplied];
+
+      matchingPending.forEach((adj) => {
+        const amt = Math.max(0, round2(adj.amount));
+        if (amt <= 0) return;
+        if (adj.adjustmentType === 'descuento_falta') {
+          attendanceDiscount = round2(attendanceDiscount + amt);
+        } else if (adj.adjustmentType === 'otro_descuento') {
+          otherDeductions = round2(otherDeductions + amt);
+        } else {
+          commissionBonusAmount = round2(commissionBonusAmount + amt);
+          if (adj.concept) notesList.push(`${adj.concept} (+$${amt})`);
+        }
+        nextAppliedIds.push(adj.id);
+        appliedCount += 1;
+      });
+
+      let loanPreviousBalance = Number(row.loanPreviousBalance || 0);
+      if (refreshLoans && empRef && Number(empRef.loanBalance || 0) !== loanPreviousBalance) {
+        loanPreviousBalance = Number(empRef.loanBalance || 0);
+        loansSynced += 1;
+      }
+
+      return recalculateRow(
+        {
+          ...row,
+          attendanceDiscount,
+          otherDeductions,
+          commissionBonusAmount,
+          commissionBonusNotes: notesList.join(' | '),
+          appliedAdjustmentIds: nextAppliedIds,
+          loanPreviousBalance,
+        },
+        workDaysPerWeek
+      );
+    });
+
+    return { updatedRows, appliedCount, loansSynced };
+  };
+
+  // Start a brand-new automated payroll week from active employees + live loan balances + pending adjustments
   const startNewAutomatedWeek = (filterGroup = 'AARON') => {
     const start = today;
     const endDt = new Date(today + 'T12:00:00');
@@ -247,7 +327,7 @@ export const PaymentsView: React.FC = () => {
     const listToUse =
       activeEmps.length > 0 ? activeEmps : payrollEmployees.filter((e) => e.active !== false);
 
-    const newRows: PayrollWeekRow[] = listToUse.map((emp: PayrollEmployee) =>
+    const baseRows: PayrollWeekRow[] = listToUse.map((emp: PayrollEmployee) =>
       recalculateRow(
         {
           employeeId: emp.id,
@@ -271,6 +351,9 @@ export const PaymentsView: React.FC = () => {
           extraWorkQty: 0,
           extraWorkAmount: 0,
           extraWorkDescription: '',
+          commissionBonusAmount: 0,
+          commissionBonusNotes: '',
+          appliedAdjustmentIds: [],
           otherDeductions: 0,
           loanPreviousBalance: Number(emp.loanBalance || 0),
           loanPayment: 0,
@@ -282,6 +365,12 @@ export const PaymentsView: React.FC = () => {
       )
     );
 
+    const { updatedRows, appliedCount } = applyPendingIncidentsToRows(
+      baseRows,
+      rates.workDaysPerWeek || 6,
+      false
+    );
+
     setSelectedWeekId('new');
     setStartDate(start);
     setEndDate(end);
@@ -289,11 +378,32 @@ export const PaymentsView: React.FC = () => {
     setTeamGroup(filterGroup);
     setWeekStatus('borrador');
     setWeekNotes('');
-    setRows(newRows);
+    setRows(updatedRows);
     setFeedback(
-      `Nueva nómina generada automáticamente con ${newRows.length} empleado(s) activos y sus saldos vigentes de préstamos.`
+      `Nueva nómina generada con ${updatedRows.length} empleado(s), saldos vigentes de préstamos${
+        appliedCount > 0 ? ` y ${appliedCount} incidencia(s)/comisión(es) sincronizada(s)` : ''
+      }.`
     );
-    setTimeout(() => setFeedback(null), 4000);
+    setTimeout(() => setFeedback(null), 4500);
+  };
+
+  const handleSyncPendingIncidents = () => {
+    const { updatedRows, appliedCount, loansSynced } = applyPendingIncidentsToRows(
+      rows,
+      rates.workDaysPerWeek || 6,
+      true
+    );
+    setRows(updatedRows);
+    if (appliedCount === 0 && loansSynced === 0) {
+      setFeedback(
+        'La nómina ya está al día con todos los préstamos, descuentos y comisiones pendientes.'
+      );
+    } else {
+      setFeedback(
+        `Sincronización aplicada: ${appliedCount} incidencia(s)/bono(s)/comisión(es) cargada(s) y ${loansSynced} saldo(s) de préstamo actualizado(s). Recuerda guardar la nómina para marcarlas como aplicadas.`
+      );
+    }
+    setTimeout(() => setFeedback(null), 5000);
   };
 
   // Load first week automatically if rows empty and weeks exist
@@ -414,11 +524,13 @@ export const PaymentsView: React.FC = () => {
     rows,
     totalWeekPay: weekTotals.totalWeekPay,
     totalBonus: weekTotals.totalBonus,
+    totalAttendanceDiscounts: weekTotals.totalAttendanceDiscounts,
     totalFumigadas: weekTotals.totalFumigadas,
     totalCargadas: weekTotals.totalCargadas,
     totalExtraHours: weekTotals.totalExtraHours,
     totalDestajos: weekTotals.totalDestajos,
     totalExtraWork: weekTotals.totalExtraWork,
+    totalCommissions: weekTotals.totalCommissions,
     totalOtherDeductions: round2(weekTotals.totalOtherDeductions + weekTotals.totalAttendanceDiscounts),
     totalLoanPayments: weekTotals.totalLoanPayments,
     totalLoanRemaining: weekTotals.totalLoanRemaining,
@@ -717,7 +829,8 @@ export const PaymentsView: React.FC = () => {
             Number(r.cargadasAmount || 0) +
             Number(r.extraHoursAmount || 0) +
             Number(r.destajosAmount || 0) +
-            Number(r.extraWorkAmount || 0)
+            Number(r.extraWorkAmount || 0) +
+            Number(r.commissionBonusAmount || 0)
         );
         existing.totalDeductionsAndLoans = round2(
           existing.totalDeductionsAndLoans +
@@ -788,11 +901,32 @@ export const PaymentsView: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              onClick={() => setActiveView('admin_incidencias')}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
+            >
+              <CreditCard className="w-4 h-4 text-[#C3A25D]" />
+              <span>Préstamos y Desc.</span>
+              {pendingAdjustments.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-[#C3A25D] text-[#000000] text-[10px] font-black">
+                  {pendingAdjustments.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView('admin_proveedores')}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/15 transition cursor-pointer"
+            >
+              <Building2 className="w-4 h-4 text-[#C3A25D]" />
+              <span>Proveedores</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveView('admin_empleados')}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-bold shadow-md transition cursor-pointer"
             >
               <Users className="w-4 h-4" />
-              <span>Administrar Empleados ({payrollEmployees.filter((e) => e.active !== false).length})</span>
+              <span>Empleados ({payrollEmployees.filter((e) => e.active !== false).length})</span>
             </button>
           </div>
         </div>
@@ -1046,15 +1180,16 @@ export const PaymentsView: React.FC = () => {
               <p className="text-lg font-black text-[#000000] mt-0.5">{fmtMoney(weekTotals.totalWeekPay)}</p>
             </div>
             <div className="p-3.5 rounded-2xl bg-white border border-stone-200 shadow-xs">
-              <span className="text-[10px] font-bold uppercase text-[#535B28]">Bonos + Extras</span>
-              <p className="text-lg font-black text-[#535B28] mt-0.5">
+              <span className="text-[10px] font-bold uppercase text-[#535B28]">Bonos + Comis. + Extras</span>
+              <p className="text-lg font-black text-[#535B28] mt-0.5 tabular-nums">
                 {fmtMoney(
                   weekTotals.totalBonus +
                     weekTotals.totalFumigadas +
                     weekTotals.totalCargadas +
                     weekTotals.totalExtraHours +
                     weekTotals.totalDestajos +
-                    weekTotals.totalExtraWork
+                    weekTotals.totalExtraWork +
+                    weekTotals.totalCommissions
                 )}
               </p>
             </div>
@@ -1090,6 +1225,17 @@ export const PaymentsView: React.FC = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  onClick={handleSyncPendingIncidents}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-bold shadow-xs transition cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#C3A25D]" />
+                  <span>
+                    Sincronizar Préstamos, Desc. y Comisiones
+                    {pendingAdjustments.length > 0 ? ` (${pendingAdjustments.length})` : ''}
+                  </span>
+                </button>
+                <button
+                  type="button"
                   onClick={handlePullMissingActiveEmployees}
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 text-xs font-bold text-stone-700 hover:bg-stone-100 cursor-pointer"
                 >
@@ -1108,17 +1254,17 @@ export const PaymentsView: React.FC = () => {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse min-w-[1540px]">
+              <table className="w-full text-xs border-collapse min-w-[1720px]">
                 <thead>
                   <tr className="bg-[#5C1125] text-white text-[10px] uppercase tracking-wider">
-                    <th className="py-2.5 px-2.5 text-left sticky left-0 bg-[#5C1125] z-10 min-w-[130px]">
-                      Nombre
+                    <th className="py-2.5 px-2.5 text-left sticky left-0 bg-[#5C1125] z-20 min-w-[175px] shadow-[4px_0_8px_rgba(0,0,0,0.08)]">
+                      Nombre / Neto Vivo
                     </th>
                     <th className="py-2.5 px-1.5 text-center w-14">Días</th>
                     <th className="py-2.5 px-1.5 text-right w-24">P/ Semanal</th>
                     <th className="py-2.5 px-2 text-right w-24">Semana</th>
                     <th className="py-2.5 px-1.5 text-right w-20">Bono AyP</th>
-                    <th className="py-2.5 px-1.5 text-right w-20">Desc. AyP</th>
+                    <th className="py-2.5 px-1.5 text-right w-22">Desc. Faltas / AyP</th>
                     <th className="py-2.5 px-1.5 text-center w-28">
                       Fumig. 200L (Cant / $)
                     </th>
@@ -1131,24 +1277,40 @@ export const PaymentsView: React.FC = () => {
                     <th className="py-2.5 px-1.5 text-center w-28">
                       Destajo (Cant / $)
                     </th>
-                    <th className="py-2.5 px-1.5 text-left w-40">Trab. Extra ($ / Desc.)</th>
+                    <th className="py-2.5 px-1.5 text-left w-36">Trab. Extra ($ / Desc.)</th>
+                    <th className="py-2.5 px-1.5 text-left w-36">Comisión / Bono+ ($ / Motivo)</th>
                     <th className="py-2.5 px-1.5 text-right w-20">Otros Desc.</th>
                     <th className="py-2.5 px-1.5 text-right w-24">Pago Prést.</th>
                     <th className="py-2.5 px-1.5 text-right w-24">Préstamo</th>
                     <th className="py-2.5 px-2 text-right w-24">Resta Prést.</th>
-                    <th className="py-2.5 px-2.5 text-right bg-[#3f0918] text-[#C3A25D] w-28">
+                    <th className="py-2.5 px-2 text-center w-20">Recibo</th>
+                    <th className="py-2.5 px-2.5 text-right bg-[#3f0918] text-[#C3A25D] w-32 sticky right-0 z-20 shadow-[-6px_0_10px_rgba(0,0,0,0.16)]">
                       Total Neto
                     </th>
-                    <th className="py-2.5 px-2 text-center w-20">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {rows.map((r, idx) => (
+                  {rows.map((r, idx) => {
+                    const rowAdditions = round2(
+                      Number(r.attendanceBonus || 0) +
+                        Number(r.fumigadasAmount || 0) +
+                        Number(r.cargadasAmount || 0) +
+                        Number(r.extraHoursAmount || 0) +
+                        Number(r.destajosAmount || 0) +
+                        Number(r.extraWorkAmount || 0) +
+                        Number(r.commissionBonusAmount || 0)
+                    );
+                    const rowDeductions = round2(
+                      Number(r.attendanceDiscount || 0) +
+                        Number(r.otherDeductions || 0) +
+                        Number(r.loanPayment || 0)
+                    );
+                    return (
                     <tr
                       key={`${r.employeeId}-${idx}`}
                       className={`hover:bg-[#FAF8F5] ${r.paid ? 'bg-[#f7f8f2]/35' : ''}`}
                     >
-                      <td className="py-2 px-2.5 font-extrabold text-[#000000] sticky left-0 bg-white border-r border-stone-100">
+                      <td className="py-2 px-2.5 font-extrabold text-[#000000] sticky left-0 z-10 bg-white border-r border-stone-200 shadow-[4px_0_8px_rgba(0,0,0,0.04)]">
                         <div className="flex items-center gap-1.5">
                           <input
                             type="checkbox"
@@ -1157,9 +1319,18 @@ export const PaymentsView: React.FC = () => {
                               updateRowField(idx, (row) => ({ ...row, paid: e.target.checked }))
                             }
                             title="Marcar pagado"
-                            className="rounded border-stone-300 text-[#535B28] focus:ring-[#535B28] cursor-pointer"
+                            className="rounded border-stone-300 text-[#535B28] focus:ring-[#535B28] cursor-pointer shrink-0"
                           />
                           <span className="truncate">{r.employeeName}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold tabular-nums">
+                          <span className="text-[#5C1125]">Neto: {fmtMoney(r.totalNetPay)}</span>
+                          {rowAdditions > 0 && (
+                            <span className="text-[#535B28]">+{fmtMoney(rowAdditions)}</span>
+                          )}
+                          {rowDeductions > 0 && (
+                            <span className="text-rose-700">-{fmtMoney(rowDeductions)}</span>
+                          )}
                         </div>
                       </td>
 
@@ -1415,6 +1586,37 @@ export const PaymentsView: React.FC = () => {
                         </div>
                       </td>
 
+                      {/* COMISIÓN / BONO PRODUCTIVIDAD / PAGO ADICIONAL */}
+                      <td className="py-1.5 px-1">
+                        <div className="space-y-1">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={r.commissionBonusAmount ? String(r.commissionBonusAmount) : ''}
+                            placeholder="$ +Bono/Comis."
+                            onChange={(e) =>
+                              updateRowField(idx, (row) => ({
+                                ...row,
+                                commissionBonusAmount: parseDec(e.target.value),
+                              }))
+                            }
+                            className="no-spinner w-full text-right px-1.5 py-1 border border-[#dce4bf] bg-[#f7f8f2]/60 rounded-lg font-bold text-[#535B28] focus:ring-1 focus:ring-[#5C1125]"
+                          />
+                          <input
+                            type="text"
+                            value={r.commissionBonusNotes || ''}
+                            placeholder="Bono prod., comisión..."
+                            onChange={(e) =>
+                              updateRowField(idx, (row) => ({
+                                ...row,
+                                commissionBonusNotes: e.target.value,
+                              }))
+                            }
+                            className="w-full px-1.5 py-0.5 border border-stone-200 rounded-md text-[10px] text-stone-700 bg-[#FAF8F5] focus:ring-1 focus:ring-[#5C1125]"
+                          />
+                        </div>
+                      </td>
+
                       {/* OTROS DESCUENTOS */}
                       <td className="py-1.5 px-1">
                         <input
@@ -1467,13 +1669,8 @@ export const PaymentsView: React.FC = () => {
                       </td>
 
                       {/* RESTA DEL PRESTAMO */}
-                      <td className="py-1.5 px-2 text-right font-extrabold text-[#5C1125] whitespace-nowrap">
+                      <td className="py-1.5 px-2 text-right font-extrabold text-[#5C1125] whitespace-nowrap tabular-nums">
                         {fmtMoney(r.loanRemainingBalance)}
-                      </td>
-
-                      {/* TOTAL NETO */}
-                      <td className="py-1.5 px-2.5 text-right font-black text-[#000000] bg-[#FAF8F5] whitespace-nowrap">
-                        {fmtMoney(r.totalNetPay)}
                       </td>
 
                       {/* RECIBO PDF */}
@@ -1488,12 +1685,18 @@ export const PaymentsView: React.FC = () => {
                           <span>Recibo</span>
                         </button>
                       </td>
+
+                      {/* TOTAL NETO (SIEMPRE VISIBLE FIJO A LA DERECHA) */}
+                      <td className="py-1.5 px-2.5 text-right font-black text-sm text-[#5C1125] bg-[#FAF8F5] border-l border-[#C3A25D]/40 whitespace-nowrap tabular-nums sticky right-0 z-10 shadow-[-6px_0_10px_rgba(0,0,0,0.06)]">
+                        {fmtMoney(r.totalNetPay)}
+                      </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-[#000000] text-[#C3A25D] font-extrabold text-xs">
-                    <td className="py-3 px-2.5 sticky left-0 bg-[#000000]">TOTALES ({rows.length})</td>
+                  <tr className="bg-[#000000] text-[#C3A25D] font-extrabold text-xs tabular-nums">
+                    <td className="py-3 px-2.5 sticky left-0 z-20 bg-[#000000]">TOTALES ({rows.length})</td>
                     <td />
                     <td />
                     <td className="py-3 px-2 text-right whitespace-nowrap">
@@ -1520,8 +1723,11 @@ export const PaymentsView: React.FC = () => {
                     <td className="py-3 px-1.5 text-right whitespace-nowrap">
                       {fmtMoney(weekTotals.totalExtraWork)}
                     </td>
-                    <td className="py-3 px-1.5 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalOtherDeductions)}
+                    <td className="py-3 px-1.5 text-right text-[#d6be83] whitespace-nowrap">
+                      +{fmtMoney(weekTotals.totalCommissions)}
+                    </td>
+                    <td className="py-3 px-1.5 text-right text-rose-300 whitespace-nowrap">
+                      -{fmtMoney(weekTotals.totalOtherDeductions)}
                     </td>
                     <td className="py-3 px-1.5 text-right whitespace-nowrap">
                       {fmtMoney(weekTotals.totalLoanPayments)}
@@ -1530,10 +1736,10 @@ export const PaymentsView: React.FC = () => {
                     <td className="py-3 px-2 text-right whitespace-nowrap">
                       {fmtMoney(weekTotals.totalLoanRemaining)}
                     </td>
-                    <td className="py-3 px-2.5 text-right text-sm text-white bg-[#5C1125] whitespace-nowrap">
+                    <td />
+                    <td className="py-3 px-2.5 text-right text-sm text-white bg-[#5C1125] whitespace-nowrap sticky right-0 z-20 shadow-[-6px_0_10px_rgba(0,0,0,0.2)]">
                       {fmtMoney(weekTotals.grandTotalPay)}
                     </td>
-                    <td />
                   </tr>
                 </tfoot>
               </table>
@@ -1549,7 +1755,7 @@ export const PaymentsView: React.FC = () => {
                     onChange={(e) => setSyncLoansOnSave(e.target.checked)}
                     className="rounded border-stone-300 text-[#5C1125] focus:ring-[#5C1125]"
                   />
-                  <span>Descontar automáticamente los abonos del saldo de préstamos</span>
+                  <span>Descontar abonos de préstamos y marcar descuentos/comisiones como aplicados</span>
                 </label>
 
                 <select

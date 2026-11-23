@@ -274,7 +274,10 @@ export interface PayrollWeekRow {
   extraWorkQty: number;
   extraWorkAmount: number; // TRABAJO EXTRA ($)
   extraWorkDescription?: string; // Campo abierto: descripción del trabajo extra
-  otherDeductions: number; // Otros descuentos (faltas, vales, etc.)
+  commissionBonusAmount?: number; // Bonos de productividad, comisiones y pagos adicionales (+)
+  commissionBonusNotes?: string; // Detalle de bonos/comisiones
+  otherDeductions: number; // Otros descuentos (daños, vales, etc.)
+  appliedAdjustmentIds?: string[]; // IDs de incidencias/ajustes sincronizados en esta nómina
   loanPreviousBalance: number; // PRESTAMO (saldo antes del abono)
   loanPayment: number; // PAGO DE PRESTAMO (descuento en esta nómina)
   loanRemainingBalance: number; // RESTA DEL PRESTAMO = max(0, loanPreviousBalance - loanPayment)
@@ -293,11 +296,13 @@ export interface PayrollWeekEntry {
   rows: PayrollWeekRow[];
   totalWeekPay: number;
   totalBonus: number;
+  totalAttendanceDiscounts?: number;
   totalFumigadas: number;
   totalCargadas: number;
   totalExtraHours: number;
   totalDestajos: number;
   totalExtraWork: number;
+  totalCommissions?: number;
   totalOtherDeductions: number;
   totalLoanPayments: number;
   totalLoanRemaining: number;
@@ -325,6 +330,32 @@ export interface EmployeeLoanMovement {
   updatedAt?: string;
 }
 
+export type EmployeeAdjustmentType =
+  | 'descuento_falta'
+  | 'otro_descuento'
+  | 'bono_productividad'
+  | 'comision'
+  | 'pago_adicional';
+
+export type EmployeeAdjustmentDirection = 'suma' | 'resta';
+
+export interface EmployeeAdjustment {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  adjustmentDate: string; // YYYY-MM-DD
+  adjustmentType: EmployeeAdjustmentType;
+  direction: EmployeeAdjustmentDirection;
+  amount: number;
+  concept: string;
+  status: 'pendiente' | 'aplicado';
+  appliedPayrollWeekId?: string;
+  appliedWeekLabel?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export type SupplierPaymentCategory =
   | 'agroquimicos'
   | 'fertilizantes'
@@ -338,8 +369,26 @@ export type SupplierPaymentCategory =
 export type SupplierPaymentMethod = 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta';
 export type SupplierPaymentStatus = 'pagado' | 'pendiente' | 'parcial';
 
+export interface Supplier {
+  id: string;
+  name: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  rfc?: string;
+  category: SupplierPaymentCategory;
+  bankInfo?: string;
+  creditDays: number;
+  creditLimit: number;
+  notes?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface SupplierPayment {
   id: string;
+  supplierId?: string;
   paymentDate: string; // YYYY-MM-DD
   supplierName: string;
   category: SupplierPaymentCategory;

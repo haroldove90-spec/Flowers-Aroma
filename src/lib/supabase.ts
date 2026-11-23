@@ -11,6 +11,7 @@ import {
   DailyProductionEntry,
   DailySalesEntry,
   EmployeeLoanMovement,
+  EmployeeAdjustment,
   EquipmentAsset,
   FinancialMovement,
   GreenhouseModule,
@@ -22,6 +23,7 @@ import {
   PestMonitoring,
   PhytosanitaryApplication,
   SalesOrder,
+  Supplier,
   SupplierPayment,
   UserRole,
   Worker,
@@ -39,7 +41,7 @@ export const DEFAULT_SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL || 'https://syrchvrxkkwvwynvtzfq.supabase.co';
 
 export const DEFAULT_SUPABASE_KEY =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
   'sb_publishable_GMYRm7mp-8zk__CKFjmKEw_fMDuVbjw';
 
 export type SupabaseSyncStatus =
@@ -897,8 +899,91 @@ export const mapEmployeeLoanFromDb = (r: any): EmployeeLoanMovement => ({
   updatedAt: r.updated_at || undefined,
 });
 
+export const mapSupplierToDb = (s: Supplier) => ({
+  id: s.id,
+  name: s.name,
+  contact_name: s.contactName || '',
+  phone: s.phone || '',
+  email: s.email || '',
+  rfc: s.rfc || '',
+  category: s.category || 'otros',
+  bank_info: s.bankInfo || '',
+  credit_days: Number(s.creditDays || 0),
+  credit_limit: Number(s.creditLimit || 0),
+  notes: s.notes || '',
+  active: s.active !== false,
+  created_at: s.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapSupplierFromDb = (r: any): Supplier => ({
+  id: String(r.id),
+  name: r.name || '',
+  contactName: r.contact_name || '',
+  phone: r.phone || '',
+  email: r.email || '',
+  rfc: r.rfc || '',
+  category: r.category || 'otros',
+  bankInfo: r.bank_info || '',
+  creditDays: Number(r.credit_days || 0),
+  creditLimit: Number(r.credit_limit || 0),
+  notes: r.notes || '',
+  active: r.active !== false,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapEmployeeAdjustmentToDb = (a: EmployeeAdjustment) => ({
+  id: a.id,
+  employee_id: a.employeeId,
+  employee_name: a.employeeName,
+  adjustment_date: a.adjustmentDate,
+  adjustment_type: a.adjustmentType,
+  direction: a.direction,
+  amount: Number(a.amount || 0),
+  concept: a.concept || '',
+  status: a.status === 'aplicado' ? 'aplicado' : 'pendiente',
+  applied_payroll_week_id: a.appliedPayrollWeekId || null,
+  applied_week_label: a.appliedWeekLabel || null,
+  notes: a.notes || null,
+  created_at: a.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapEmployeeAdjustmentFromDb = (r: any): EmployeeAdjustment => {
+  const validTypes = [
+    'descuento_falta',
+    'otro_descuento',
+    'bono_productividad',
+    'comision',
+    'pago_adicional',
+  ];
+  const adjType = validTypes.includes(r.adjustment_type)
+    ? r.adjustment_type
+    : 'otro_descuento';
+  const defaultDir =
+    adjType === 'descuento_falta' || adjType === 'otro_descuento' ? 'resta' : 'suma';
+  return {
+    id: String(r.id),
+    employeeId: r.employee_id || '',
+    employeeName: r.employee_name || '',
+    adjustmentDate: r.adjustment_date || '',
+    adjustmentType: adjType,
+    direction: r.direction === 'suma' || r.direction === 'resta' ? r.direction : defaultDir,
+    amount: Number(r.amount || 0),
+    concept: r.concept || '',
+    status: r.status === 'aplicado' ? 'aplicado' : 'pendiente',
+    appliedPayrollWeekId: r.applied_payroll_week_id || undefined,
+    appliedWeekLabel: r.applied_week_label || undefined,
+    notes: r.notes || undefined,
+    createdAt: r.created_at || '',
+    updatedAt: r.updated_at || undefined,
+  };
+};
+
 export const mapSupplierPaymentToDb = (s: SupplierPayment) => ({
   id: s.id,
+  supplier_id: s.supplierId || '',
   payment_date: s.paymentDate,
   supplier_name: s.supplierName,
   category: s.category || 'otros',
@@ -915,6 +1000,7 @@ export const mapSupplierPaymentToDb = (s: SupplierPayment) => ({
 
 export const mapSupplierPaymentFromDb = (r: any): SupplierPayment => ({
   id: String(r.id),
+  supplierId: r.supplier_id || undefined,
   paymentDate: r.payment_date || '',
   supplierName: r.supplier_name || '',
   category: r.category || 'otros',
@@ -1456,6 +1542,8 @@ export interface RemoteSnapshot {
   payrollEmployees?: PayrollEmployee[];
   payrollWeeks?: PayrollWeekEntry[];
   employeeLoans?: EmployeeLoanMovement[];
+  employeeAdjustments?: EmployeeAdjustment[];
+  suppliers?: Supplier[];
   supplierPayments?: SupplierPayment[];
   salesPoints?: SalesPoint[];
   salesClients?: SalesClient[];
@@ -1494,6 +1582,8 @@ export async function fetchAllFromSupabase(
     empRes,
     weekRes,
     loanRes,
+    adjRes,
+    suppliersRes,
     supRes,
     spRes,
     cliRes,
@@ -1511,11 +1601,13 @@ export async function fetchAllFromSupabase(
     client.from('payroll_employees').select('*').order('full_name', { ascending: true }),
     client.from('payroll_weeks').select('*').order('start_date', { ascending: false }),
     client.from('employee_loans').select('*').order('movement_date', { ascending: false }),
+    client.from('employee_adjustments').select('*').order('adjustment_date', { ascending: false }),
+    client.from('suppliers').select('*').order('name', { ascending: true }),
     client.from('supplier_payments').select('*').order('payment_date', { ascending: false }),
     client.from('sales_points').select('*').order('name', { ascending: true }),
     client.from('sales_clients').select('*').order('name', { ascending: true }),
     client.from('truck_loads').select('*').order('load_date', { ascending: false }),
-    client.from('remission_notes').select('*').order('sale_date', { ascending: false }),
+    client.from('remission_notes').select('*').order('note_date', { ascending: false }),
     client.from('client_payments').select('*').order('payment_date', { ascending: false }),
     client.from('supply_items').select('*').order('name', { ascending: true }),
     client.from('supply_purchases').select('*').order('purchase_date', { ascending: false }),
@@ -1536,6 +1628,8 @@ export async function fetchAllFromSupabase(
     empRes,
     weekRes,
     loanRes,
+    adjRes,
+    suppliersRes,
     supRes,
     spRes,
     cliRes,
@@ -1555,6 +1649,8 @@ export async function fetchAllFromSupabase(
     payrollEmployees: !empRes.error && empRes.data?.length ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
     payrollWeeks: !weekRes.error && weekRes.data ? weekRes.data.map(mapPayrollWeekFromDb) : undefined,
     employeeLoans: !loanRes.error && loanRes.data ? loanRes.data.map(mapEmployeeLoanFromDb) : undefined,
+    employeeAdjustments: !adjRes.error && adjRes.data ? adjRes.data.map(mapEmployeeAdjustmentFromDb) : undefined,
+    suppliers: !suppliersRes.error && suppliersRes.data?.length ? suppliersRes.data.map(mapSupplierFromDb) : undefined,
     supplierPayments: !supRes.error && supRes.data ? supRes.data.map(mapSupplierPaymentFromDb) : undefined,
     salesPoints: !spRes.error && spRes.data?.length ? spRes.data.map(mapSalesPointFromDb) : undefined,
     salesClients: !cliRes.error && cliRes.data?.length ? cliRes.data.map(mapSalesClientFromDb) : undefined,
@@ -1651,6 +1747,8 @@ export interface LocalStateSnapshot {
   payrollEmployees: PayrollEmployee[];
   payrollWeeks: PayrollWeekEntry[];
   employeeLoans: EmployeeLoanMovement[];
+  employeeAdjustments: EmployeeAdjustment[];
+  suppliers: Supplier[];
   supplierPayments: SupplierPayment[];
   salesPoints: SalesPoint[];
   salesClients: SalesClient[];
@@ -1690,6 +1788,8 @@ export async function pushAllLocalToSupabase(
     { table: 'payroll_employees', rows: state.payrollEmployees.map(mapPayrollEmployeeToDb) },
     { table: 'payroll_weeks', rows: state.payrollWeeks.map(mapPayrollWeekToDb) },
     { table: 'employee_loans', rows: state.employeeLoans.map(mapEmployeeLoanToDb) },
+    { table: 'employee_adjustments', rows: state.employeeAdjustments.map(mapEmployeeAdjustmentToDb) },
+    { table: 'suppliers', rows: state.suppliers.map(mapSupplierToDb) },
     { table: 'supplier_payments', rows: state.supplierPayments.map(mapSupplierPaymentToDb) },
     { table: 'sales_points', rows: state.salesPoints.map(mapSalesPointToDb) },
     { table: 'sales_clients', rows: state.salesClients.map(mapSalesClientToDb) },

@@ -8,12 +8,14 @@ import {
   DailyProductionEntry,
   DailySalesEntry,
   EmployeeLoanMovement,
+  EmployeeAdjustment,
   GreenhouseApplication,
   PayrollEmployee,
   PayrollWeekEntry,
   PayrollWeekRow,
   RemissionNote,
   SalesClient,
+  Supplier,
   SupplierPayment,
   SupplyItem,
   SupplyPurchase,
@@ -1336,6 +1338,14 @@ const fmtMoney = (n: number) =>
 
 export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
   const wb = XLSX.utils.book_new();
+  const totalAttendanceDiscounts = week.rows.reduce(
+    (a, r) => a + Number(r.attendanceDiscount || 0),
+    0
+  );
+  const totalCommissions = week.rows.reduce(
+    (a, r) => a + Number(r.commissionBonusAmount || 0),
+    0
+  );
   const rows: any[][] = [
     [week.weekLabel, '', 'EQUIPO / GRUPO:', week.teamGroup, 'ESTATUS:', week.status.toUpperCase()],
     [
@@ -1343,8 +1353,8 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
       'DIAS',
       'P/ SEMANAL',
       'SEMANA',
-      'TOTAL',
       'BONO/AyP',
+      'DESC. FALTAS / AyP',
       'FUMIGADAS (Cant)',
       'FUMIGADAS ($)',
       'CARGADAS (Cant)',
@@ -1354,10 +1364,12 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
       'DESTAJOS (Cant)',
       'DESTAJOS ($)',
       'TRABAJO EXTRA ($)',
+      'COMISION / BONO PROD ($)',
       'OTROS DESC ($)',
       'PAGO DE PRESTAMO',
       'PRESTAMO',
       'RESTA DEL PRESTAMO',
+      'TOTAL NETO',
       'PAGADO',
     ],
     ...week.rows.map((r) => [
@@ -1365,8 +1377,8 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
       Number(r.daysWorked || 0),
       Number(r.weeklySalary || 0),
       Number(r.weekPay || 0),
-      Number(r.totalNetPay || 0),
       Number(r.attendanceBonus || 0),
+      Number(r.attendanceDiscount || 0),
       Number(r.fumigadasQty || 0),
       Number(r.fumigadasAmount || 0),
       Number(r.cargadasQty || 0),
@@ -1376,10 +1388,12 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
       Number(r.destajosQty || 0),
       Number(r.destajosAmount || 0),
       Number(r.extraWorkAmount || 0),
+      Number(r.commissionBonusAmount || 0),
       Number(r.otherDeductions || 0),
       Number(r.loanPayment || 0),
       Number(r.loanPreviousBalance || 0),
       Number(r.loanRemainingBalance || 0),
+      Number(r.totalNetPay || 0),
       r.paid ? 'SI' : 'NO',
     ]),
     [
@@ -1387,8 +1401,8 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
       '',
       '',
       Number(week.totalWeekPay || 0),
-      Number(week.grandTotalPay || 0),
       Number(week.totalBonus || 0),
+      totalAttendanceDiscounts,
       '',
       Number(week.totalFumigadas || 0),
       '',
@@ -1398,10 +1412,12 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
       '',
       Number(week.totalDestajos || 0),
       Number(week.totalExtraWork || 0),
+      totalCommissions,
       Number(week.totalOtherDeductions || 0),
       Number(week.totalLoanPayments || 0),
       '',
       Number(week.totalLoanRemaining || 0),
+      Number(week.grandTotalPay || 0),
       '',
     ],
   ];
@@ -1415,6 +1431,14 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
 
 export function exportPayrollWeekPdf(week: PayrollWeekEntry) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const totalAttendanceDiscounts = week.rows.reduce(
+    (a, r) => a + Number(r.attendanceDiscount || 0),
+    0
+  );
+  const totalCommissions = week.rows.reduce(
+    (a, r) => a + Number(r.commissionBonusAmount || 0),
+    0
+  );
   addPdfHeader(
     doc,
     `Nómina Semanal: ${week.weekLabel}`,
@@ -1427,17 +1451,15 @@ export function exportPayrollWeekPdf(week: PayrollWeekEntry) {
       [
         'NOMBRE',
         'DIAS',
-        'P/SEM',
         'SEMANA',
-        'BONO',
+        'BONO AyP',
+        'DESC. AyP',
         'FUMIG.',
-        'CARG.',
-        'H.EXT',
-        'DEST.',
+        'H.EXT/CARG',
         'TR.EXT',
-        'DESC.',
+        'COM/BONO+',
+        'OTR.DESC',
         'ABONO PR.',
-        'PRESTAMO',
         'RESTA PR.',
         'TOTAL NETO',
       ],
@@ -1445,17 +1467,15 @@ export function exportPayrollWeekPdf(week: PayrollWeekEntry) {
     body: week.rows.map((r) => [
       r.employeeName,
       r.daysWorked,
-      fmtMoney(r.weeklySalary),
       fmtMoney(r.weekPay),
       fmtMoney(r.attendanceBonus),
+      Number(r.attendanceDiscount || 0) > 0 ? `- ${fmtMoney(Number(r.attendanceDiscount || 0))}` : '$0.00',
       r.fumigadasQty ? `${r.fumigadasQty} (${fmtMoney(r.fumigadasAmount)})` : '$0.00',
-      fmtMoney(r.cargadasAmount),
-      fmtMoney(r.extraHoursAmount),
-      fmtMoney(r.destajosAmount),
+      fmtMoney(Number(r.extraHoursAmount || 0) + Number(r.cargadasAmount || 0) + Number(r.destajosAmount || 0)),
       fmtMoney(r.extraWorkAmount),
-      fmtMoney(r.otherDeductions),
-      fmtMoney(r.loanPayment),
-      fmtMoney(r.loanPreviousBalance),
+      fmtMoney(Number(r.commissionBonusAmount || 0)),
+      Number(r.otherDeductions || 0) > 0 ? `- ${fmtMoney(r.otherDeductions)}` : '$0.00',
+      Number(r.loanPayment || 0) > 0 ? `- ${fmtMoney(r.loanPayment)}` : '$0.00',
       fmtMoney(r.loanRemainingBalance),
       fmtMoney(r.totalNetPay),
     ]),
@@ -1463,17 +1483,23 @@ export function exportPayrollWeekPdf(week: PayrollWeekEntry) {
       [
         'TOTALES',
         `${week.rows.length} emp.`,
-        '—',
         fmtMoney(week.totalWeekPay),
         fmtMoney(week.totalBonus),
+        totalAttendanceDiscounts > 0 ? `- ${fmtMoney(totalAttendanceDiscounts)}` : '$0.00',
         fmtMoney(week.totalFumigadas),
-        fmtMoney(week.totalCargadas),
-        fmtMoney(week.totalExtraHours),
-        fmtMoney(week.totalDestajos),
+        fmtMoney(
+          Number(week.totalExtraHours || 0) +
+            Number(week.totalCargadas || 0) +
+            Number(week.totalDestajos || 0)
+        ),
         fmtMoney(week.totalExtraWork),
-        fmtMoney(week.totalOtherDeductions),
-        fmtMoney(week.totalLoanPayments),
-        '—',
+        fmtMoney(totalCommissions),
+        Number(week.totalOtherDeductions || 0) > 0
+          ? `- ${fmtMoney(week.totalOtherDeductions)}`
+          : '$0.00',
+        Number(week.totalLoanPayments || 0) > 0
+          ? `- ${fmtMoney(week.totalLoanPayments)}`
+          : '$0.00',
         fmtMoney(week.totalLoanRemaining),
         fmtMoney(week.grandTotalPay),
       ],
@@ -1485,7 +1511,7 @@ export function exportPayrollWeekPdf(week: PayrollWeekEntry) {
     styles: { fontSize: 6.6, cellPadding: 1.5 },
     columnStyles: {
       1: { halign: 'center' },
-      14: { halign: 'right', fontStyle: 'bold' },
+      12: { halign: 'right', fontStyle: 'bold' },
     },
   });
 
@@ -1511,13 +1537,31 @@ export function exportEmployeePaySlipPdf(week: PayrollWeekEntry, row: PayrollWee
   const lines: Array<[string, string, string]> = [
     ['Sueldo Semanal Base (6 días)', `${row.daysWorked} días trabajados`, fmtMoney(row.weekPay)],
     ['Bono de Asistencia y Puntualidad (AyP)', row.attendanceBonus > 0 ? 'Aplicado' : 'No aplica', fmtMoney(row.attendanceBonus)],
-    ['Fumigadas', `${row.fumigadasQty || 0} u.`, fmtMoney(row.fumigadasAmount)],
+    ['Fumigadas', `${row.fumigadasQty || 0} tambos 200L`, fmtMoney(row.fumigadasAmount)],
     ['Cargadas', `${row.cargadasQty || 0} u.`, fmtMoney(row.cargadasAmount)],
     ['Horas Extras', `${row.extraHoursQty || 0} hrs`, fmtMoney(row.extraHoursAmount)],
     ['Destajos (Estajos)', `${row.destajosQty || 0} u.`, fmtMoney(row.destajosAmount)],
-    ['Trabajo Extra', row.extraWorkAmount > 0 ? 'Extra registrado' : '—', fmtMoney(row.extraWorkAmount)],
-    ['Descuento / Abono a Préstamo', `Saldo anterior: ${fmtMoney(row.loanPreviousBalance)}`, row.loanPayment > 0 ? `- ${fmtMoney(row.loanPayment)}` : '$0.00'],
-    ['Otros Descuentos', row.otherDeductions > 0 ? 'Aplicado' : '—', row.otherDeductions > 0 ? `- ${fmtMoney(row.otherDeductions)}` : '$0.00'],
+    ['Trabajo Extra', row.extraWorkDescription || (row.extraWorkAmount > 0 ? 'Extra registrado' : '—'), fmtMoney(row.extraWorkAmount)],
+    [
+      'Comisiones / Bono Productividad / Adicionales (+)',
+      row.commissionBonusNotes || (Number(row.commissionBonusAmount || 0) > 0 ? 'Pago adicional' : '—'),
+      fmtMoney(Number(row.commissionBonusAmount || 0)),
+    ],
+    [
+      'Descuento por Faltas / Asistencia (-)',
+      Number(row.attendanceDiscount || 0) > 0 ? 'Descuento aplicado' : '—',
+      Number(row.attendanceDiscount || 0) > 0 ? `- ${fmtMoney(Number(row.attendanceDiscount || 0))}` : '$0.00',
+    ],
+    [
+      'Descuento / Abono a Préstamo (-)',
+      `Saldo anterior: ${fmtMoney(row.loanPreviousBalance)}`,
+      row.loanPayment > 0 ? `- ${fmtMoney(row.loanPayment)}` : '$0.00',
+    ],
+    [
+      'Otros Descuentos (-)',
+      row.otherDeductions > 0 ? 'Aplicado' : '—',
+      row.otherDeductions > 0 ? `- ${fmtMoney(row.otherDeductions)}` : '$0.00',
+    ],
   ];
 
   autoTable(doc, {
@@ -2829,6 +2873,232 @@ export function exportCostAnalysisPdf(data: CostAnalysisExportData) {
   addPdfPageFooters(doc);
   doc.save(`AromaFlower_Control_Costos_${todayIso()}.pdf`);
 }
+
+// ==================== 12. PROVEEDORES (ESTADOS DE CUENTA) & INCIDENCIAS DE EMPLEADOS ====================
+
+export function exportSuppliersSummaryExcel(
+  suppliers: Supplier[],
+  payments: SupplierPayment[]
+) {
+  const wb = XLSX.utils.book_new();
+  const dirRows: any[][] = [
+    [
+      'Proveedor / Razón Social',
+      'Categoría',
+      'Contacto',
+      'Teléfono',
+      'RFC',
+      'Banco / CLABE',
+      'Días Crédito',
+      'Límite Crédito',
+      'Total Facturado ($)',
+      'Total Pagado ($)',
+      'Saldo por Pagar ($)',
+      'Estatus',
+    ],
+    ...suppliers.map((s) => {
+      const sp = payments.filter(
+        (p) =>
+          p.supplierId === s.id ||
+          p.supplierName.trim().toLowerCase() === s.name.trim().toLowerCase()
+      );
+      const billed = sp.reduce((a, p) => a + Number(p.amount || 0), 0);
+      const paid = sp.reduce((a, p) => a + Number(p.paidAmount || 0), 0);
+      const pending = Math.max(0, billed - paid);
+      return [
+        s.name,
+        s.category,
+        s.contactName || '',
+        s.phone || '',
+        s.rfc || '',
+        s.bankInfo || '',
+        s.creditDays,
+        s.creditLimit,
+        billed,
+        paid,
+        pending,
+        s.active ? 'Activo' : 'Inactivo',
+      ];
+    }),
+  ];
+  const wsDir = XLSX.utils.aoa_to_sheet(dirRows);
+  setColumnWidths(wsDir, dirRows);
+  XLSX.utils.book_append_sheet(wb, wsDir, 'Directorio y Deudas');
+
+  const movRows: any[][] = [
+    ['Fecha', 'Proveedor', 'Categoría', 'Concepto', 'Factura / Ref.', 'Monto ($)', 'Pagado ($)', 'Saldo Pendiente ($)', 'Método', 'Estatus'],
+    ...payments.map((p) => [
+      p.paymentDate,
+      p.supplierName,
+      p.category,
+      p.concept,
+      p.reference || '',
+      Number(p.amount || 0),
+      Number(p.paidAmount || 0),
+      Math.max(0, Number(p.amount || 0) - Number(p.paidAmount || 0)),
+      p.paymentMethod,
+      p.status.toUpperCase(),
+    ]),
+  ];
+  const wsMov = XLSX.utils.aoa_to_sheet(movRows);
+  setColumnWidths(wsMov, movRows);
+  XLSX.utils.book_append_sheet(wb, wsMov, 'Facturas y Pagos');
+
+  XLSX.writeFile(wb, `AromaFlower_Proveedores_${todayIso()}.xlsx`);
+}
+
+export function exportSupplierStatementPdf(
+  supplier: Supplier,
+  payments: SupplierPayment[]
+) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const billed = payments.reduce((a, p) => a + Number(p.amount || 0), 0);
+  const paid = payments.reduce((a, p) => a + Number(p.paidAmount || 0), 0);
+  const balance = Math.max(0, billed - paid);
+
+  addPdfHeader(
+    doc,
+    `Estado de Cuenta de Proveedor — ${supplier.name}`,
+    `Contacto: ${supplier.contactName || '—'} • Tel: ${supplier.phone || '—'} • Saldo Pendiente: ${fmtMoney(balance)}`
+  );
+
+  autoTable(doc, {
+    startY: 34,
+    head: [['Fecha', 'Factura / Ref.', 'Concepto', 'Facturado', 'Pagado', 'Saldo', 'Estatus']],
+    body: payments.length
+      ? payments.map((p) => [
+          p.paymentDate,
+          p.reference || '—',
+          p.concept,
+          fmtMoney(p.amount),
+          fmtMoney(p.paidAmount),
+          fmtMoney(Math.max(0, Number(p.amount || 0) - Number(p.paidAmount || 0))),
+          p.status.toUpperCase(),
+        ])
+      : [['—', '—', 'Sin movimientos registrados', '$0.00', '$0.00', '$0.00', '—']],
+    foot: [
+      [
+        'TOTALES',
+        `${payments.length} mov.`,
+        supplier.bankInfo ? `Cuenta: ${supplier.bankInfo}` : '',
+        fmtMoney(billed),
+        fmtMoney(paid),
+        fmtMoney(balance),
+        balance > 0 ? 'CON SALDO' : 'LIQUIDADO',
+      ],
+    ],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 8 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.5, cellPadding: 2 },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`EstadoCuenta_Proveedor_${supplier.name.replace(/\s+/g, '_')}_${todayIso()}.pdf`);
+}
+
+const ADJUSTMENT_LABELS: Record<string, string> = {
+  descuento_falta: 'Descuento por Falta / Retardo',
+  otro_descuento: 'Otro Descuento',
+  bono_productividad: 'Bono de Productividad',
+  comision: 'Comisión',
+  pago_adicional: 'Pago Adicional',
+};
+
+export function exportEmployeeAdjustmentsExcel(
+  adjustments: EmployeeAdjustment[],
+  employees: PayrollEmployee[]
+) {
+  const wb = XLSX.utils.book_new();
+  const rows: any[][] = [
+    [
+      'Fecha',
+      'Empleado',
+      'Tipo de Movimiento',
+      'Efecto en Nómina',
+      'Monto ($ MXN)',
+      'Concepto',
+      'Estatus',
+      'Semana Aplicada',
+      'Notas',
+    ],
+    ...adjustments.map((a) => [
+      a.adjustmentDate,
+      a.employeeName,
+      ADJUSTMENT_LABELS[a.adjustmentType] || a.adjustmentType,
+      a.direction === 'suma' ? '+ SUMA' : '- RESTA',
+      Number(a.amount || 0),
+      a.concept,
+      a.status === 'aplicado' ? 'APLICADO EN NÓMINA' : 'PENDIENTE',
+      a.appliedWeekLabel || '',
+      a.notes || '',
+    ]),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  setColumnWidths(ws, rows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Descuentos y Comisiones');
+
+  const empSummary: any[][] = [
+    ['Empleado', 'Equipo', 'Saldo Préstamo ($)', 'Desc. Pendientes ($)', 'Bonos/Com. Pendientes ($)'],
+    ...employees.map((e) => {
+      const pend = adjustments.filter((a) => a.employeeId === e.id && a.status === 'pendiente');
+      const desc = pend.filter((a) => a.direction === 'resta').reduce((s, a) => s + a.amount, 0);
+      const bon = pend.filter((a) => a.direction === 'suma').reduce((s, a) => s + a.amount, 0);
+      return [e.fullName, e.teamGroup, e.loanBalance, desc, bon];
+    }),
+  ];
+  const wsSum = XLSX.utils.aoa_to_sheet(empSummary);
+  setColumnWidths(wsSum, empSummary);
+  XLSX.utils.book_append_sheet(wb, wsSum, 'Resumen por Empleado');
+
+  XLSX.writeFile(wb, `AromaFlower_Incidencias_Empleados_${todayIso()}.xlsx`);
+}
+
+export function exportEmployeeAdjustmentsPdf(
+  adjustments: EmployeeAdjustment[],
+  employees: PayrollEmployee[]
+) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pendingDesc = adjustments
+    .filter((a) => a.status === 'pendiente' && a.direction === 'resta')
+    .reduce((s, a) => s + a.amount, 0);
+  const pendingBon = adjustments
+    .filter((a) => a.status === 'pendiente' && a.direction === 'suma')
+    .reduce((s, a) => s + a.amount, 0);
+  const totalLoans = employees.reduce((s, e) => s + Number(e.loanBalance || 0), 0);
+
+  addPdfHeader(
+    doc,
+    'Reporte de Préstamos, Descuentos, Bonos y Comisiones de Empleados',
+    `Préstamos por Cobrar: ${fmtMoney(totalLoans)} • Desc. Pendientes: ${fmtMoney(pendingDesc)} • Bonos/Com. Pendientes: ${fmtMoney(pendingBon)}`
+  );
+
+  autoTable(doc, {
+    startY: 32,
+    head: [['Fecha', 'Empleado', 'Tipo', 'Efecto', 'Monto', 'Concepto', 'Estatus', 'Nómina Aplicada']],
+    body: adjustments.length
+      ? adjustments.map((a) => [
+          a.adjustmentDate,
+          a.employeeName,
+          ADJUSTMENT_LABELS[a.adjustmentType] || a.adjustmentType,
+          a.direction === 'suma' ? '+ SUMA' : '- RESTA',
+          `${a.direction === 'suma' ? '+' : '-'} ${fmtMoney(a.amount)}`,
+          a.concept,
+          a.status === 'aplicado' ? 'APLICADO' : 'PENDIENTE',
+          a.appliedWeekLabel || 'Por sincronizar',
+        ])
+      : [['—', 'Sin movimientos registrados', '—', '—', '$0.00', '—', '—', '—']],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 8 },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 7.5, cellPadding: 1.8 },
+  });
+
+  addPdfPageFooters(doc);
+  doc.save(`AromaFlower_Incidencias_Empleados_${todayIso()}.pdf`);
+}
+
 
 
 

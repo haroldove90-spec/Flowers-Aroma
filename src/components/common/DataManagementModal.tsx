@@ -411,10 +411,10 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <span className="font-semibold text-xs text-stone-700 block">
-                      1. Script SQL Actualizado (16 Tablas Activas de Aroma Flower):
+                      1. Script SQL Actualizado (18 Tablas Activas de Aroma Flower):
                     </span>
                     <span className="text-[11px] text-stone-500">
-                      Incluye las 16 tablas activas: usuarios, productos, producción/inventario, ventas, cargas/gastos, remisiones, cobranza, nómina, préstamos, proveedores, insumos, compras y aplicaciones.
+                      Incluye las 18 tablas activas: usuarios, productos, producción/inventario, ventas, cargas/gastos, remisiones, cobranza, nómina, préstamos, descuentos/comisiones, directorio de proveedores, facturas/pagos a proveedores, insumos, compras y aplicaciones.
                     </span>
                   </div>
                   <button

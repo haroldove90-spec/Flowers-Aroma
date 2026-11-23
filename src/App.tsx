@@ -17,6 +17,8 @@ import { AdminRoleView } from './components/admin/AdminRoleView';
 import { AdminProductsView } from './components/admin/AdminProductsView';
 import { EmployeesView } from './components/admin/EmployeesView';
 import { PaymentsView } from './components/admin/PaymentsView';
+import { SuppliersView } from './components/admin/SuppliersView';
+import { EmployeeIncidentsView } from './components/admin/EmployeeIncidentsView';
 import { SuppliesAndAppsView } from './components/admin/SuppliesAndAppsView';
 import { CostControlView } from './components/admin/CostControlView';
 import { DailyProductionView } from './components/production/DailyProductionView';
@@ -56,6 +58,12 @@ const MainAppLayout: React.FC = () => {
         }
         if (activeView === 'admin_pagos') {
           return <PaymentsView />;
+        }
+        if (activeView === 'admin_incidencias') {
+          return <EmployeeIncidentsView />;
+        }
+        if (activeView === 'admin_proveedores') {
+          return <SuppliersView />;
         }
         if (activeView === 'admin_insumos') {
           return <SuppliesAndAppsView />;

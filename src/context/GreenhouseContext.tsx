@@ -24,6 +24,8 @@ import {
   PayrollEmployee,
   PayrollWeekEntry,
   EmployeeLoanMovement,
+  EmployeeAdjustment,
+  Supplier,
   SupplierPayment,
   SalesPoint,
   SalesClient,
@@ -59,6 +61,8 @@ import {
   INITIAL_PAYROLL_EMPLOYEES,
   INITIAL_PAYROLL_WEEKS,
   INITIAL_EMPLOYEE_LOANS,
+  INITIAL_EMPLOYEE_ADJUSTMENTS,
+  INITIAL_SUPPLIERS,
   INITIAL_SUPPLIER_PAYMENTS,
   INITIAL_SALES_POINTS,
   INITIAL_SALES_CLIENTS,
@@ -92,6 +96,8 @@ import {
   mapDailyProductionToDb,
   mapDailySaleFromDb,
   mapDailySaleToDb,
+  mapEmployeeAdjustmentFromDb,
+  mapEmployeeAdjustmentToDb,
   mapEmployeeLoanFromDb,
   mapEmployeeLoanToDb,
   mapEquipmentToDb,
@@ -115,6 +121,8 @@ import {
   mapSalesClientToDb,
   mapSalesPointFromDb,
   mapSalesPointToDb,
+  mapSupplierFromDb,
+  mapSupplierToDb,
   mapSupplierPaymentFromDb,
   mapSupplierPaymentToDb,
   mapSupplyItemFromDb,
@@ -269,6 +277,25 @@ interface GreenhouseContextType {
     input: Omit<EmployeeLoanMovement, 'id' | 'balanceAfter' | 'createdAt' | 'updatedAt'>
   ) => Promise<{ ok: boolean; error?: string; movement?: EmployeeLoanMovement; cloudSynced?: boolean; cloudError?: string }>;
   deleteEmployeeLoanMovement: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  employeeAdjustments: EmployeeAdjustment[];
+  saveEmployeeAdjustment: (
+    input: Omit<EmployeeAdjustment, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; error?: string; entry?: EmployeeAdjustment; cloudSynced?: boolean; cloudError?: string }>;
+  deleteEmployeeAdjustment: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+  markEmployeeAdjustmentsApplied: (
+    ids: string[],
+    payrollWeekId: string,
+    weekLabel: string
+  ) => Promise<void>;
+
+  suppliers: Supplier[];
+  saveSupplier: (
+    input: Omit<Supplier, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; error?: string; entry?: Supplier; cloudSynced?: boolean; cloudError?: string }>;
+  deleteSupplier: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
 
   supplierPayments: SupplierPayment[];
   saveSupplierPayment: (
@@ -564,6 +591,25 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     loadInitial('employee_loans', INITIAL_EMPLOYEE_LOANS)
   );
 
+  // Incidencias de Nómina: Descuentos por Faltas, Otros Descuentos, Bonos de Productividad y Comisiones
+  const [employeeAdjustments, setEmployeeAdjustments] = useState<EmployeeAdjustment[]>(() =>
+    loadInitial('employee_adjustments', INITIAL_EMPLOYEE_ADJUSTMENTS)
+  );
+
+  // Catálogo Formal de Proveedores
+  const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}suppliers`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {
+        return INITIAL_SUPPLIERS;
+      }
+    }
+    return INITIAL_SUPPLIERS;
+  });
+
   // Pagos a Proveedores y Otros Gastos
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>(() =>
     loadInitial('supplier_payments', INITIAL_SUPPLIER_PAYMENTS)
@@ -826,6 +872,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'payroll_employees',
       'payroll_weeks',
       'employee_loans',
+      'employee_adjustments',
+      'suppliers',
       'supplier_payments',
       'sales_points',
       'sales_clients',
@@ -878,6 +926,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'payroll_employees',
       'payroll_weeks',
       'employee_loans',
+      'employee_adjustments',
+      'suppliers',
       'supplier_payments',
       'sales_points',
       'sales_clients',
@@ -971,6 +1021,14 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (snap.employeeLoans !== undefined && !pendingTables.has('employee_loans')) {
       setEmployeeLoans(snap.employeeLoans);
       saveState('employee_loans', snap.employeeLoans);
+    }
+    if (snap.employeeAdjustments !== undefined && !pendingTables.has('employee_adjustments')) {
+      setEmployeeAdjustments(snap.employeeAdjustments);
+      saveState('employee_adjustments', snap.employeeAdjustments);
+    }
+    if (snap.suppliers && snap.suppliers.length > 0 && !pendingTables.has('suppliers')) {
+      setSuppliers(snap.suppliers);
+      saveState('suppliers', snap.suppliers);
     }
     if (snap.supplierPayments !== undefined && !pendingTables.has('supplier_payments')) {
       setSupplierPayments(snap.supplierPayments);
@@ -1856,6 +1914,16 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           await pushUpsertToSupabase('employee_loans', mapEmployeeLoanToDb(loanMov));
         }
       }
+
+      // Automatically mark any synced employee adjustments as applied so they are not double-counted
+      const appliedIds = Array.from(
+        new Set(
+          saved.rows.flatMap((r) => (Array.isArray(r.appliedAdjustmentIds) ? r.appliedAdjustmentIds : []))
+        )
+      );
+      if (appliedIds.length > 0) {
+        await markEmployeeAdjustmentsApplied(appliedIds, saved.id, saved.weekLabel);
+      }
     }
 
     addAuditLog(
@@ -1992,15 +2060,202 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { ok: true, cloudSynced: res.ok };
   };
 
+  const saveEmployeeAdjustment = async (
+    input: Omit<EmployeeAdjustment, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    entry?: EmployeeAdjustment;
+    cloudSynced?: boolean;
+    cloudError?: string;
+  }> => {
+    const emp = payrollEmployees.find((e) => e.id === input.employeeId);
+    if (!emp) {
+      return { ok: false, error: 'Selecciona un empleado válido.' };
+    }
+    const cleanAmount = round2(input.amount);
+    if (cleanAmount <= 0) {
+      return { ok: false, error: 'Ingresa un monto mayor a cero.' };
+    }
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const existing = existingId ? employeeAdjustments.find((a) => a.id === existingId) : undefined;
+    const computedDirection: 'suma' | 'resta' =
+      input.adjustmentType === 'descuento_falta' || input.adjustmentType === 'otro_descuento'
+        ? 'resta'
+        : 'suma';
+
+    const saved: EmployeeAdjustment = {
+      ...input,
+      employeeName: emp.fullName,
+      direction: computedDirection,
+      amount: cleanAmount,
+      concept: input.concept.trim(),
+      status: input.status || existing?.status || 'pendiente',
+      id: existingId || `eadj-${input.adjustmentDate}-${Date.now().toString(36)}`,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setEmployeeAdjustments((prev) => {
+      const exists = prev.some((a) => a.id === saved.id);
+      const updated = exists
+        ? prev.map((a) => (a.id === saved.id ? saved : a))
+        : [saved, ...prev];
+      saveState('employee_adjustments', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase(
+      'employee_adjustments',
+      mapEmployeeAdjustmentToDb(saved)
+    );
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapEmployeeAdjustmentFromDb(cloudRes.savedRow);
+      setEmployeeAdjustments((prev) => {
+        const updated = prev.map((a) => (a.id === saved.id ? synced : a));
+        saveState('employee_adjustments', updated);
+        return updated;
+      });
+    }
+
+    addAuditLog(
+      'Incidencias Empleados',
+      `${saved.direction === 'suma' ? '+' : '-'}$${cleanAmount.toFixed(2)} (${saved.adjustmentType}) para ${emp.fullName}`
+    );
+    return { ok: true, entry: saved, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteEmployeeAdjustment = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setEmployeeAdjustments((prev) => {
+      const updated = prev.filter((a) => a.id !== id);
+      saveState('employee_adjustments', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('employee_adjustments', id);
+    addAuditLog('Incidencias Empleados', `Incidencia eliminada (ID: ${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const markEmployeeAdjustmentsApplied = async (
+    ids: string[],
+    payrollWeekId: string,
+    weekLabel: string
+  ): Promise<void> => {
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const toSync: EmployeeAdjustment[] = [];
+    setEmployeeAdjustments((prev) => {
+      const updated = prev.map((a) => {
+        if (!idSet.has(a.id)) return a;
+        const next: EmployeeAdjustment = {
+          ...a,
+          status: 'aplicado',
+          appliedPayrollWeekId: payrollWeekId,
+          appliedWeekLabel: weekLabel,
+          updatedAt: now,
+        };
+        toSync.push(next);
+        return next;
+      });
+      saveState('employee_adjustments', updated);
+      return updated;
+    });
+    for (const item of toSync) {
+      await pushUpsertToSupabase('employee_adjustments', mapEmployeeAdjustmentToDb(item));
+    }
+  };
+
+  const saveSupplier = async (
+    input: Omit<Supplier, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    entry?: Supplier;
+    cloudSynced?: boolean;
+    cloudError?: string;
+  }> => {
+    const cleanName = input.name.trim();
+    if (!cleanName) return { ok: false, error: 'Ingresa el nombre o razón social del proveedor.' };
+    const dup = suppliers.find(
+      (s) => s.name.trim().toLowerCase() === cleanName.toLowerCase() && s.id !== existingId
+    );
+    if (dup) return { ok: false, error: `Ya existe un proveedor llamado "${cleanName}".` };
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const existing = existingId ? suppliers.find((s) => s.id === existingId) : undefined;
+    const saved: Supplier = {
+      ...input,
+      id: existingId || `prov-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`,
+      name: cleanName,
+      contactName: (input.contactName || '').trim(),
+      phone: (input.phone || '').trim(),
+      email: (input.email || '').trim(),
+      rfc: (input.rfc || '').trim().toUpperCase(),
+      bankInfo: (input.bankInfo || '').trim(),
+      creditDays: Math.max(0, Number(input.creditDays || 0)),
+      creditLimit: Math.max(0, round2(input.creditLimit || 0)),
+      notes: (input.notes || '').trim(),
+      active: input.active !== false,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setSuppliers((prev) => {
+      const exists = prev.some((s) => s.id === saved.id);
+      const updated = exists
+        ? prev.map((s) => (s.id === saved.id ? saved : s))
+        : [...prev, saved];
+      saveState('suppliers', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('suppliers', mapSupplierToDb(saved));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapSupplierFromDb(cloudRes.savedRow);
+      setSuppliers((prev) => {
+        const updated = prev.map((s) => (s.id === saved.id ? synced : s));
+        saveState('suppliers', updated);
+        return updated;
+      });
+    }
+
+    addAuditLog('Proveedores', `${existingId ? 'Actualizado' : 'Registrado'} proveedor ${saved.name}`);
+    return { ok: true, entry: saved, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteSupplier = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setSuppliers((prev) => {
+      const updated = prev.filter((s) => s.id !== id);
+      saveState('suppliers', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('suppliers', id);
+    addAuditLog('Proveedores', `Proveedor eliminado (ID: ${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
   const saveSupplierPayment = async (
     input: Omit<SupplierPayment, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
   ): Promise<{ entry: SupplierPayment; cloudSynced: boolean; cloudError?: string }> => {
     const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
     const existing = existingId ? supplierPayments.find((s) => s.id === existingId) : undefined;
+    const cleanSupplierName = input.supplierName.trim();
+    const matchedSupplier = input.supplierId
+      ? suppliers.find((s) => s.id === input.supplierId)
+      : suppliers.find((s) => s.name.trim().toLowerCase() === cleanSupplierName.toLowerCase());
+
     const saved: SupplierPayment = {
       ...input,
-      supplierName: input.supplierName.trim(),
+      supplierId: input.supplierId || matchedSupplier?.id || undefined,
+      supplierName: cleanSupplierName || matchedSupplier?.name || '',
       concept: input.concept.trim(),
       amount: round2(input.amount),
       paidAmount:
@@ -2008,7 +2263,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           ? round2(input.amount)
           : input.status === 'pendiente'
           ? 0
-          : round2(input.paidAmount),
+          : Math.min(round2(input.amount), round2(input.paidAmount)),
       id: existingId || `sp-${input.paymentDate}-${Date.now().toString(36)}`,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
@@ -3018,6 +3273,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setDailySales([]);
     setPayrollWeeks([]);
     setEmployeeLoans([]);
+    setEmployeeAdjustments([]);
     setSupplierPayments([]);
     setTruckLoads([]);
     setRemissionNotes([]);
@@ -3052,6 +3308,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'daily_sales',
       'payroll_weeks',
       'employee_loans',
+      'employee_adjustments',
       'supplier_payments',
       'truck_loads',
       'remission_notes',
@@ -3086,6 +3343,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setPayrollEmployees(INITIAL_PAYROLL_EMPLOYEES);
     setPayrollWeeks(INITIAL_PAYROLL_WEEKS);
     setEmployeeLoans(INITIAL_EMPLOYEE_LOANS);
+    setEmployeeAdjustments(INITIAL_EMPLOYEE_ADJUSTMENTS);
+    setSuppliers(INITIAL_SUPPLIERS);
     setSupplierPayments(INITIAL_SUPPLIER_PAYMENTS);
     setSalesPoints(INITIAL_SALES_POINTS);
     setSalesClients(INITIAL_SALES_CLIENTS);
@@ -3154,6 +3413,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           payrollEmployees,
           payrollWeeks,
           employeeLoans,
+          employeeAdjustments,
+          suppliers,
           supplierPayments,
           salesPoints,
           salesClients,
@@ -3195,17 +3456,18 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const generateSupabaseSql = (): string => {
     if (onlyAromaFlowers) {
       return `-- ================================================================
--- AROMA FLOWER - ESQUEMA COMPLETO ACTUALIZADO PARA SUPABASE (16 TABLAS)
+-- AROMA FLOWER - ESQUEMA COMPLETO ACTUALIZADO PARA SUPABASE (18 TABLAS)
 -- Roles Activos: Admin y Producción (con Mi Perfil en ambos)
 -- Módulos: Producción e Inventario General Único, Ventas y Puntos de Venta,
 --          Cargas de Camioneta y Prorrateo de Gastos, Notas de Remisión (Tablet),
---          Cuentas por Cobrar, Empleados, Nómina y Pagos, Insumos y Aplicaciones
---          Foliares/Fertilización, y Control de Costos de Producción.
+--          Cuentas por Cobrar, Empleados, Préstamos/Descuentos/Comisiones,
+--          Nómina Semanal, Proveedores y Pagos, Insumos y Aplicaciones
+--          Foliares/Nutrición, y Control de Costos de Producción.
 -- Proyecto: aromaflowers@appdesignsoftware.com's Project (syrchvrxkkwvwynvtzfq)
 -- IMPORTANTE: Pega este código en SQL Editor y haz clic en el botón verde "Run"
 -- ================================================================
 
--- 1. Eliminar tablas heredadas desactivadas para conservar únicamente las 16 tablas activas
+-- 1. Eliminar tablas heredadas desactivadas para conservar únicamente las 18 tablas activas
 DROP TABLE IF EXISTS
   aroma_flower_sheets,
   active_loans,
@@ -3420,6 +3682,7 @@ CREATE INDEX IF NOT EXISTS idx_employee_loans_emp_date ON employee_loans (employ
 -- 9. Pagos a Proveedores y Otros Gastos Operativos
 CREATE TABLE IF NOT EXISTS supplier_payments (
     id TEXT PRIMARY KEY,
+    supplier_id TEXT DEFAULT '',
     payment_date TEXT NOT NULL,
     supplier_name TEXT NOT NULL,
     category TEXT NOT NULL DEFAULT 'otros',
@@ -3434,7 +3697,10 @@ CREATE TABLE IF NOT EXISTS supplier_payments (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE supplier_payments ADD COLUMN IF NOT EXISTS supplier_id TEXT DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS idx_supplier_payments_date ON supplier_payments (payment_date DESC, status);
+CREATE INDEX IF NOT EXISTS idx_supplier_payments_supplier ON supplier_payments (supplier_id, supplier_name);
 
 -- 10. Puntos de Venta (Central de Abastos CDMX, Mercado Puebla y nuevos)
 CREATE TABLE IF NOT EXISTS sales_points (
@@ -3640,7 +3906,55 @@ ALTER TABLE greenhouse_applications ADD COLUMN IF NOT EXISTS total_cost NUMERIC(
 
 CREATE INDEX IF NOT EXISTS idx_greenhouse_apps_date ON greenhouse_applications (application_date DESC, unit_name, module_name);
 
--- 18. Habilitar RLS y políticas de acceso para las 16 tablas activas de Aroma Flower
+-- 18. Catálogo Formal de Proveedores (Directorio, Crédito y Estado de Cuenta)
+CREATE TABLE IF NOT EXISTS suppliers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    contact_name TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    rfc TEXT DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'otros',
+    bank_info TEXT DEFAULT '',
+    credit_days INT NOT NULL DEFAULT 0,
+    credit_limit NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    notes TEXT DEFAULT '',
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_suppliers_name_active ON suppliers (active, name);
+
+INSERT INTO suppliers (id, name, contact_name, phone, email, category, bank_info, credit_days, credit_limit, active, created_at)
+VALUES
+  ('prov-agroquimicos-valle', 'Agroquímicos del Valle', 'Ing. Roberto Salazar', '55 4120 8890', 'ventas@agroquimicosvalle.mx', 'agroquimicos', 'BBVA CLABE 012180004591223344', 15, 50000.00, TRUE, '2026-11-01 09:00'),
+  ('prov-empaques-cdmx', 'Empaques Florales CDMX', 'Lic. Mariana Ortiz', '55 5694 3312', 'pedidos@empaquesflorales.mx', 'empaques', 'Banorte CLABE 072180009912345678', 7, 25000.00, TRUE, '2026-11-01 09:15'),
+  ('prov-fertilizantes-hidro', 'Fertilizantes HidroAgrícolas', 'Ing. Luis Morales', '722 318 4409', 'contacto@hidroagricolas.mx', 'fertilizantes', 'Santander CLABE 014180005566778899', 30, 60000.00, TRUE, '2026-11-01 09:30'),
+  ('prov-abarrotes-regional', 'Abarrotes Regional', 'Don Martín Flores', '722 509 1122', '', 'otros', 'Efectivo / Transferencia', 0, 10000.00, TRUE, '2026-11-01 09:45')
+ON CONFLICT (name) DO NOTHING;
+
+-- 19. Incidencias de Empleados (Descuentos por Faltas, Otros Descuentos, Bonos Productividad, Comisiones y Pagos Adicionales)
+CREATE TABLE IF NOT EXISTS employee_adjustments (
+    id TEXT PRIMARY KEY,
+    employee_id TEXT NOT NULL,
+    employee_name TEXT NOT NULL,
+    adjustment_date TEXT NOT NULL,
+    adjustment_type TEXT NOT NULL CHECK (adjustment_type IN ('descuento_falta', 'otro_descuento', 'bono_productividad', 'comision', 'pago_adicional')),
+    direction TEXT NOT NULL CHECK (direction IN ('suma', 'resta')),
+    amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    concept TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'aplicado')),
+    applied_payroll_week_id TEXT,
+    applied_week_label TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_employee_adjustments_emp_status ON employee_adjustments (employee_id, status, adjustment_date DESC);
+
+-- 20. Habilitar RLS y políticas de acceso para las 18 tablas activas de Aroma Flower
 DO $$
 DECLARE
   t TEXT;
@@ -3652,6 +3966,8 @@ DECLARE
     'payroll_employees',
     'payroll_weeks',
     'employee_loans',
+    'employee_adjustments',
+    'suppliers',
     'supplier_payments',
     'sales_points',
     'sales_clients',
@@ -3999,6 +4315,7 @@ TRUNCATE TABLE
   daily_sales,
   payroll_weeks,
   employee_loans,
+  employee_adjustments,
   supplier_payments,
   truck_loads,
   remission_notes,
@@ -4009,7 +4326,7 @@ CASCADE;
 UPDATE payroll_employees SET loan_balance = 0;
 UPDATE sales_clients SET balance = 0;
 COMMIT;
--- Las 16 tablas activas permanecen listas para operación real.
+-- Las 18 tablas activas permanecen listas para operación real.
 `;
     }
 
@@ -4066,6 +4383,8 @@ COMMIT;
       payrollEmployees,
       payrollWeeks,
       employeeLoans,
+      employeeAdjustments,
+      suppliers,
       supplierPayments,
       salesPoints,
       salesClients,
@@ -4103,6 +4422,8 @@ COMMIT;
       if (data.payrollEmployees) setPayrollEmployees(data.payrollEmployees);
       if (data.payrollWeeks) setPayrollWeeks(data.payrollWeeks);
       if (data.employeeLoans) setEmployeeLoans(data.employeeLoans);
+      if (data.employeeAdjustments) setEmployeeAdjustments(data.employeeAdjustments);
+      if (data.suppliers) setSuppliers(data.suppliers);
       if (data.supplierPayments) setSupplierPayments(data.supplierPayments);
       if (data.salesPoints) setSalesPoints(data.salesPoints);
       if (data.salesClients) setSalesClients(data.salesClients);
@@ -4182,6 +4503,13 @@ COMMIT;
         employeeLoans,
         addEmployeeLoanMovement,
         deleteEmployeeLoanMovement,
+        employeeAdjustments,
+        saveEmployeeAdjustment,
+        deleteEmployeeAdjustment,
+        markEmployeeAdjustmentsApplied,
+        suppliers,
+        saveSupplier,
+        deleteSupplier,
         supplierPayments,
         saveSupplierPayment,
         deleteSupplierPayment,

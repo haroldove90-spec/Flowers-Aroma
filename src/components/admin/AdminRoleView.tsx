@@ -22,6 +22,8 @@ import {
   Truck,
   Sprout,
   Calculator,
+  CreditCard,
+  Building2,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AppUser, AppUserRole } from '../../types/greenhouse';
@@ -42,6 +44,8 @@ export const AdminRoleView: React.FC = () => {
     dailySales,
     payrollEmployees,
     payrollWeeks,
+    employeeAdjustments,
+    suppliers,
     supplierPayments,
     setActiveRole,
     setActiveView,
@@ -77,6 +81,8 @@ export const AdminRoleView: React.FC = () => {
     const pendingSuppliers = supplierPayments
       .filter((s) => s.status !== 'pagado')
       .reduce((acc, s) => acc + Math.max(0, Number(s.amount || 0) - Number(s.paidAmount || 0)), 0);
+    const pendingAdjustmentsCount = employeeAdjustments.filter((a) => a.status === 'pendiente').length;
+    const activeSuppliersCount = suppliers.filter((s) => s.active !== false).length;
     return {
       totalHoy,
       empleadosHoy: todayEntries.length,
@@ -87,8 +93,10 @@ export const AdminRoleView: React.FC = () => {
       totalLoanPending,
       lastWeekTotal,
       pendingSuppliers,
+      pendingAdjustmentsCount,
+      activeSuppliersCount,
     };
-  }, [dailyProductions, aromaProducts, appUsers, payrollEmployees, payrollWeeks, supplierPayments, today]);
+  }, [dailyProductions, aromaProducts, appUsers, payrollEmployees, payrollWeeks, employeeAdjustments, suppliers, supplierPayments, today]);
 
   const resetForm = () => {
     setEditingUserId(null);
@@ -199,7 +207,30 @@ export const AdminRoleView: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-bold shadow-md transition cursor-pointer"
             >
               <Wallet className="w-4 h-4" />
-              <span>Pagos y Nómina</span>
+              <span>Nómina y Pagos</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('admin_incidencias')}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
+            >
+              <CreditCard className="w-4 h-4 text-[#C3A25D]" />
+              <span>Préstamos y Desc.</span>
+              {kpis.pendingAdjustmentsCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-[#C3A25D] text-[#000000] text-[10px] font-black">
+                  {kpis.pendingAdjustmentsCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('admin_proveedores')}
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
+            >
+              <Building2 className="w-4 h-4 text-[#C3A25D]" />
+              <span>Proveedores ({kpis.activeSuppliersCount})</span>
             </button>
 
             <button
