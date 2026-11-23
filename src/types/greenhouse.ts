@@ -529,12 +529,29 @@ export interface SupplyPurchase {
 
 export type GreenhouseApplicationType = 'foliar' | 'fertilizacion' | 'drench' | 'otro';
 
+export interface GreenhouseApplicationItem {
+  lineNo: number; // 1..8+
+  supplyItemId?: string;
+  productName: string; // PRODUCTO
+  dose: string; // DOSIS legible (ej. "300 ml", "2 kg")
+  quantityUsed: number; // Cantidad numérica capturada en doseUnit
+  doseUnit: string; // 'ml' | 'L' | 'g' | 'kg' | 'pza' | 'paq' | 'Lote'
+  stockDeductedQty: number; // Cantidad equivalente en la unidad del inventario para descuento automático
+  objective: string; // OBJETIVO (se auto-llena desde "¿Para qué sirve?", editable)
+  unitCost: number; // Costo unitario de referencia del insumo
+  cost: number; // COSTO de la línea ($ MXN)
+}
+
 export interface GreenhouseApplication {
   id: string;
+  folio?: string; // ej. APL-2026-001
   applicationDate: string; // YYYY-MM-DD
-  greenhouseName: string; // ej. 'Invernadero 1 (Freedom)'
+  unitName?: string; // Santa Cruz | Saúl | Tlapizaco
+  moduleName?: string; // Módulo 1 | Módulo 2 | Módulo 3
+  greenhouseName: string; // ej. 'Santa Cruz — Módulo 1'
   applicationType: GreenhouseApplicationType;
-  supplyItemId: string;
+  items?: GreenhouseApplicationItem[]; // Tabla 1..8 productos de la hoja
+  supplyItemId: string; // Primer producto o resumen para compatibilidad
   supplyName: string;
   supplyPurpose: string; // Se jala automáticamente de SupplyItem.purpose
   quantityUsed: number;
@@ -545,7 +562,7 @@ export interface GreenhouseApplication {
   doseUsed?: string;
   drums200L?: number; // Tambos de 200L preparados
   applicatorName: string;
-  notes?: string;
+  notes?: string; // Observaciones
   createdAt: string;
   updatedAt?: string;
 }

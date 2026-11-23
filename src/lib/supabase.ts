@@ -1231,39 +1231,87 @@ export const mapSupplyPurchaseFromDb = (r: any): SupplyPurchase => ({
   updatedAt: r.updated_at || undefined,
 });
 
-export const mapGreenhouseAppToDb = (a: GreenhouseApplication) => ({
-  id: a.id,
-  application_date: a.applicationDate,
-  greenhouse_name: a.greenhouseName,
-  application_type: a.applicationType || 'foliar',
-  supply_item_id: a.supplyItemId || '',
-  supply_name: a.supplyName,
-  supply_purpose: a.supplyPurpose || '',
-  quantity_used: Number(a.quantityUsed || 0),
-  unit: a.unit || 'L',
-  tambos_200l: Number(a.drums200L || 0),
-  applicator_name: a.applicatorName || '',
-  estimated_cost: Number(a.totalCost || a.estimatedCost || 0),
-  notes: a.notes || '',
-  created_at: a.createdAt || '',
-  updated_at: new Date().toISOString(),
-});
+export const mapGreenhouseAppToDb = (a: GreenhouseApplication) => {
+  const total = Number(a.totalCost || a.estimatedCost || 0);
+  return {
+    id: a.id,
+    folio: a.folio || '',
+    application_date: a.applicationDate,
+    unit_name: a.unitName || '',
+    module_name: a.moduleName || '',
+    greenhouse_name: a.greenhouseName,
+    application_type: a.applicationType || 'foliar',
+    items: Array.isArray(a.items) ? a.items : [],
+    supply_item_id: a.supplyItemId || '',
+    supply_name: a.supplyName,
+    supply_purpose: a.supplyPurpose || '',
+    quantity_used: Number(a.quantityUsed || 0),
+    unit: a.unit || 'L',
+    dose_used: a.doseUsed || '',
+    tambos_200l: Number(a.drums200L || 0),
+    applicator_name: a.applicatorName || '',
+    estimated_cost: total,
+    total_cost: total,
+    notes: a.notes || '',
+    created_at: a.createdAt || '',
+    updated_at: new Date().toISOString(),
+  };
+};
 
 export const mapGreenhouseAppFromDb = (r: any): GreenhouseApplication => {
-  const cost = Number(r.estimated_cost ?? r.total_cost ?? 0);
+  const cost = Number(r.total_cost ?? r.estimated_cost ?? 0);
+  const rawItems = Array.isArray(r.items) ? r.items : [];
+  const normalizedItems =
+    rawItems.length > 0
+      ? rawItems.map((it: any, idx: number) => ({
+          lineNo: Number(it.lineNo ?? idx + 1),
+          supplyItemId: it.supplyItemId || '',
+          productName: it.productName || '',
+          dose: it.dose || '',
+          quantityUsed: Number(it.quantityUsed || 0),
+          doseUnit: it.doseUnit || 'L',
+          stockDeductedQty: Number(it.stockDeductedQty ?? it.quantityUsed ?? 0),
+          objective: it.objective || '',
+          unitCost: Number(it.unitCost || 0),
+          cost: Number(it.cost || 0),
+        }))
+      : r.supply_name
+      ? [
+          {
+            lineNo: 1,
+            supplyItemId: r.supply_item_id || r.supply_id || '',
+            productName: r.supply_name || '',
+            dose: r.dose_used || `${Number(r.quantity_used || 0)} ${r.unit || 'L'}`,
+            quantityUsed: Number(r.quantity_used || 0),
+            doseUnit: r.unit || 'L',
+            stockDeductedQty: Number(r.quantity_used || 0),
+            objective: r.supply_purpose || '',
+            unitCost: Number(r.unit_cost || 0),
+            cost,
+          },
+        ]
+      : [];
+
   return {
     id: String(r.id),
+    folio: r.folio || '',
     applicationDate: r.application_date || '',
-    greenhouseName: r.greenhouse_name || '',
+    unitName: r.unit_name || '',
+    moduleName: r.module_name || '',
+    greenhouseName:
+      r.greenhouse_name ||
+      [r.unit_name, r.module_name].filter(Boolean).join(' — ') ||
+      '',
     applicationType:
       r.application_type === 'fertilizacion' ||
       r.application_type === 'drench' ||
       r.application_type === 'otro'
         ? r.application_type
         : 'foliar',
-    supplyItemId: r.supply_item_id || r.supply_id || '',
-    supplyName: r.supply_name || '',
-    supplyPurpose: r.supply_purpose || '',
+    items: normalizedItems,
+    supplyItemId: r.supply_item_id || r.supply_id || normalizedItems[0]?.supplyItemId || '',
+    supplyName: r.supply_name || normalizedItems.map((i: any) => i.productName).join(', '),
+    supplyPurpose: r.supply_purpose || normalizedItems[0]?.objective || '',
     quantityUsed: Number(r.quantity_used || 0),
     unit: r.unit || 'L',
     unitCost: Number(r.unit_cost || 0),

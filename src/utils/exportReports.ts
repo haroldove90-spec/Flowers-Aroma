@@ -2473,24 +2473,60 @@ export function exportSuppliesAndAppsExcel(
   setColumnWidths(ws2, s2);
   XLSX.utils.book_append_sheet(wb, ws2, 'Compras');
 
-  const s3: any[][] = [
-    ['Fecha', 'Invernadero', 'Tipo', 'Producto', '¿Para qué sirve?', 'Cantidad Usada', 'Unidad', 'Tambos 200L', 'Aplicador', 'Costo Total'],
-    ...apps.map((a) => [
-      a.applicationDate,
-      a.greenhouseName,
-      a.applicationType.toUpperCase(),
-      a.supplyName,
-      a.supplyPurpose,
-      a.quantityUsed,
-      a.unit,
-      a.drums200L || 0,
-      a.applicatorName,
-      a.totalCost,
-    ]),
+  const appRows: any[][] = [
+    [
+      'Folio',
+      'Fecha',
+      'Unidad',
+      'Módulo',
+      'Tipo',
+      'No.',
+      'Producto',
+      'Dosis',
+      'Objetivo',
+      'Costo Línea',
+      'Costo Total Hoja',
+      'Tambos 200L',
+      'Aplicador',
+      'Observaciones',
+    ],
   ];
-  const ws3 = XLSX.utils.aoa_to_sheet(s3);
-  setColumnWidths(ws3, s3);
-  XLSX.utils.book_append_sheet(wb, ws3, 'Aplicaciones Invernadero');
+  apps.forEach((a) => {
+    const lineItems =
+      a.items && a.items.length > 0
+        ? a.items
+        : [
+            {
+              lineNo: 1,
+              productName: a.supplyName,
+              dose: a.doseUsed || `${a.quantityUsed} ${a.unit}`,
+              objective: a.supplyPurpose,
+              cost: a.totalCost,
+            },
+          ];
+    lineItems.forEach((it, idx) => {
+      appRows.push([
+        a.folio || a.id,
+        a.applicationDate,
+        a.unitName || a.greenhouseName,
+        a.moduleName || 'General',
+        a.applicationType === 'fertilizacion' ? 'NUTRICIÓN' : a.applicationType.toUpperCase(),
+        it.lineNo || idx + 1,
+        it.productName,
+        it.dose,
+        it.objective,
+        Number(it.cost || 0),
+        idx === 0 ? Number(a.totalCost || 0) : '',
+        idx === 0 ? Number(a.drums200L || 0) : '',
+        idx === 0 ? a.applicatorName : '',
+        idx === 0 ? a.notes || '' : '',
+      ]);
+    });
+  });
+
+  const ws3 = XLSX.utils.aoa_to_sheet(appRows);
+  setColumnWidths(ws3, appRows);
+  XLSX.utils.book_append_sheet(wb, ws3, 'Foliares y Nutricion');
 
   XLSX.writeFile(wb, `AromaFlower_Insumos_y_Aplicaciones_${todayIso()}.xlsx`);
 }
@@ -2502,10 +2538,11 @@ export function exportSuppliesAndAppsPdf(
 ) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const totPurchases = purchases.reduce((a, p) => a + Number(p.totalCost || 0), 0);
+  const totApps = apps.reduce((a, ap) => a + Number(ap.totalCost || 0), 0);
   addPdfHeader(
     doc,
-    'Reporte de Insumos por Área, Compras y Aplicaciones en Invernaderos',
-    `${items.length} insumos • ${purchases.length} compras (${fmtMoney(totPurchases)}) • ${apps.length} aplicaciones registradas`
+    'Reporte de Insumos por Área, Compras y Aplicaciones Foliares / Nutrición',
+    `${items.length} insumos • ${purchases.length} compras (${fmtMoney(totPurchases)}) • ${apps.length} hojas de aplicación (${fmtMoney(totApps)})`
   );
 
   autoTable(doc, {
@@ -2530,29 +2567,156 @@ export function exportSuppliesAndAppsPdf(
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...OLIVE);
-  doc.text('Bitácora de Aplicaciones Foliares y Fertilización', 14, 18);
+  doc.text('Bitácora de Hojas de Aplicación Foliar y Nutrición por Unidad y Módulo', 14, 18);
+
+  const flatRows: any[][] = [];
+  apps.forEach((a) => {
+    const lineItems =
+      a.items && a.items.length > 0
+        ? a.items
+        : [
+            {
+              lineNo: 1,
+              productName: a.supplyName,
+              dose: a.doseUsed || `${a.quantityUsed} ${a.unit}`,
+              objective: a.supplyPurpose,
+              cost: a.totalCost,
+            },
+          ];
+    lineItems.forEach((it, idx) => {
+      flatRows.push([
+        idx === 0 ? a.applicationDate : '',
+        idx === 0 ? a.unitName || a.greenhouseName : '',
+        idx === 0 ? a.moduleName || '—' : '',
+        idx === 0 ? (a.applicationType === 'fertilizacion' ? 'NUTRICIÓN' : a.applicationType.toUpperCase()) : '',
+        it.lineNo || idx + 1,
+        it.productName,
+        it.dose,
+        it.objective,
+        fmtMoney(it.cost),
+      ]);
+    });
+  });
+
   autoTable(doc, {
     startY: 22,
-    head: [['Fecha', 'Invernadero', 'Tipo', 'Producto', '¿Para qué sirve?', 'Cant.', 'Tambos 200L', 'Aplicador', 'Costo']],
-    body: apps.map((a) => [
-      a.applicationDate,
-      a.greenhouseName,
-      a.applicationType.toUpperCase(),
-      a.supplyName,
-      a.supplyPurpose,
-      `${a.quantityUsed} ${a.unit}`,
-      a.drums200L || 0,
-      a.applicatorName,
-      fmtMoney(a.totalCost),
-    ]),
+    head: [['Fecha', 'Unidad', 'Módulo', 'Tipo', 'No.', 'Producto', 'Dosis', 'Objetivo', 'Costo']],
+    body: flatRows.length > 0 ? flatRows : [['—', 'Sin aplicaciones registradas', '—', '—', '—', '—', '—', '—', '$0.00']],
+    foot: [['', '', '', '', '', '', '', 'COSTO TOTAL BITÁCORA', fmtMoney(totApps)]],
     theme: 'grid',
     headStyles: { fillColor: OLIVE, textColor: 255, fontSize: 7.5 },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 8, fontStyle: 'bold' },
     styles: { fontSize: 7.2, cellPadding: 1.6 },
-    columnStyles: { 4: { cellWidth: 85 } },
+    columnStyles: { 4: { halign: 'center', cellWidth: 10 }, 7: { cellWidth: 78 }, 8: { halign: 'right' } },
   });
 
   addPdfPageFooters(doc);
   doc.save(`AromaFlower_Insumos_y_Aplicaciones_${todayIso()}.pdf`);
+}
+
+export function exportSingleApplicationSheetPdf(app: GreenhouseApplication) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const typeLabel =
+    app.applicationType === 'fertilizacion'
+      ? 'NUTRICIÓN / FERTIRRIEGO'
+      : app.applicationType === 'foliar'
+      ? 'APLICACIÓN FOLIAR'
+      : app.applicationType === 'drench'
+      ? 'APLICACIÓN DRENCH'
+      : 'APLICACIÓN EN INVERNADERO';
+
+  addPdfHeader(
+    doc,
+    `Hoja de Control — ${typeLabel}`,
+    `Folio: ${app.folio || app.id} • Aplicador: ${app.applicatorName || 'Operador'}${app.drums200L ? ` • Tambos 200L: ${app.drums200L}` : ''}`
+  );
+
+  // Encabezado exacto del formato del cliente: UNIDAD | MODULO | FECHA
+  autoTable(doc, {
+    startY: 33,
+    head: [['UNIDAD', 'MÓDULO', 'FECHA']],
+    body: [[app.unitName || app.greenhouseName, app.moduleName || 'General', app.applicationDate]],
+    theme: 'grid',
+    headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 9, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 10, fontStyle: 'bold', textColor: [20, 20, 20], cellPadding: 3 },
+  });
+
+  const lineItems =
+    app.items && app.items.length > 0
+      ? app.items
+      : [
+          {
+            lineNo: 1,
+            productName: app.supplyName,
+            dose: app.doseUsed || `${app.quantityUsed} ${app.unit}`,
+            objective: app.supplyPurpose,
+            cost: app.totalCost,
+          },
+        ];
+
+  // Mostrar mínimo 8 filas numeradas como el formato físico del cliente
+  const minRows = Math.max(8, lineItems.length);
+  const tableBody: any[][] = [];
+  for (let i = 0; i < minRows; i++) {
+    const it = lineItems[i];
+    if (it) {
+      tableBody.push([
+        i + 1,
+        it.productName,
+        it.dose,
+        it.objective,
+        fmtMoney(it.cost),
+      ]);
+    } else {
+      tableBody.push([i + 1, '', '', '', '']);
+    }
+  }
+
+  const startTableY = ((doc as any).lastAutoTable?.finalY || 50) + 6;
+  autoTable(doc, {
+    startY: startTableY,
+    head: [['No.', 'PRODUCTO', 'DOSIS', 'OBJETIVO', 'COSTO']],
+    body: tableBody,
+    foot: [['', '', '', 'Costo total:', fmtMoney(app.totalCost)]],
+    theme: 'grid',
+    headStyles: { fillColor: OLIVE, textColor: 255, fontSize: 9, fontStyle: 'bold', halign: 'center' },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 10, fontStyle: 'bold', halign: 'right' },
+    alternateRowStyles: { fillColor: CREAM },
+    styles: { fontSize: 8.5, cellPadding: 2.6, minCellHeight: 8 },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 12, fontStyle: 'bold' },
+      1: { cellWidth: 44, fontStyle: 'bold' },
+      2: { cellWidth: 28, halign: 'center' },
+      3: { cellWidth: 70 },
+      4: { halign: 'right', cellWidth: 28, fontStyle: 'bold' },
+    },
+  });
+
+  // Cuadro de Observaciones igual al formato
+  const obsY = ((doc as any).lastAutoTable?.finalY || 140) + 7;
+  autoTable(doc, {
+    startY: obsY,
+    head: [['OBSERVACIONES']],
+    body: [[app.notes?.trim() || 'Sin observaciones adicionales registradas.']],
+    theme: 'grid',
+    headStyles: { fillColor: [245, 243, 238], textColor: [40, 40, 40], fontSize: 8.5, fontStyle: 'bold' },
+    bodyStyles: { fontSize: 8.8, cellPadding: 3.5, minCellHeight: 16 },
+  });
+
+  // Firmas de campo
+  const sigY = Math.min(265, ((doc as any).lastAutoTable?.finalY || 180) + 22);
+  doc.setDrawColor(140, 140, 140);
+  doc.line(22, sigY, 88, sigY);
+  doc.line(122, sigY, 188, sigY);
+  doc.setFontSize(8.5);
+  doc.setTextColor(60, 60, 60);
+  doc.text(`Aplicador: ${app.applicatorName || '____________________'}`, 55, sigY + 5, { align: 'center' });
+  doc.text('Vo. Bo. Supervisión / Administración', 155, sigY + 5, { align: 'center' });
+
+  addPdfPageFooters(doc);
+  const safeUnit = (app.unitName || 'Unidad').replace(/\s+/g, '_');
+  const safeMod = (app.moduleName || 'Modulo').replace(/\s+/g, '_');
+  doc.save(`Hoja_Aplicacion_${safeUnit}_${safeMod}_${app.applicationDate}.pdf`);
 }
 
 // ==================== 15. CONTROL DE COSTOS DE PRODUCCIÓN Y UTILIDAD REAL ====================

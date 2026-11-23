@@ -14,15 +14,23 @@ import {
   Info,
   Search,
   AlertTriangle,
+  Copy,
+  MessageCircle,
+  Plus,
+  X,
+  RotateCcw,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import {
+  GreenhouseApplication,
+  GreenhouseApplicationItem,
   GreenhouseApplicationType,
   SupplyArea,
   SupplyItem,
 } from '../../types/greenhouse';
 import { AromaFlowersLogo } from '../common/AromaFlowersLogo';
 import {
+  exportSingleApplicationSheetPdf,
   exportSuppliesAndAppsExcel,
   exportSuppliesAndAppsPdf,
 } from '../../utils/exportReports';
@@ -56,21 +64,77 @@ const AREA_SHORT_LABEL: Record<SupplyArea, string> = {
   otros: 'Otros',
 };
 
-const APP_TYPES: Array<{ id: GreenhouseApplicationType; label: string }> = [
-  { id: 'foliar', label: 'Aplicación Foliar (Fumigación)' },
-  { id: 'fertilizacion', label: 'Fertilización / Fertirriego' },
-  { id: 'drench', label: 'Aplicación al Suelo (Drench)' },
-  { id: 'otro', label: 'Otra Aplicación' },
+const APP_TYPES: Array<{ id: GreenhouseApplicationType; label: string; short: string }> = [
+  { id: 'foliar', label: 'Aplicación Foliar (Fumigación)', short: 'Foliar' },
+  { id: 'fertilizacion', label: 'Nutrición / Fertirriego', short: 'Nutrición' },
+  { id: 'drench', label: 'Aplicación al Suelo (Drench)', short: 'Drench' },
+  { id: 'otro', label: 'Otra Aplicación', short: 'Otra' },
 ];
 
-const GREENHOUSE_PRESETS = [
-  'Invernadero 1 (Freedom / Mondial)',
-  'Invernadero 2 (Proud / Hermosa)',
-  'Invernadero 3 (Topaz / Caricia)',
-  'Invernadero 4 (Deep Purple / Novia)',
-  'Invernadero 5 (Shimer / Gotcha)',
-  'Todos los Invernaderos',
+// Estructura real de Unidades y Módulos del negocio
+const PRODUCTION_UNITS: Array<{ name: string; modules: string[] }> = [
+  { name: 'Santa Cruz', modules: ['Módulo 1', 'Módulo 2', 'Módulos 1 y 2 (Ambos)'] },
+  { name: 'Saúl', modules: ['Módulo 1', 'Módulo 2', 'Módulos 1 y 2 (Ambos)'] },
+  { name: 'Tlapizaco', modules: ['Módulo 1', 'Módulo 2', 'Módulo 3', 'Módulos 1, 2 y 3 (Todos)'] },
 ];
+
+const DOSE_UNITS = ['ml', 'L', 'g', 'kg', 'pza', 'paq'] as const;
+
+interface DraftAppRow {
+  rowKey: string;
+  supplyItemId: string; // '' = vacía, '__custom__' = captura libre
+  customProductName: string;
+  qtyStr: string;
+  doseUnit: string;
+  objective: string;
+  costStr: string;
+  manualCost: boolean;
+}
+
+const createEmptyAppRow = (index: number): DraftAppRow => ({
+  rowKey: `row-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 5)}`,
+  supplyItemId: '',
+  customProductName: '',
+  qtyStr: '',
+  doseUnit: 'ml',
+  objective: '',
+  costStr: '',
+  manualCost: false,
+});
+
+const createInitial8Rows = (): DraftAppRow[] =>
+  Array.from({ length: 8 }, (_, idx) => createEmptyAppRow(idx));
+
+/** Convierte una dosis capturada (ej. 250 ml) a la unidad de inventario del insumo (ej. L -> 0.25) */
+const convertDoseToStockUnit = (qty: number, doseUnit: string, stockUnit?: string): number => {
+  if (!qty || qty <= 0) return 0;
+  const from = (doseUnit || '').trim().toLowerCase();
+  const to = (stockUnit || '').trim().toLowerCase();
+  if (!to || from === to) return Number(qty.toFixed(4));
+  if (from === 'ml' && (to === 'l' || to === 'lt' || to === 'litro' || to === 'litros')) {
+    return Number((qty / 1000).toFixed(4));
+  }
+  if ((from === 'l' || from === 'lt') && to === 'ml') {
+    return Number((qty * 1000).toFixed(4));
+  }
+  if ((from === 'g' || from === 'gr') && (to === 'kg' || to === 'kilo' || to === 'kilos')) {
+    return Number((qty / 1000).toFixed(4));
+  }
+  if (from === 'kg' && (to === 'g' || to === 'gr')) {
+    return Number((qty * 1000).toFixed(4));
+  }
+  return Number(qty.toFixed(4));
+};
+
+const getDefaultDoseUnitForSupply = (stockUnit?: string): string => {
+  const u = (stockUnit || '').trim().toLowerCase();
+  if (u === 'l' || u === 'lt') return 'ml';
+  if (u === 'kg') return 'kg';
+  if (u === 'g' || u === 'gr') return 'g';
+  if (u === 'pza') return 'pza';
+  if (u === 'paq') return 'paq';
+  return 'ml';
+};
 
 export const SuppliesAndAppsView: React.FC = () => {
   const {
@@ -120,28 +184,115 @@ export const SuppliesAndAppsView: React.FC = () => {
   const [isSavingPurchase, setIsSavingPurchase] = useState(false);
   const [confirmDeletePurchaseId, setConfirmDeletePurchaseId] = useState<string | null>(null);
 
-  // ---------- TAB 3: GREENHOUSE APPLICATION FORM ----------
+  // ---------- TAB 3: HOJA DE APLICACIÓN FOLIAR Y NUTRICIÓN (UNIDAD / MÓDULO / 1..8 PRODUCTOS) ----------
   const greenhouseSupplies = useMemo(
     () => supplyItems.filter((s) => s.area === 'invernadero' && s.active !== false),
     [supplyItems]
   );
+  const availableAppSupplies = useMemo(
+    () => (greenhouseSupplies.length > 0 ? greenhouseSupplies : supplyItems),
+    [greenhouseSupplies, supplyItems]
+  );
+
   const [appDate, setAppDate] = useState(today);
-  const [appGreenhouse, setAppGreenhouse] = useState(GREENHOUSE_PRESETS[0]);
-  const [appCustomGh, setAppCustomGh] = useState('');
+  const [appUnit, setAppUnit] = useState<string>(PRODUCTION_UNITS[0].name);
+  const [appCustomUnit, setAppCustomUnit] = useState('');
+  const [appModule, setAppModule] = useState<string>(PRODUCTION_UNITS[0].modules[0]);
+  const [appCustomModule, setAppCustomModule] = useState('');
   const [appType, setAppType] = useState<GreenhouseApplicationType>('foliar');
-  const [appSupplyId, setAppSupplyId] = useState(greenhouseSupplies[0]?.id || supplyItems[0]?.id || '');
-  const [appQtyStr, setAppQtyStr] = useState('');
   const [appDrumsStr, setAppDrumsStr] = useState('1');
-  const [appDoseUsed, setAppDoseUsed] = useState('');
-  const [appApplicator, setAppApplicator] = useState(payrollEmployees[0]?.fullName || 'Aarón Mena');
+  const [appApplicator, setAppApplicator] = useState(payrollEmployees[0]?.fullName || 'ING ANA');
   const [appNotes, setAppNotes] = useState('');
+  const [appRows, setAppRows] = useState<DraftAppRow[]>(() => createInitial8Rows());
   const [isSavingApp, setIsSavingApp] = useState(false);
   const [confirmDeleteAppId, setConfirmDeleteAppId] = useState<string | null>(null);
 
-  const selectedAppSupply = useMemo(
-    () => supplyItems.find((s) => s.id === appSupplyId),
-    [supplyItems, appSupplyId]
+  // Filtros de Bitácora de Aplicaciones
+  const [filterUnit, setFilterUnit] = useState<string>('todas');
+  const [filterModule, setFilterModule] = useState<string>('todos');
+  const [filterType, setFilterType] = useState<GreenhouseApplicationType | 'todos'>('todos');
+  const [filterFromDate, setFilterFromDate] = useState('');
+  const [filterToDate, setFilterToDate] = useState('');
+
+  const availableModulesForSelectedUnit = useMemo(() => {
+    const found = PRODUCTION_UNITS.find((u) => u.name === appUnit);
+    return found ? found.modules : [];
+  }, [appUnit]);
+
+  const availableModulesForFilterUnit = useMemo(() => {
+    if (filterUnit === 'todas') return [];
+    const found = PRODUCTION_UNITS.find((u) => u.name === filterUnit);
+    return found ? found.modules : [];
+  }, [filterUnit]);
+
+  const draftSheetTotalCost = useMemo(() => {
+    return round2(
+      appRows.reduce((acc, r) => {
+        if (!r.supplyItemId) return acc;
+        return acc + parseDec(r.costStr);
+      }, 0)
+    );
+  }, [appRows]);
+
+  const activeDraftRowsCount = useMemo(
+    () =>
+      appRows.filter(
+        (r) =>
+          (r.supplyItemId && r.supplyItemId !== '__custom__') ||
+          (r.supplyItemId === '__custom__' && r.customProductName.trim().length > 0)
+      ).length,
+    [appRows]
   );
+
+  const filteredApplications = useMemo(() => {
+    return greenhouseApplications.filter((app) => {
+      const uName = app.unitName || app.greenhouseName || '';
+      const mName = app.moduleName || '';
+      if (filterUnit !== 'todas' && uName !== filterUnit) return false;
+      if (filterModule !== 'todos' && mName !== filterModule) return false;
+      if (filterType !== 'todos' && app.applicationType !== filterType) return false;
+      if (filterFromDate && app.applicationDate < filterFromDate) return false;
+      if (filterToDate && app.applicationDate > filterToDate) return false;
+      return true;
+    });
+  }, [greenhouseApplications, filterUnit, filterModule, filterType, filterFromDate, filterToDate]);
+
+  const unitCostSummary = useMemo(() => {
+    return PRODUCTION_UNITS.map((unit) => {
+      const unitApps = greenhouseApplications.filter(
+        (a) => (a.unitName || '').toLowerCase() === unit.name.toLowerCase()
+      );
+      const foliarCost = round2(
+        unitApps
+          .filter((a) => a.applicationType === 'foliar')
+          .reduce((acc, a) => acc + Number(a.totalCost || 0), 0)
+      );
+      const nutritionCost = round2(
+        unitApps
+          .filter((a) => a.applicationType === 'fertilizacion')
+          .reduce((acc, a) => acc + Number(a.totalCost || 0), 0)
+      );
+      const totalCost = round2(
+        unitApps.reduce((acc, a) => acc + Number(a.totalCost || 0), 0)
+      );
+      const byModule = unit.modules.slice(0, -1).map((mod) => {
+        const modApps = unitApps.filter((a) => a.moduleName === mod);
+        return {
+          moduleName: mod,
+          count: modApps.length,
+          cost: round2(modApps.reduce((acc, a) => acc + Number(a.totalCost || 0), 0)),
+        };
+      });
+      return {
+        unitName: unit.name,
+        count: unitApps.length,
+        foliarCost,
+        nutritionCost,
+        totalCost,
+        byModule,
+      };
+    });
+  }, [greenhouseApplications]);
 
   const selectedPurchaseSupply = useMemo(
     () => supplyItems.find((s) => s.id === purSupplyId),
@@ -291,45 +442,274 @@ export const SuppliesAndAppsView: React.FC = () => {
     );
   };
 
+  const handleSelectUnitChange = (nextUnit: string) => {
+    setAppUnit(nextUnit);
+    const found = PRODUCTION_UNITS.find((u) => u.name === nextUnit);
+    if (found && found.modules.length > 0) {
+      setAppModule(found.modules[0]);
+    } else {
+      setAppModule('');
+    }
+  };
+
+  const updateAppRow = (rowKey: string, updater: (row: DraftAppRow) => DraftAppRow) => {
+    setAppRows((prev) => prev.map((r) => (r.rowKey === rowKey ? updater(r) : r)));
+  };
+
+  const handleRowSupplyChange = (rowKey: string, nextSupplyId: string) => {
+    const found = supplyItems.find((s) => s.id === nextSupplyId);
+    updateAppRow(rowKey, (row) => {
+      if (!nextSupplyId) {
+        return {
+          ...row,
+          supplyItemId: '',
+          customProductName: '',
+          qtyStr: '',
+          objective: '',
+          costStr: '',
+          manualCost: false,
+        };
+      }
+      if (nextSupplyId === '__custom__') {
+        return {
+          ...row,
+          supplyItemId: '__custom__',
+          doseUnit: row.doseUnit || 'ml',
+          manualCost: true,
+        };
+      }
+      const defaultUnit = getDefaultDoseUnitForSupply(found?.unit);
+      const qtyNum = parseDec(row.qtyStr);
+      const stockQty = convertDoseToStockUnit(qtyNum, defaultUnit, found?.unit);
+      const autoCost = found ? round2(stockQty * Number(found.unitCost || 0)) : 0;
+      return {
+        ...row,
+        supplyItemId: nextSupplyId,
+        customProductName: '',
+        doseUnit: defaultUnit,
+        objective: found?.purpose || row.objective,
+        costStr: qtyNum > 0 ? String(autoCost) : row.costStr,
+        manualCost: false,
+      };
+    });
+  };
+
+  const handleRowQtyOrUnitChange = (rowKey: string, nextQtyStr: string, nextDoseUnit: string) => {
+    updateAppRow(rowKey, (row) => {
+      const found =
+        row.supplyItemId && row.supplyItemId !== '__custom__'
+          ? supplyItems.find((s) => s.id === row.supplyItemId)
+          : undefined;
+      if (found && !row.manualCost) {
+        const qtyNum = parseDec(nextQtyStr);
+        const stockQty = convertDoseToStockUnit(qtyNum, nextDoseUnit, found.unit);
+        const autoCost = round2(stockQty * Number(found.unitCost || 0));
+        return {
+          ...row,
+          qtyStr: nextQtyStr,
+          doseUnit: nextDoseUnit,
+          costStr: qtyNum > 0 ? String(autoCost) : '',
+        };
+      }
+      return {
+        ...row,
+        qtyStr: nextQtyStr,
+        doseUnit: nextDoseUnit,
+      };
+    });
+  };
+
+  const handleDuplicateApplication = (app: GreenhouseApplication) => {
+    const sourceItems =
+      app.items && app.items.length > 0
+        ? app.items
+        : [
+            {
+              lineNo: 1,
+              supplyItemId: app.supplyItemId,
+              productName: app.supplyName,
+              dose: app.doseUsed || `${app.quantityUsed} ${app.unit}`,
+              quantityUsed: app.quantityUsed,
+              doseUnit: app.unit,
+              stockDeductedQty: app.quantityUsed,
+              objective: app.supplyPurpose,
+              unitCost: app.unitCost || 0,
+              cost: app.totalCost,
+            },
+          ];
+
+    const matchedUnit = PRODUCTION_UNITS.find((u) => u.name === app.unitName);
+    if (matchedUnit) {
+      setAppUnit(matchedUnit.name);
+      setAppCustomUnit('');
+      setAppModule(app.moduleName || matchedUnit.modules[0]);
+      setAppCustomModule('');
+    } else if (app.unitName) {
+      setAppUnit('__otra__');
+      setAppCustomUnit(app.unitName);
+      setAppCustomModule(app.moduleName || '');
+    }
+
+    setAppDate(today);
+    setAppType(app.applicationType);
+    setAppDrumsStr(String(app.drums200L ?? 1));
+    setAppApplicator(app.applicatorName || '');
+    setAppNotes(app.notes || '');
+
+    const minRows = Math.max(8, sourceItems.length);
+    const clonedRows: DraftAppRow[] = Array.from({ length: minRows }, (_, idx) => {
+      const it = sourceItems[idx];
+      if (!it) return createEmptyAppRow(idx);
+      const existsInStock = Boolean(it.supplyItemId && supplyItems.some((s) => s.id === it.supplyItemId));
+      return {
+        rowKey: `dup-${Date.now()}-${idx}`,
+        supplyItemId: existsInStock ? String(it.supplyItemId) : '__custom__',
+        customProductName: existsInStock ? '' : it.productName,
+        qtyStr: it.quantityUsed ? String(it.quantityUsed) : '',
+        doseUnit: it.doseUnit || 'ml',
+        objective: it.objective || '',
+        costStr: it.cost ? String(it.cost) : '',
+        manualCost: !existsInStock,
+      };
+    });
+    setAppRows(clonedRows);
+    notifyOk(`Mezcla de ${app.folio || app.greenhouseName} cargada en la hoja. Cambia Unidad/Módulo/Fecha y guarda.`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const buildApplicationWhatsAppText = (app: GreenhouseApplication): string => {
+    const typeLabel =
+      app.applicationType === 'fertilizacion'
+        ? 'NUTRICIÓN / FERTIRRIEGO'
+        : app.applicationType === 'foliar'
+        ? 'APLICACIÓN FOLIAR'
+        : app.applicationType.toUpperCase();
+    const items =
+      app.items && app.items.length > 0
+        ? app.items
+        : [
+            {
+              lineNo: 1,
+              productName: app.supplyName,
+              dose: app.doseUsed || `${app.quantityUsed} ${app.unit}`,
+              objective: app.supplyPurpose,
+              cost: app.totalCost,
+            },
+          ];
+    const lines = items.map(
+      (it, idx) =>
+        `${idx + 1}. *${it.productName}* — Dosis: ${it.dose} | Objetivo: ${it.objective || 'General'} | Costo: ${fmtMoney(it.cost)}`
+    );
+    return [
+      `*AROMA FLOWER — HOJA DE ${typeLabel}*`,
+      `Folio: ${app.folio || app.id}`,
+      `Unidad: *${app.unitName || app.greenhouseName}*`,
+      `Módulo: *${app.moduleName || 'General'}*`,
+      `Fecha: *${app.applicationDate}*`,
+      app.drums200L ? `Tambos 200L: ${app.drums200L}` : '',
+      `Aplicador: ${app.applicatorName || 'Operador'}`,
+      '',
+      '*PRODUCTOS / MEZCLA:*',
+      ...lines,
+      '',
+      `*Costo total: ${fmtMoney(app.totalCost)}*`,
+      app.notes ? `Observaciones: ${app.notes}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  };
+
   const handleSaveApplication = async (e: React.FormEvent) => {
     e.preventDefault();
-    const targetSupply = supplyItems.find((s) => s.id === appSupplyId);
-    if (!targetSupply) {
-      setErrorMsg('Selecciona un producto/fertilizante para la aplicación.');
+    const finalUnit = appUnit === '__otra__' ? appCustomUnit.trim() : appUnit;
+    const finalModule =
+      appUnit === '__otra__'
+        ? appCustomModule.trim() || 'Módulo 1'
+        : appModule === '__otro_mod__'
+        ? appCustomModule.trim()
+        : appModule;
+
+    if (!finalUnit) {
+      setErrorMsg('Selecciona o escribe la UNIDAD (Santa Cruz, Saúl, Tlapizaco u otra).');
       return;
     }
-    const qty = parseDec(appQtyStr);
-    if (qty <= 0) {
-      setErrorMsg('Ingresa la cantidad utilizada del producto.');
+    if (!finalModule) {
+      setErrorMsg('Selecciona o escribe el MÓDULO donde se realizó la aplicación.');
       return;
     }
-    const ghName = appCustomGh.trim() || appGreenhouse;
-    const totalCost = round2(qty * Number(targetSupply.unitCost || 0));
+
+    const builtItems: GreenhouseApplicationItem[] = [];
+    for (const row of appRows) {
+      if (!row.supplyItemId) continue;
+      const isCustom = row.supplyItemId === '__custom__';
+      const linked = !isCustom ? supplyItems.find((s) => s.id === row.supplyItemId) : undefined;
+      const prodName = isCustom ? row.customProductName.trim() : linked?.name || '';
+      if (!prodName) continue;
+
+      const qtyNum = parseDec(row.qtyStr);
+      const stockDeductedQty = linked
+        ? convertDoseToStockUnit(qtyNum, row.doseUnit, linked.unit)
+        : qtyNum;
+      const lineCost =
+        row.costStr.trim() !== ''
+          ? round2(parseDec(row.costStr))
+          : linked
+          ? round2(stockDeductedQty * Number(linked.unitCost || 0))
+          : 0;
+
+      builtItems.push({
+        lineNo: builtItems.length + 1,
+        supplyItemId: linked?.id || '',
+        productName: prodName,
+        dose: qtyNum > 0 ? `${qtyNum} ${row.doseUnit}` : row.doseUnit || 'Según etiqueta',
+        quantityUsed: qtyNum,
+        doseUnit: row.doseUnit || linked?.unit || 'L',
+        stockDeductedQty,
+        objective: row.objective.trim() || linked?.purpose || 'Aplicación operativa',
+        unitCost: Number(linked?.unitCost || 0),
+        cost: lineCost,
+      });
+    }
+
+    if (builtItems.length === 0) {
+      setErrorMsg('Captura al menos 1 producto en la tabla de la hoja de aplicación.');
+      return;
+    }
+
+    const totalCost = round2(builtItems.reduce((acc, it) => acc + Number(it.cost || 0), 0));
+    const ghDisplay = `${finalUnit} — ${finalModule}`;
+
     setIsSavingApp(true);
     const res = await addGreenhouseApplication({
       applicationDate: appDate,
-      greenhouseName: ghName,
+      unitName: finalUnit,
+      moduleName: finalModule,
+      greenhouseName: ghDisplay,
       applicationType: appType,
-      supplyItemId: targetSupply.id,
-      supplyName: targetSupply.name,
-      supplyPurpose: targetSupply.purpose,
-      quantityUsed: qty,
-      unit: targetSupply.unit,
-      unitCost: Number(targetSupply.unitCost || 0),
+      items: builtItems,
+      supplyItemId: builtItems[0].supplyItemId || '',
+      supplyName:
+        builtItems.length === 1
+          ? builtItems[0].productName
+          : `${builtItems[0].productName} + ${builtItems.length - 1} más`,
+      supplyPurpose: builtItems.map((i) => i.objective).filter(Boolean).slice(0, 2).join(' | '),
+      quantityUsed: builtItems[0].stockDeductedQty,
+      unit: builtItems[0].doseUnit,
+      unitCost: builtItems[0].unitCost,
       totalCost,
       estimatedCost: totalCost,
-      doseUsed: appDoseUsed.trim() || targetSupply.recommendedDose || undefined,
+      doseUsed: builtItems.map((i) => `${i.productName}: ${i.dose}`).join('; '),
       drums200L: parseDec(appDrumsStr) || 0,
       applicatorName: appApplicator.trim() || 'Operador Invernadero',
       notes: appNotes.trim() || undefined,
     });
     setIsSavingApp(false);
-    setAppQtyStr('');
+    setAppRows(createInitial8Rows());
     setAppNotes('');
     notifyOk(
       res.cloudSynced
-        ? `Aplicación registrada en ${ghName} (-${qty} ${targetSupply.unit} descontados del stock) y guardada en Supabase.`
-        : `Aplicación registrada localmente (-${qty} ${targetSupply.unit} descontados del stock).`
+        ? `Hoja ${res.entry?.folio || ''} guardada para ${ghDisplay} (${builtItems.length} producto(s), ${fmtMoney(totalCost)}) y stock descontado en Supabase.`
+        : `Hoja ${res.entry?.folio || ''} guardada localmente para ${ghDisplay} y stock descontado.`
     );
   };
 
@@ -409,7 +789,7 @@ export const SuppliesAndAppsView: React.FC = () => {
           [
             { id: 'inventario', label: '1. Inventario por Área y Ficha Técnica', icon: Package, badge: `${supplyItems.length}` },
             { id: 'compras', label: '2. Compras de Insumos', icon: ShoppingCart, badge: `${supplyPurchases.length}` },
-            { id: 'aplicaciones', label: '3. Aplicaciones Foliares y Fertilización', icon: Droplets, badge: `${greenhouseApplications.length}` },
+            { id: 'aplicaciones', label: '3. Hojas de Foliares y Nutrición', icon: Droplets, badge: `${greenhouseApplications.length}` },
           ] as const
         ).map((tab) => {
           const Icon = tab.icon;
@@ -1001,265 +1381,699 @@ export const SuppliesAndAppsView: React.FC = () => {
         </div>
       )}
 
-      {/* ==================== TAB 3: APLICACIONES FOLIARES Y FERTILIZACIÓN ==================== */}
+      {/* ==================== TAB 3: HOJAS DE APLICACIÓN FOLIAR Y NUTRICIÓN (UNIDAD / MÓDULO) ==================== */}
       {subTab === 'aplicaciones' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-6">
+          {/* 1. FORMATO DIGITAL DE HOJA DE APLICACIÓN (IDÉNTICO AL BOCETO DEL CLIENTE) */}
           <form
             onSubmit={handleSaveApplication}
-            className="bg-white rounded-2xl border border-stone-200 shadow-xs p-5 space-y-3.5 self-start"
+            className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden"
           >
-            <h2 className="text-sm font-extrabold text-[#000000] border-b border-stone-100 pb-2.5 flex items-center gap-2">
-              <Droplets className="w-4 h-4 text-[#535B28]" />
-              <span>Registrar Aplicación en Invernadero</span>
-            </h2>
-
-            <div className="grid grid-cols-2 gap-2.5">
+            {/* Cabecera de la Hoja */}
+            <div className="px-5 py-4 bg-[#FAF8F5] border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1">Fecha</label>
-                <input
-                  type="date"
-                  value={appDate}
-                  onChange={(e) => setAppDate(e.target.value)}
-                  required
-                  className="w-full px-2.5 py-2 border border-stone-300 rounded-xl text-xs font-bold focus:ring-2 focus:ring-[#5C1125]"
-                />
+                <h2 className="text-base font-extrabold text-[#000000] flex items-center gap-2">
+                  <Droplets className="w-4 h-4 text-[#535B28]" />
+                  <span>Hoja de Control de Aplicaciones Foliares y Nutrición</span>
+                </h2>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  Santa Cruz (Módulos 1 y 2) &middot; Saúl (Módulos 1 y 2) &middot; Tlapizaco (Módulos 1, 2 y 3)
+                </p>
               </div>
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1">Tipo de Aplicación</label>
-                <select
-                  value={appType}
-                  onChange={(e) => setAppType(e.target.value as GreenhouseApplicationType)}
-                  className="w-full px-2.5 py-2 border border-stone-300 rounded-xl text-xs font-bold bg-white focus:ring-2 focus:ring-[#5C1125]"
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAppRows(createInitial8Rows());
+                    setAppNotes('');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-stone-300 bg-white hover:bg-stone-50 text-xs font-bold text-stone-700 transition cursor-pointer whitespace-nowrap"
                 >
-                  {APP_TYPES.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.label}
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Limpiar hoja</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* Fila Principal: UNIDAD | MÓDULO | FECHA (estructura directa del formato) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 rounded-xl bg-[#FAF8F5] border border-stone-200">
+                <div>
+                  <label className="block text-[11px] font-extrabold text-[#5C1125] uppercase tracking-wide mb-1">
+                    Unidad
+                  </label>
+                  <select
+                    value={appUnit}
+                    onChange={(e) => handleSelectUnitChange(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold bg-white text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
+                  >
+                    {PRODUCTION_UNITS.map((u) => (
+                      <option key={u.name} value={u.name}>
+                        {u.name} ({u.modules.length - 1} módulos)
+                      </option>
+                    ))}
+                    <option value="__otra__">+ Otra Unidad...</option>
+                  </select>
+                  {appUnit === '__otra__' && (
+                    <input
+                      type="text"
+                      value={appCustomUnit}
+                      onChange={(e) => setAppCustomUnit(e.target.value)}
+                      placeholder="Nombre de nueva unidad..."
+                      className="w-full mt-1.5 px-3 py-2 border border-stone-300 rounded-lg text-xs font-semibold bg-white"
+                    />
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-extrabold text-[#5C1125] uppercase tracking-wide mb-1">
+                    Módulo
+                  </label>
+                  {appUnit === '__otra__' ? (
+                    <input
+                      type="text"
+                      value={appCustomModule}
+                      onChange={(e) => setAppCustomModule(e.target.value)}
+                      placeholder="Ej. Módulo 1"
+                      className="w-full px-3 py-2.5 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold bg-white"
+                    />
+                  ) : (
+                    <>
+                      <select
+                        value={appModule}
+                        onChange={(e) => setAppModule(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold bg-white text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
+                      >
+                        {availableModulesForSelectedUnit.map((mod) => (
+                          <option key={mod} value={mod}>
+                            {mod}
+                          </option>
+                        ))}
+                        <option value="__otro_mod__">+ Otro módulo...</option>
+                      </select>
+                      {appModule === '__otro_mod__' && (
+                        <input
+                          type="text"
+                          value={appCustomModule}
+                          onChange={(e) => setAppCustomModule(e.target.value)}
+                          placeholder="Ej. Módulo 4"
+                          className="w-full mt-1.5 px-3 py-2 border border-stone-300 rounded-lg text-xs font-semibold bg-white"
+                        />
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-extrabold text-[#5C1125] uppercase tracking-wide mb-1">
+                    Fecha
+                  </label>
+                  <input
+                    type="date"
+                    value={appDate}
+                    onChange={(e) => setAppDate(e.target.value)}
+                    required
+                    className="w-full px-3 py-2.5 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold bg-white text-[#000000] tabular-nums focus:ring-2 focus:ring-[#5C1125]"
+                  />
+                </div>
+              </div>
+
+              {/* Fila Operativa: Tipo (Foliar / Nutrición), Tambos 200L, Aplicador */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-700 mb-1">
+                    Tipo de Aplicación
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {APP_TYPES.slice(0, 2).map((t) => {
+                      const active = appType === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setAppType(t.id)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold border transition cursor-pointer whitespace-nowrap ${
+                            active
+                              ? 'bg-[#535B28] text-white border-[#535B28]'
+                              : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
+                          }`}
+                        >
+                          {t.short}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-700 mb-1">
+                    Tambos de 200L (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={appDrumsStr}
+                    onChange={(e) => setAppDrumsStr(e.target.value)}
+                    placeholder="Ej. 2"
+                    className="no-spinner w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold text-right tabular-nums focus:ring-2 focus:ring-[#5C1125]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-stone-700 mb-1">
+                    Responsable / Aplicador
+                  </label>
+                  <input
+                    type="text"
+                    list="applicators-datalist"
+                    value={appApplicator}
+                    onChange={(e) => setAppApplicator(e.target.value)}
+                    placeholder="Ej. ING ANA, SERGIO, FIDEL"
+                    className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-[#5C1125]"
+                  />
+                  <datalist id="applicators-datalist">
+                    {payrollEmployees.map((emp) => (
+                      <option key={emp.id} value={emp.fullName} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+
+              {/* Tabla 1 a 8: No. | PRODUCTO | DOSIS | OBJETIVO | COSTO */}
+              <div className="border border-stone-300 rounded-xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse min-w-[820px]">
+                    <thead>
+                      <tr className="bg-[#5C1125] text-white text-[11px] font-extrabold uppercase tracking-wider">
+                        <th className="py-2.5 px-2.5 text-center w-12 border-r border-[#752036]">No.</th>
+                        <th className="py-2.5 px-3 text-left w-60 border-r border-[#752036]">Producto</th>
+                        <th className="py-2.5 px-3 text-left w-44 border-r border-[#752036]">Dosis</th>
+                        <th className="py-2.5 px-3 text-left border-r border-[#752036]">Objetivo (¿Para qué sirve?)</th>
+                        <th className="py-2.5 px-3 text-right w-32 border-r border-[#752036]">Costo ($)</th>
+                        <th className="py-2.5 px-2 text-center w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-200 bg-white">
+                      {appRows.map((row, idx) => {
+                        const linkedSupply =
+                          row.supplyItemId && row.supplyItemId !== '__custom__'
+                            ? supplyItems.find((s) => s.id === row.supplyItemId)
+                            : undefined;
+                        const qtyNum = parseDec(row.qtyStr);
+                        const stockEq = linkedSupply
+                          ? convertDoseToStockUnit(qtyNum, row.doseUnit, linkedSupply.unit)
+                          : 0;
+                        return (
+                          <tr key={row.rowKey} className="hover:bg-[#FAF8F5]/60 align-top">
+                            <td className="py-2.5 px-2 text-center font-extrabold text-stone-700 bg-[#FAF8F5] border-r border-stone-200 tabular-nums">
+                              {idx + 1}
+                            </td>
+
+                            <td className="py-2 px-2.5 border-r border-stone-200 space-y-1">
+                              <select
+                                value={row.supplyItemId}
+                                onChange={(e) => handleRowSupplyChange(row.rowKey, e.target.value)}
+                                className="w-full px-2 py-1.5 border border-stone-300 rounded-lg text-xs font-bold bg-white text-[#000000] focus:ring-1 focus:ring-[#5C1125]"
+                              >
+                                <option value="">— Seleccionar producto —</option>
+                                {availableAppSupplies.map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.name} (Stock: {s.stock} {s.unit})
+                                  </option>
+                                ))}
+                                <option value="__custom__">+ Escribir otro producto libre...</option>
+                              </select>
+                              {row.supplyItemId === '__custom__' && (
+                                <input
+                                  type="text"
+                                  value={row.customProductName}
+                                  onChange={(e) =>
+                                    updateAppRow(row.rowKey, (r) => ({
+                                      ...r,
+                                      customProductName: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Nombre del producto..."
+                                  className="w-full px-2 py-1 border border-stone-300 rounded-md text-xs font-semibold"
+                                />
+                              )}
+                              {linkedSupply?.recommendedDose && (
+                                <p className="text-[10px] text-[#535B28] font-medium">
+                                  Sugerida: {linkedSupply.recommendedDose}
+                                </p>
+                              )}
+                            </td>
+
+                            <td className="py-2 px-2.5 border-r border-stone-200">
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={row.qtyStr}
+                                  onChange={(e) =>
+                                    handleRowQtyOrUnitChange(row.rowKey, e.target.value, row.doseUnit)
+                                  }
+                                  placeholder="0"
+                                  disabled={!row.supplyItemId}
+                                  className="no-spinner w-full px-2 py-1.5 border border-stone-300 rounded-lg text-xs font-bold text-right tabular-nums disabled:bg-stone-50"
+                                />
+                                <select
+                                  value={row.doseUnit}
+                                  onChange={(e) =>
+                                    handleRowQtyOrUnitChange(row.rowKey, row.qtyStr, e.target.value)
+                                  }
+                                  disabled={!row.supplyItemId}
+                                  className="px-1.5 py-1.5 border border-stone-300 rounded-lg text-xs font-bold bg-white disabled:bg-stone-50"
+                                >
+                                  {DOSE_UNITS.map((u) => (
+                                    <option key={u} value={u}>
+                                      {u}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              {linkedSupply && qtyNum > 0 && (
+                                <p className="text-[10px] text-stone-500 mt-1 tabular-nums">
+                                  Descuenta: <strong className="text-stone-700">{stockEq} {linkedSupply.unit}</strong>
+                                </p>
+                              )}
+                            </td>
+
+                            <td className="py-2 px-2.5 border-r border-stone-200">
+                              <input
+                                type="text"
+                                value={row.objective}
+                                onChange={(e) =>
+                                  updateAppRow(row.rowKey, (r) => ({ ...r, objective: e.target.value }))
+                                }
+                                placeholder={
+                                  row.supplyItemId
+                                    ? 'Objetivo técnico (plaga, hongo, nutrición)...'
+                                    : 'Se llena automático al elegir producto'
+                                }
+                                disabled={!row.supplyItemId}
+                                className="w-full px-2.5 py-1.5 border border-stone-300 rounded-lg text-xs text-stone-800 disabled:bg-stone-50"
+                              />
+                            </td>
+
+                            <td className="py-2 px-2.5 border-r border-stone-200">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={row.costStr}
+                                onChange={(e) =>
+                                  updateAppRow(row.rowKey, (r) => ({
+                                    ...r,
+                                    costStr: e.target.value,
+                                    manualCost: true,
+                                  }))
+                                }
+                                placeholder="0.00"
+                                disabled={!row.supplyItemId}
+                                className="no-spinner w-full px-2 py-1.5 border border-stone-300 rounded-lg text-xs font-extrabold text-right text-[#5C1125] tabular-nums disabled:bg-stone-50"
+                              />
+                            </td>
+
+                            <td className="py-2 px-1.5 text-center">
+                              {row.supplyItemId && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRowSupplyChange(row.rowKey, '')}
+                                  title="Limpiar fila"
+                                  className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-[#FAF8F5] border-t-2 border-stone-300">
+                        <td colSpan={3} className="py-2.5 px-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setAppRows((prev) => [...prev, createEmptyAppRow(prev.length)])
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-300 bg-white hover:bg-stone-50 text-xs font-bold text-[#535B28] cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Agregar fila ({appRows.length + 1})</span>
+                          </button>
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-xs font-extrabold uppercase text-stone-700">
+                          Costo total ({activeDraftRowsCount} prod.):
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-base font-black text-[#5C1125] tabular-nums bg-white border-l border-stone-300">
+                          {fmtMoney(draftSheetTotalCost)}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Observaciones + Botón Guardar */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
+                <div className="lg:col-span-2">
+                  <label className="block text-[11px] font-extrabold text-stone-700 uppercase tracking-wide mb-1">
+                    Observaciones
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={appNotes}
+                    onChange={(e) => setAppNotes(e.target.value)}
+                    placeholder="Clima, hora de aplicación, plaga detectada, etapa fenológica, pH/CE en nutrición..."
+                    className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-[#5C1125]"
+                  />
+                </div>
+                <div>
+                  <button
+                    type="submit"
+                    disabled={isSavingApp}
+                    className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold transition cursor-pointer disabled:opacity-60"
+                  >
+                    <PlusCircle className="w-4 h-4 text-[#C3A25D] shrink-0" />
+                    <span>
+                      {isSavingApp
+                        ? 'Guardando Hoja...'
+                        : 'Guardar Hoja y Descontar Stock'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+
+          {/* 2. RESUMEN DE GASTO POR UNIDAD Y MÓDULO (Santa Cruz, Saúl, Tlapizaco) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {unitCostSummary.map((u) => (
+              <div
+                key={u.unitName}
+                className="bg-white rounded-2xl border border-stone-200 p-4 space-y-3"
+              >
+                <div className="flex items-start justify-between gap-2 border-b border-stone-100 pb-2.5">
+                  <div>
+                    <h3 className="text-sm font-extrabold text-[#000000]">Unidad {u.unitName}</h3>
+                    <p className="text-[11px] text-stone-500 tabular-nums">
+                      {u.count} hoja(s) registrada(s)
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold uppercase text-stone-500 block">
+                      Total Aplicado
+                    </span>
+                    <span className="text-base font-black text-[#5C1125] tabular-nums">
+                      {fmtMoney(u.totalCost)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-stone-600 tabular-nums">
+                  <span>
+                    Foliar: <strong className="text-stone-900">{fmtMoney(u.foliarCost)}</strong>
+                  </span>
+                  <span>
+                    Nutrición: <strong className="text-[#535B28]">{fmtMoney(u.nutritionCost)}</strong>
+                  </span>
+                </div>
+
+                <div className="divide-y divide-stone-100 border-t border-stone-100 pt-1">
+                  {u.byModule.map((m) => (
+                    <div
+                      key={m.moduleName}
+                      className="py-1.5 flex items-center justify-between text-xs tabular-nums"
+                    >
+                      <span className="font-semibold text-stone-700">{m.moduleName}</span>
+                      <span className="text-stone-500">
+                        {m.count} reg. &middot;{' '}
+                        <strong className="text-stone-900">{fmtMoney(m.cost)}</strong>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 3. BITÁCORA HISTÓRICA FILTRABLE CON PDF, WHATSAPP Y DUPLICAR MEZCLA */}
+          <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
+            <div className="p-4 bg-[#FAF8F5] border-b border-stone-200 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h3 className="font-extrabold text-sm text-[#000000]">
+                  Bitácora de Hojas de Aplicación ({filteredApplications.length})
+                </h3>
+                <span className="text-xs font-black text-[#5C1125] tabular-nums">
+                  Costo Filtrado:{' '}
+                  {fmtMoney(
+                    round2(
+                      filteredApplications.reduce((acc, a) => acc + Number(a.totalCost || 0), 0)
+                    )
+                  )}
+                </span>
+              </div>
+
+              {/* Barra de Filtros */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <select
+                  value={filterUnit}
+                  onChange={(e) => {
+                    setFilterUnit(e.target.value);
+                    setFilterModule('todos');
+                  }}
+                  className="px-2.5 py-2 border border-stone-300 rounded-lg text-xs font-bold bg-white"
+                >
+                  <option value="todas">Todas las Unidades</option>
+                  {PRODUCTION_UNITS.map((u) => (
+                    <option key={u.name} value={u.name}>
+                      Unidad: {u.name}
                     </option>
                   ))}
                 </select>
-              </div>
-            </div>
 
-            <div>
-              <label className="block text-[11px] font-bold text-stone-700 mb-1">Invernadero / Nave</label>
-              <select
-                value={appGreenhouse}
-                onChange={(e) => setAppGreenhouse(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs font-bold bg-white focus:ring-2 focus:ring-[#5C1125]"
-              >
-                {GREENHOUSE_PRESETS.map((gh) => (
-                  <option key={gh} value={gh}>
-                    {gh}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={appCustomGh}
-                onChange={(e) => setAppCustomGh(e.target.value)}
-                placeholder="O escribe otro invernadero específico..."
-                className="w-full mt-1.5 px-3 py-1.5 border border-stone-200 rounded-lg text-xs focus:ring-2 focus:ring-[#5C1125]"
-              />
-            </div>
+                <select
+                  value={filterModule}
+                  onChange={(e) => setFilterModule(e.target.value)}
+                  disabled={filterUnit === 'todas'}
+                  className="px-2.5 py-2 border border-stone-300 rounded-lg text-xs font-bold bg-white disabled:bg-stone-100 disabled:text-stone-400"
+                >
+                  <option value="todos">Todos los Módulos</option>
+                  {availableModulesForFilterUnit.map((mod) => (
+                    <option key={mod} value={mod}>
+                      {mod}
+                    </option>
+                  ))}
+                </select>
 
-            <div>
-              <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                Producto / Fertilizante / Agroquímico
-              </label>
-              <select
-                value={appSupplyId}
-                onChange={(e) => setAppSupplyId(e.target.value)}
-                className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs font-bold bg-white focus:ring-2 focus:ring-[#5C1125]"
-              >
-                {(greenhouseSupplies.length > 0 ? greenhouseSupplies : supplyItems).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.category}) — Stock: {s.stock} {s.unit}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <select
+                  value={filterType}
+                  onChange={(e) => setFilterType(e.target.value as GreenhouseApplicationType | 'todos')}
+                  className="px-2.5 py-2 border border-stone-300 rounded-lg text-xs font-bold bg-white"
+                >
+                  <option value="todos">Foliar y Nutrición</option>
+                  {APP_TYPES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.short}
+                    </option>
+                  ))}
+                </select>
 
-            {/* Automatic "¿Para qué sirve?" preview card */}
-            {selectedAppSupply && (
-              <div className="p-3 rounded-xl bg-[#f7f8f2] border border-[#535B28]/40 space-y-1">
-                <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-[#535B28] uppercase">
-                  <Info className="w-3.5 h-3.5" />
-                  <span>Ficha Automática: ¿Para qué sirve {selectedAppSupply.name}?</span>
-                </div>
-                <p className="text-xs text-stone-800 font-medium">{selectedAppSupply.purpose}</p>
-                {selectedAppSupply.recommendedDose && (
-                  <p className="text-[11px] font-bold text-[#5C1125]">
-                    Dosis sugerida: {selectedAppSupply.recommendedDose}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                  Cantidad Usada ({selectedAppSupply?.unit || 'L/kg'})
-                </label>
                 <input
-                  type="text"
-                  inputMode="decimal"
-                  value={appQtyStr}
-                  onChange={(e) => setAppQtyStr(e.target.value)}
-                  placeholder="0.5"
-                  required
-                  className="no-spinner w-full px-3 py-2 border border-stone-300 rounded-xl text-xs font-bold text-right focus:ring-2 focus:ring-[#5C1125]"
+                  type="date"
+                  value={filterFromDate}
+                  onChange={(e) => setFilterFromDate(e.target.value)}
+                  aria-label="Fecha desde"
+                  className="px-2.5 py-2 border border-stone-300 rounded-lg text-xs font-semibold bg-white tabular-nums"
                 />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1">Tambos de 200L</label>
+
                 <input
-                  type="text"
-                  inputMode="decimal"
-                  value={appDrumsStr}
-                  onChange={(e) => setAppDrumsStr(e.target.value)}
-                  placeholder="1"
-                  className="no-spinner w-full px-3 py-2 border border-stone-300 rounded-xl text-xs font-bold text-right focus:ring-2 focus:ring-[#5C1125]"
+                  type="date"
+                  value={filterToDate}
+                  onChange={(e) => setFilterToDate(e.target.value)}
+                  aria-label="Fecha hasta"
+                  className="px-2.5 py-2 border border-stone-300 rounded-lg text-xs font-semibold bg-white tabular-nums"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1">Aplicador</label>
-                <input
-                  type="text"
-                  value={appApplicator}
-                  onChange={(e) => setAppApplicator(e.target.value)}
-                  placeholder="Nombre del trabajador"
-                  className="w-full px-2.5 py-2 border border-stone-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-[#5C1125]"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1">Dosis Aplicada</label>
-                <input
-                  type="text"
-                  value={appDoseUsed}
-                  onChange={(e) => setAppDoseUsed(e.target.value)}
-                  placeholder={selectedAppSupply?.recommendedDose || '100 ml / 200L'}
-                  className="w-full px-2.5 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-[#5C1125]"
-                />
-              </div>
-            </div>
-
-            <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#C3A25D]/40 flex items-center justify-between">
-              <span className="text-xs font-bold text-stone-600">Costo Estimado de Aplicación:</span>
-              <span className="text-base font-black text-[#5C1125]">
-                {fmtMoney(round2(parseDec(appQtyStr) * Number(selectedAppSupply?.unitCost || 0)))}
-              </span>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-stone-700 mb-1">Notas de Campo</label>
-              <input
-                type="text"
-                value={appNotes}
-                onChange={(e) => setAppNotes(e.target.value)}
-                placeholder="Ej. Aplicación preventiva por humedad matutina..."
-                className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs focus:ring-2 focus:ring-[#5C1125]"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSavingApp}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold transition cursor-pointer disabled:opacity-60"
-            >
-              <PlusCircle className="w-4 h-4 text-[#C3A25D]" />
-              <span>{isSavingApp ? 'Guardando...' : 'Registrar Aplicación y Descontar Stock'}</span>
-            </button>
-          </form>
-
-          {/* Applications Log */}
-          <div className="lg:col-span-2 bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden self-start">
-            <div className="px-4 py-3 bg-[#FAF8F5] border-b border-stone-200 flex items-center justify-between">
-              <span className="font-extrabold text-xs sm:text-sm text-[#000000]">
-                Bitácora de Aplicaciones en Invernaderos ({greenhouseApplications.length})
-              </span>
-              <span className="text-xs font-black text-[#5C1125]">
-                Total Aplicado: {fmtMoney(kpis.totalAppsCost)}
-              </span>
-            </div>
-
-            <div className="divide-y divide-stone-100">
-              {greenhouseApplications.length === 0 ? (
-                <div className="p-8 text-center text-xs text-stone-500">
-                  No hay aplicaciones foliares o fertilizaciones registradas todavía.
+            <div className="divide-y divide-stone-200">
+              {filteredApplications.length === 0 ? (
+                <div className="p-10 text-center text-xs text-stone-500">
+                  No hay hojas de aplicación registradas con los filtros seleccionados.
                 </div>
               ) : (
-                greenhouseApplications.map((app) => (
-                  <div key={app.id} className="p-4 space-y-2 hover:bg-[#FAF8F5]/70">
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                      <div>
+                filteredApplications.map((app) => {
+                  const itemsList =
+                    app.items && app.items.length > 0
+                      ? app.items
+                      : [
+                          {
+                            lineNo: 1,
+                            productName: app.supplyName,
+                            dose: app.doseUsed || `${app.quantityUsed} ${app.unit}`,
+                            objective: app.supplyPurpose,
+                            cost: app.totalCost,
+                          },
+                        ];
+                  const waHref = `https://wa.me/?text=${encodeURIComponent(
+                    buildApplicationWhatsAppText(app)
+                  )}`;
+                  const typeLabel =
+                    app.applicationType === 'fertilizacion'
+                      ? 'Nutrición'
+                      : app.applicationType === 'foliar'
+                      ? 'Foliar'
+                      : app.applicationType === 'drench'
+                      ? 'Drench'
+                      : 'Otra';
+
+                  return (
+                    <div key={app.id} className="p-4 sm:p-5 space-y-3 hover:bg-[#FAF8F5]/50">
+                      {/* Encabezado limpio con metadatos sin cápsulas */}
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-extrabold text-[#000000]">
+                            <span>{app.unitName || app.greenhouseName}</span>
+                            {app.moduleName && (
+                              <>
+                                <span className="text-stone-400">&middot;</span>
+                                <span className="text-[#5C1125]">{app.moduleName}</span>
+                              </>
+                            )}
+                            <span className="text-stone-400">&middot;</span>
+                            <span className="text-[#535B28]">{typeLabel}</span>
+                          </div>
+                          <p className="text-xs text-stone-500 mt-0.5 tabular-nums">
+                            {app.folio ? `${app.folio} · ` : ''}
+                            Fecha: <strong className="text-stone-800">{app.applicationDate}</strong>
+                            {' · '}Aplicador:{' '}
+                            <strong className="text-stone-800">{app.applicatorName || 'Operador'}</strong>
+                            {app.drums200L ? ` · ${app.drums200L} tambo(s) 200L` : ''}
+                          </p>
+                        </div>
+
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-black text-[#000000]">{app.supplyName}</span>
-                          <span className="px-2 py-0.5 rounded bg-[#535B28] text-white text-[10px] font-bold uppercase">
-                            {app.applicationType}
-                          </span>
-                          <span className="px-2 py-0.5 rounded bg-[#FAF8F5] border border-stone-200 text-[10px] font-bold text-[#5C1125]">
-                            {app.greenhouseName}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-stone-500 mt-0.5">
-                          Fecha: <strong className="text-stone-700">{app.applicationDate}</strong> &bull; Aplicador:{' '}
-                          <strong className="text-stone-700">{app.applicatorName}</strong>
-                          {app.drums200L ? ` • ${app.drums200L} tambo(s) 200L` : ''}
-                          {app.doseUsed ? ` • Dosis: ${app.doseUsed}` : ''}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3 self-end sm:self-start">
-                        <div className="text-right">
-                          <div className="text-xs font-extrabold text-stone-800">
-                            {app.quantityUsed} {app.unit}
-                          </div>
-                          <div className="text-xs font-black text-[#5C1125]">
-                            {fmtMoney(app.totalCost)}
-                          </div>
-                        </div>
-                        {confirmDeleteAppId === app.id ? (
-                          <div className="inline-flex items-center gap-1 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await deleteGreenhouseApplication(app.id);
-                                setConfirmDeleteAppId(null);
-                                notifyOk('Aplicación eliminada.');
-                              }}
-                              className="text-[10px] font-bold text-rose-700 cursor-pointer"
-                            >
-                              Sí
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteAppId(null)}
-                              className="text-[10px] text-stone-500 cursor-pointer"
-                            >
-                              No
-                            </button>
-                          </div>
-                        ) : (
                           <button
                             type="button"
-                            onClick={() => setConfirmDeleteAppId(app.id)}
-                            className="p-1 rounded text-rose-500 hover:bg-rose-50 cursor-pointer"
+                            onClick={() => exportSingleApplicationSheetPdf(app)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-300 bg-white hover:bg-stone-50 text-xs font-bold text-[#000000] cursor-pointer whitespace-nowrap"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <FileText className="w-3.5 h-3.5 text-[#5C1125]" />
+                            <span>PDF Hoja</span>
                           </button>
-                        )}
-                      </div>
-                    </div>
 
-                    <div className="p-2.5 rounded-lg bg-[#FAF8F5] border border-stone-200 text-xs text-stone-700">
-                      <strong className="text-[#535B28]">Función / Uso: </strong>
-                      {app.supplyPurpose}
-                      {app.notes && <span className="block text-[11px] text-stone-500 mt-0.5">Nota: {app.notes}</span>}
+                          <a
+                            href={waHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#dce4bf] bg-[#f7f8f2] hover:bg-[#edf1df] text-xs font-bold text-[#535B28] whitespace-nowrap"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </a>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDuplicateApplication(app)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-300 bg-white hover:bg-stone-50 text-xs font-bold text-stone-700 cursor-pointer whitespace-nowrap"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Duplicar</span>
+                          </button>
+
+                          {confirmDeleteAppId === app.id ? (
+                            <div className="inline-flex items-center gap-1.5 bg-rose-50 px-2.5 py-1.5 rounded-lg border border-rose-200">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await deleteGreenhouseApplication(app.id);
+                                  setConfirmDeleteAppId(null);
+                                  notifyOk('Hoja de aplicación eliminada y stock restaurado.');
+                                }}
+                                className="text-xs font-bold text-rose-700 cursor-pointer"
+                              >
+                                Confirmar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteAppId(null)}
+                                className="text-xs text-stone-500 cursor-pointer"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteAppId(app.id)}
+                              title="Eliminar hoja y restaurar inventario"
+                              className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Tabla de productos de la hoja registrada */}
+                      <div className="overflow-x-auto border border-stone-200 rounded-xl">
+                        <table className="w-full text-xs border-collapse min-w-[580px]">
+                          <thead>
+                            <tr className="bg-[#FAF8F5] text-stone-600 text-[10px] font-extrabold uppercase border-b border-stone-200">
+                              <th className="py-2 px-2.5 text-center w-10">No.</th>
+                              <th className="py-2 px-3 text-left">Producto</th>
+                              <th className="py-2 px-3 text-left w-32">Dosis</th>
+                              <th className="py-2 px-3 text-left">Objetivo</th>
+                              <th className="py-2 px-3 text-right w-28">Costo</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-stone-100">
+                            {itemsList.map((it, idx) => (
+                              <tr key={`${app.id}-${idx}`}>
+                                <td className="py-2 px-2.5 text-center font-bold text-stone-500 tabular-nums">
+                                  {it.lineNo || idx + 1}
+                                </td>
+                                <td className="py-2 px-3 font-extrabold text-[#000000]">
+                                  {it.productName}
+                                </td>
+                                <td className="py-2 px-3 font-semibold text-stone-700 tabular-nums">
+                                  {it.dose}
+                                </td>
+                                <td className="py-2 px-3 text-stone-600">{it.objective}</td>
+                                <td className="py-2 px-3 text-right font-bold text-stone-900 tabular-nums">
+                                  {fmtMoney(it.cost)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-[#FAF8F5] border-t border-stone-200">
+                              <td
+                                colSpan={4}
+                                className="py-2 px-3 text-right text-[11px] font-extrabold uppercase text-stone-600"
+                              >
+                                Costo total:
+                              </td>
+                              <td className="py-2 px-3 text-right text-sm font-black text-[#5C1125] tabular-nums">
+                                {fmtMoney(app.totalCost)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+
+                      {app.notes && (
+                        <p className="text-xs text-stone-600">
+                          <strong className="text-stone-800">Observaciones:</strong> {app.notes}
+                        </p>
+                      )}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

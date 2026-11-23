@@ -2793,22 +2793,104 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     input: Omit<GreenhouseApplication, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<{ ok: boolean; entry?: GreenhouseApplication; cloudSynced?: boolean; cloudError?: string }> => {
     const now = new Date().toISOString();
-    const linkedItem = supplyItems.find((s) => s.id === input.supplyItemId);
-    const qtyUsed = Number(input.quantityUsed || 0);
-    const estimatedCost =
-      Number(input.totalCost || input.estimatedCost || 0) > 0
-        ? Number(input.totalCost || input.estimatedCost)
-        : Number((qtyUsed * Number(linkedItem?.unitCost || 0)).toFixed(2));
+    const year = (input.applicationDate || now.slice(0, 10)).slice(0, 4);
+    const nextSeq = String(greenhouseApplications.length + 1).padStart(3, '0');
+    const folio = input.folio?.trim() || `APL-${year}-${nextSeq}`;
+
+    // Build normalized multi-product items list (1..8+)
+    const rawItems = Array.isArray(input.items) && input.items.length > 0 ? input.items : [];
+    const normalizedItems =
+      rawItems.length > 0
+        ? rawItems.map((it, idx) => {
+            const linked = it.supplyItemId
+              ? supplyItems.find((s) => s.id === it.supplyItemId)
+              : undefined;
+            const stockQty = Number(it.stockDeductedQty ?? it.quantityUsed ?? 0);
+            const unitCost = Number(it.unitCost ?? linked?.unitCost ?? 0);
+            const lineCost =
+              Number(it.cost || 0) > 0
+                ? Number(it.cost)
+                : Number((stockQty * unitCost).toFixed(2));
+            return {
+              lineNo: idx + 1,
+              supplyItemId: it.supplyItemId || '',
+              productName: it.productName || linked?.name || '',
+              dose: it.dose || `${Number(it.quantityUsed || 0)} ${it.doseUnit || linked?.unit || 'L'}`,
+              quantityUsed: Number(it.quantityUsed || 0),
+              doseUnit: it.doseUnit || linked?.unit || 'L',
+              stockDeductedQty: stockQty,
+              objective: it.objective || linked?.purpose || '',
+              unitCost,
+              cost: Number(lineCost.toFixed(2)),
+            };
+          })
+        : (() => {
+            const linked = supplyItems.find((s) => s.id === input.supplyItemId);
+            const qty = Number(input.quantityUsed || 0);
+            const cost =
+              Number(input.totalCost || input.estimatedCost || 0) > 0
+                ? Number(input.totalCost || input.estimatedCost)
+                : Number((qty * Number(linked?.unitCost || 0)).toFixed(2));
+            return [
+              {
+                lineNo: 1,
+                supplyItemId: input.supplyItemId || '',
+                productName: input.supplyName || linked?.name || '',
+                dose: input.doseUsed || `${qty} ${input.unit || linked?.unit || 'L'}`,
+                quantityUsed: qty,
+                doseUnit: input.unit || linked?.unit || 'L',
+                stockDeductedQty: qty,
+                objective: input.supplyPurpose || linked?.purpose || '',
+                unitCost: Number(linked?.unitCost || input.unitCost || 0),
+                cost: Number(cost.toFixed(2)),
+              },
+            ];
+          })();
+
+    const itemsTotalCost = Number(
+      normalizedItems.reduce((acc, it) => acc + Number(it.cost || 0), 0).toFixed(2)
+    );
+    const finalTotalCost =
+      itemsTotalCost > 0
+        ? itemsTotalCost
+        : Number(input.totalCost || input.estimatedCost || 0);
+
+    const primaryItem = normalizedItems[0];
+    const summaryProductNames =
+      normalizedItems.length === 1
+        ? primaryItem.productName
+        : `${primaryItem.productName} + ${normalizedItems.length - 1} más`;
+    const summaryObjective = normalizedItems
+      .map((i) => i.objective)
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(' | ');
+
+    const unitName = input.unitName?.trim() || '';
+    const moduleName = input.moduleName?.trim() || '';
+    const ghDisplayName =
+      input.greenhouseName?.trim() ||
+      [unitName, moduleName].filter(Boolean).join(' — ') ||
+      'Invernadero General';
 
     const entry: GreenhouseApplication = {
       ...input,
       id: `gapp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      supplyName: input.supplyName || linkedItem?.name || '',
-      supplyPurpose: input.supplyPurpose || linkedItem?.purpose || '',
-      unit: input.unit || linkedItem?.unit || 'L',
-      quantityUsed: qtyUsed,
-      totalCost: estimatedCost,
-      estimatedCost,
+      folio,
+      unitName,
+      moduleName,
+      greenhouseName: ghDisplayName,
+      items: normalizedItems,
+      supplyItemId: primaryItem?.supplyItemId || input.supplyItemId || '',
+      supplyName: input.supplyName?.trim() || summaryProductNames,
+      supplyPurpose: input.supplyPurpose?.trim() || summaryObjective,
+      unit: primaryItem?.doseUnit || input.unit || 'L',
+      quantityUsed: primaryItem?.stockDeductedQty ?? Number(input.quantityUsed || 0),
+      doseUsed:
+        input.doseUsed ||
+        normalizedItems.map((i) => `${i.productName}: ${i.dose}`).join('; '),
+      totalCost: finalTotalCost,
+      estimatedCost: finalTotalCost,
       createdAt: now,
       updatedAt: now,
     };
@@ -2819,26 +2901,47 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return updated;
     });
 
-    // Deduct stock from linked SupplyItem
-    if (linkedItem && qtyUsed > 0) {
-      const updatedItem: SupplyItem = {
-        ...linkedItem,
-        stock: Math.max(0, Number((linkedItem.stock - qtyUsed).toFixed(2))),
-        updatedAt: now,
-      };
+    // Deduct stock for EVERY linked SupplyItem in the multi-product sheet
+    const deductionsBySupply = new Map<string, number>();
+    normalizedItems.forEach((it) => {
+      if (it.supplyItemId && Number(it.stockDeductedQty || 0) > 0) {
+        deductionsBySupply.set(
+          it.supplyItemId,
+          Number(((deductionsBySupply.get(it.supplyItemId) || 0) + Number(it.stockDeductedQty)).toFixed(4))
+        );
+      }
+    });
+
+    if (deductionsBySupply.size > 0) {
+      const modifiedSupplies: SupplyItem[] = [];
       setSupplyItems((prev) => {
-        const updated = prev.map((s) => (s.id === linkedItem.id ? updatedItem : s));
+        const updated = prev.map((s) => {
+          const deduct = deductionsBySupply.get(s.id);
+          if (!deduct) return s;
+          const nextItem: SupplyItem = {
+            ...s,
+            stock: Math.max(0, Number((s.stock - deduct).toFixed(3))),
+            updatedAt: now,
+          };
+          modifiedSupplies.push(nextItem);
+          return nextItem;
+        });
         saveState('supply_items', updated);
         return updated;
       });
-      await pushUpsertToSupabase('supply_items', mapSupplyItemToDb(updatedItem));
+      for (const modItem of modifiedSupplies) {
+        await pushUpsertToSupabase('supply_items', mapSupplyItemToDb(modItem));
+      }
     }
 
     const cloudRes = await pushUpsertToSupabase(
       'greenhouse_applications',
       mapGreenhouseApplicationToDb(entry)
     );
-    addAuditLog('Aplicación Invernadero', `${entry.greenhouseName}: ${entry.supplyName} (${qtyUsed} ${entry.unit})`);
+    addAuditLog(
+      'Aplicación Invernadero',
+      `${folio} • ${ghDisplayName}: ${normalizedItems.length} producto(s) ($${finalTotalCost.toFixed(2)})`
+    );
     return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
   };
 
@@ -2849,24 +2952,47 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       saveState('greenhouse_applications', updated);
       return updated;
     });
-    if (target?.supplyItemId && target.quantityUsed > 0) {
-      const item = supplyItems.find((s) => s.id === target.supplyItemId);
-      if (item) {
-        const updatedItem: SupplyItem = {
-          ...item,
-          stock: Number((item.stock + target.quantityUsed).toFixed(2)),
-          updatedAt: new Date().toISOString(),
-        };
-        setSupplyItems((prev) => {
-          const updated = prev.map((s) => (s.id === item.id ? updatedItem : s));
-          saveState('supply_items', updated);
-          return updated;
+
+    // Restore stock for all linked items in the deleted sheet
+    const restoresBySupply = new Map<string, number>();
+    if (target?.items && target.items.length > 0) {
+      target.items.forEach((it) => {
+        if (it.supplyItemId && Number(it.stockDeductedQty || 0) > 0) {
+          restoresBySupply.set(
+            it.supplyItemId,
+            Number(((restoresBySupply.get(it.supplyItemId) || 0) + Number(it.stockDeductedQty)).toFixed(4))
+          );
+        }
+      });
+    } else if (target?.supplyItemId && target.quantityUsed > 0) {
+      restoresBySupply.set(target.supplyItemId, target.quantityUsed);
+    }
+
+    if (restoresBySupply.size > 0) {
+      const now = new Date().toISOString();
+      const restoredItems: SupplyItem[] = [];
+      setSupplyItems((prev) => {
+        const updated = prev.map((s) => {
+          const addBack = restoresBySupply.get(s.id);
+          if (!addBack) return s;
+          const nextItem: SupplyItem = {
+            ...s,
+            stock: Number((s.stock + addBack).toFixed(3)),
+            updatedAt: now,
+          };
+          restoredItems.push(nextItem);
+          return nextItem;
         });
-        await pushUpsertToSupabase('supply_items', mapSupplyItemToDb(updatedItem));
+        saveState('supply_items', updated);
+        return updated;
+      });
+      for (const item of restoredItems) {
+        await pushUpsertToSupabase('supply_items', mapSupplyItemToDb(item));
       }
     }
+
     const res = await pushDeleteToSupabase('greenhouse_applications', id);
-    addAuditLog('Aplicación Invernadero', `Aplicación eliminada (${id})`);
+    addAuditLog('Aplicación Invernadero', `Aplicación eliminada (${target?.folio || id})`);
     return { ok: true, cloudSynced: res.ok };
   };
 
@@ -3479,26 +3605,40 @@ CREATE TABLE IF NOT EXISTS supply_purchases (
 
 CREATE INDEX IF NOT EXISTS idx_supply_purchases_date ON supply_purchases (purchase_date DESC, area);
 
--- 17. Aplicaciones Foliares y Fertilización por Invernadero
+-- 17. Hojas de Aplicaciones Foliares y Nutrición por Unidad y Módulo (Santa Cruz, Saúl, Tlapizaco)
 CREATE TABLE IF NOT EXISTS greenhouse_applications (
     id TEXT PRIMARY KEY,
+    folio TEXT DEFAULT '',
     application_date TEXT NOT NULL,
+    unit_name TEXT DEFAULT '',
+    module_name TEXT DEFAULT '',
     greenhouse_name TEXT NOT NULL,
     application_type TEXT NOT NULL DEFAULT 'foliar' CHECK (application_type IN ('foliar', 'fertilizacion', 'drench', 'otro')),
+    items JSONB NOT NULL DEFAULT '[]'::jsonb,
     supply_item_id TEXT DEFAULT '',
     supply_name TEXT NOT NULL,
     supply_purpose TEXT DEFAULT '',
-    quantity_used NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    quantity_used NUMERIC(12, 3) NOT NULL DEFAULT 0,
     unit TEXT NOT NULL DEFAULT 'L',
+    dose_used TEXT DEFAULT '',
     tambos_200l NUMERIC(8, 2) NOT NULL DEFAULT 1,
     applicator_name TEXT NOT NULL DEFAULT '',
     estimated_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
     notes TEXT DEFAULT '',
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_greenhouse_apps_date ON greenhouse_applications (application_date DESC, greenhouse_name);
+-- Migración segura sin borrar datos si la tabla greenhouse_applications ya existía previamente:
+ALTER TABLE greenhouse_applications ADD COLUMN IF NOT EXISTS folio TEXT DEFAULT '';
+ALTER TABLE greenhouse_applications ADD COLUMN IF NOT EXISTS unit_name TEXT DEFAULT '';
+ALTER TABLE greenhouse_applications ADD COLUMN IF NOT EXISTS module_name TEXT DEFAULT '';
+ALTER TABLE greenhouse_applications ADD COLUMN IF NOT EXISTS items JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE greenhouse_applications ADD COLUMN IF NOT EXISTS dose_used TEXT DEFAULT '';
+ALTER TABLE greenhouse_applications ADD COLUMN IF NOT EXISTS total_cost NUMERIC(12, 2) NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_greenhouse_apps_date ON greenhouse_applications (application_date DESC, unit_name, module_name);
 
 -- 18. Habilitar RLS y políticas de acceso para las 16 tablas activas de Aroma Flower
 DO $$
