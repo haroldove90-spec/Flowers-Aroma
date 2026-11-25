@@ -4,6 +4,7 @@ import { BitacoraCategory } from '../../types/greenhouse';
 import { BITACORA_TABS } from './bitacoraTabsConfig';
 import { CulturalLaborTable } from './CulturalLaborTable';
 import { BitacoraTabPlaceholder } from './BitacoraTabPlaceholder';
+import { FoliarApplicationsView } from '../foliar/FoliarApplicationsView';
 
 export const BitacoraView: React.FC = () => {
   const [activeTabId, setActiveTabId] = useState<BitacoraCategory>('labores_culturales');
@@ -15,6 +16,8 @@ export const BitacoraView: React.FC = () => {
     switch (activeTab.id) {
       case 'labores_culturales':
         return <CulturalLaborTable />;
+      case 'aplicaciones_foliares':
+        return <FoliarApplicationsView embedded />;
       default:
         return (
           <BitacoraTabPlaceholder

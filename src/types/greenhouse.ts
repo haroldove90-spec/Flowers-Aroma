@@ -562,7 +562,8 @@ export interface SupplyItem {
   area: SupplyArea;
   areaCustom?: string;
   category: string; // ej. 'Fungicida', 'Fertilizante', 'Capuchones', 'Despensa'
-  unit: string; // ej. 'L', 'kg', 'g', 'paq', 'pza'
+  unit: string; // ej. 'L', 'kg', 'g', 'ml', 'paq', 'pza'
+  presentation?: 'liquido' | 'polvo'; // Presentación para agroquímicos (Líquido / Polvo)
   purpose: string; // Ficha: "¿Para qué sirve?"
   activeIngredient?: string;
   recommendedDose?: string; // ej. '100 ml / 200L'
@@ -953,4 +954,93 @@ export interface BitacoraEntry {
   createdAt: string;
   updatedAt?: string;
 }
+
+// ==================== APLICACIONES FOLIARES (APLICACIÓN GENERAL + PARCHONEO) ====================
+
+export type FoliarDoseUnit = 'ml' | 'g' | 'kg' | 'L';
+export type FoliarProductPresentation = 'liquido' | 'polvo';
+
+export const FOLIAR_DOSE_UNITS: FoliarDoseUnit[] = ['ml', 'g', 'kg', 'L'];
+
+export const FOLIAR_PRODUCTION_UNITS = [
+  { id: 'santa_cruz', name: 'Unidad de Producción Santa Cruz', shortName: 'Santa Cruz', defaultWaterLiters: 1000 },
+  { id: 'saul', name: 'Unidad de Producción Saúl', shortName: 'Saúl', defaultWaterLiters: 400 },
+  { id: 'tlapisaco', name: 'Unidad de Producción Tlapisaco', shortName: 'Tlapisaco', defaultWaterLiters: 400 },
+] as const;
+
+export const FOLIAR_PARCHONEO_MODULES = [
+  'Santa Cruz Módulo 1',
+  'Santa Cruz Módulo 2',
+  'Saúl Módulo 1',
+  'Saúl Módulo 2',
+  'Tlapisaco Módulo 1',
+  'Tlapisaco Módulo 2',
+  'Tlapisaco Módulo 3',
+] as const;
+
+export const FOLIAR_OBJECTIVE_SUGGESTIONS = [
+  'Cenicilla',
+  'Peronospora',
+  'Botrytis',
+  'Araña roja',
+  'Trips',
+  'Mosca blanca',
+  'Pulgón',
+  'Roya',
+  'Adherente / Coadyuvante',
+  'Nutrición foliar',
+] as const;
+
+export interface FoliarGeneralProductRow {
+  id: string;
+  productId: string;
+  productName: string;
+  objective: string;
+  dose: number;
+  unit: FoliarDoseUnit;
+  calculatedCost: number;
+}
+
+export interface FoliarGeneralUnitBlock {
+  unitId: string;
+  unitName: string;
+  waterLiters: number;
+  rows: FoliarGeneralProductRow[];
+  unitTotalCost: number;
+}
+
+export interface FoliarGeneralApplication {
+  id: string;
+  applicationDate: string; // YYYY-MM-DD
+  units: FoliarGeneralUnitBlock[];
+  totalWaterLiters: number;
+  totalProductsCount: number;
+  grandTotalCost: number;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface FoliarParchoneoEntry {
+  id: string;
+  applicationDate: string; // YYYY-MM-DD
+  moduleName: string;
+  variety: string;
+  waterLiters: number;
+  productId: string;
+  productName: string;
+  objective: string;
+  baseDoseAmount: number;
+  baseDoseUnit: FoliarDoseUnit;
+  baseWaterLiters: number;
+  calculatedDose: number;
+  unitCostApplied: number; // Costo por unidad base usada (ml/g/kg/L)
+  calculatedCost: number;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 

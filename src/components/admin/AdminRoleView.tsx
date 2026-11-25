@@ -25,6 +25,7 @@ import {
   CreditCard,
   Building2,
   ClipboardList,
+  SprayCan,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AppUser, AppUserRole } from '../../types/greenhouse';
@@ -259,6 +260,15 @@ export const AdminRoleView: React.FC = () => {
             >
               <ClipboardList className="w-4 h-4 text-[#C3A25D]" />
               <span>Bitácora</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView('aplicaciones_foliares')}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
+            >
+              <SprayCan className="w-4 h-4 text-[#C3A25D]" />
+              <span>Aplicaciones Foliares</span>
             </button>
 
             <button

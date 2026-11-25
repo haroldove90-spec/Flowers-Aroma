@@ -22,6 +22,7 @@ import {
   PackageCheck,
   Truck,
   ClipboardList,
+  SprayCan,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { UserRole } from '../../types/greenhouse';
@@ -59,6 +60,7 @@ export const BottomBar: React.FC = () => {
         return [
           { id: 'produccion_dia', label: 'Producción', icon: PackageCheck },
           { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
+          { id: 'aplicaciones_foliares', label: 'Foliares', icon: SprayCan },
           { id: 'ventas_operacion', label: 'Remisiones', icon: Truck },
           { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
           ...(currentUser?.role === 'admin'

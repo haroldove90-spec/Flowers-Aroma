@@ -36,13 +36,12 @@ export const BITACORA_TABS: BitacoraTabDefinition[] = [
     label: 'Aplicaciones foliares',
     shortLabel: 'Foliares',
     description:
-      'Plantilla preparada para registrar aplicaciones foliares, dosis, producto y responsable por módulo.',
+      'Control de aplicaciones generales por unidad de producción, parchoneo por regla de tres y costos sincronizados con compras.',
     icon: SprayCan,
-    ready: false,
-    plannedColumns: ['Fecha', 'Módulo', 'Producto / Mezcla', 'Dosis', 'Responsable', 'Status'],
+    ready: true,
     relatedAdminView: {
-      viewId: 'admin_insumos',
-      buttonLabel: 'Ir a Hojas de Aplicaciones en Insumos',
+      viewId: 'aplicaciones_foliares',
+      buttonLabel: 'Abrir módulo completo de Aplicaciones Foliares',
     },
   },
   {

@@ -36,6 +36,8 @@ import {
   SupplyPurchase,
   GreenhouseApplication,
   BitacoraEntry,
+  FoliarGeneralApplication,
+  FoliarParchoneoEntry,
   ROLES,
 } from '../types/greenhouse';
 import {
@@ -106,6 +108,10 @@ import {
   mapGreenhouseApplicationToDb,
   mapBitacoraEntryFromDb,
   mapBitacoraEntryToDb,
+  mapFoliarGeneralFromDb,
+  mapFoliarGeneralToDb,
+  mapFoliarParchoneoFromDb,
+  mapFoliarParchoneoToDb,
   mapHarvestToDb,
   mapInventoryToDb,
   mapIrrigationToDb,
@@ -372,6 +378,21 @@ interface GreenhouseContextType {
     existingId?: string
   ) => Promise<{ ok: boolean; entry?: BitacoraEntry; cloudSynced?: boolean; cloudError?: string }>;
   deleteBitacoraEntry: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  // Aplicaciones Foliares (Aplicación General por Unidad + Parchoneo con Regla de Tres)
+  foliarGeneralApplications: FoliarGeneralApplication[];
+  saveFoliarGeneralApplication: (
+    input: Omit<FoliarGeneralApplication, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; entry?: FoliarGeneralApplication; cloudSynced?: boolean; cloudError?: string }>;
+  deleteFoliarGeneralApplication: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  foliarParchoneos: FoliarParchoneoEntry[];
+  saveFoliarParchoneo: (
+    input: Omit<FoliarParchoneoEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; entry?: FoliarParchoneoEntry; cloudSynced?: boolean; cloudError?: string }>;
+  deleteFoliarParchoneo: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
 
   refreshFromSupabase: () => Promise<boolean>;
 
@@ -707,6 +728,35 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return [];
   });
 
+  // Aplicaciones Foliares (Aplicación General + Parchoneo)
+  const [foliarGeneralApplications, setFoliarGeneralApplications] = useState<
+    FoliarGeneralApplication[]
+  >(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}foliar_general_applications`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  const [foliarParchoneos, setFoliarParchoneos] = useState<FoliarParchoneoEntry[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}foliar_parchoneos`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+
   // Inventario General Único (Consolidado Producción - Cargas de Camioneta - Remisiones Directas)
   const generalInventory = useMemo<GeneralInventoryRow[]>(() => {
     const map = new Map<string, GeneralInventoryRow>();
@@ -909,6 +959,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'supply_purchases',
       'greenhouse_applications',
       'bitacora_entries',
+      'foliar_general_applications',
+      'foliar_parchoneos',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -964,6 +1016,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'supply_purchases',
       'greenhouse_applications',
       'bitacora_entries',
+      'foliar_general_applications',
+      'foliar_parchoneos',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -1096,6 +1150,17 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (snap.bitacoraEntries !== undefined && !pendingTables.has('bitacora_entries')) {
       setBitacoraEntries(snap.bitacoraEntries);
       saveState('bitacora_entries', snap.bitacoraEntries);
+    }
+    if (
+      snap.foliarGeneralApplications !== undefined &&
+      !pendingTables.has('foliar_general_applications')
+    ) {
+      setFoliarGeneralApplications(snap.foliarGeneralApplications);
+      saveState('foliar_general_applications', snap.foliarGeneralApplications);
+    }
+    if (snap.foliarParchoneos !== undefined && !pendingTables.has('foliar_parchoneos')) {
+      setFoliarParchoneos(snap.foliarParchoneos);
+      saveState('foliar_parchoneos', snap.foliarParchoneos);
     }
     if (snap.modules) {
       setModules(snap.modules);
@@ -2986,6 +3051,9 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       activeIngredient: (input.activeIngredient || '').trim(),
       recommendedDose: (input.recommendedDose || '').trim(),
       unit: (input.unit || 'L').trim(),
+      presentation:
+        input.presentation ||
+        (['kg', 'g'].includes((input.unit || '').toLowerCase()) ? 'polvo' : 'liquido'),
       stock: Number(input.stock || 0),
       minStock: Number(input.minStock || 0),
       unitCost: Number(input.unitCost || 0),
@@ -3370,6 +3438,151 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { ok: true, cloudSynced: res.ok };
   };
 
+  // ==================== APLICACIONES FOLIARES (APLICACIÓN GENERAL + PARCHONEO) ====================
+  const saveFoliarGeneralApplication = async (
+    input: Omit<FoliarGeneralApplication, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{
+    ok: boolean;
+    entry?: FoliarGeneralApplication;
+    cloudSynced?: boolean;
+    cloudError?: string;
+  }> => {
+    const now = new Date().toISOString();
+    const existing = existingId
+      ? foliarGeneralApplications.find((f) => f.id === existingId)
+      : undefined;
+    const entry: FoliarGeneralApplication = {
+      ...input,
+      id: existingId || `fg-${input.applicationDate || now.slice(0, 10)}-${Date.now().toString(36)}`,
+      applicationDate: input.applicationDate || now.slice(0, 10),
+      units: Array.isArray(input.units) ? input.units : [],
+      totalWaterLiters: Number(input.totalWaterLiters || 0),
+      totalProductsCount: Number(input.totalProductsCount || 0),
+      grandTotalCost: Number(Number(input.grandTotalCost || 0).toFixed(2)),
+      notes: input.notes || '',
+      createdBy: input.createdBy || existing?.createdBy || currentUser?.fullName || '',
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setFoliarGeneralApplications((prev) => {
+      const exists = prev.some((f) => f.id === entry.id);
+      const updated = exists
+        ? prev.map((f) => (f.id === entry.id ? entry : f))
+        : [entry, ...prev];
+      saveState('foliar_general_applications', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase(
+      'foliar_general_applications',
+      mapFoliarGeneralToDb(entry)
+    );
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapFoliarGeneralFromDb(cloudRes.savedRow);
+      setFoliarGeneralApplications((prev) => {
+        const updated = prev.map((f) => (f.id === entry.id ? synced : f));
+        saveState('foliar_general_applications', updated);
+        return updated;
+      });
+    }
+    addAuditLog(
+      'Aplicaciones Foliares',
+      `Aplicación General ${entry.applicationDate} • ${entry.totalWaterLiters} L • $${entry.grandTotalCost.toFixed(2)}`
+    );
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteFoliarGeneralApplication = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setFoliarGeneralApplications((prev) => {
+      const updated = prev.filter((f) => f.id !== id);
+      saveState('foliar_general_applications', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('foliar_general_applications', id);
+    addAuditLog('Aplicaciones Foliares', `Aplicación general eliminada (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
+  const saveFoliarParchoneo = async (
+    input: Omit<FoliarParchoneoEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{
+    ok: boolean;
+    entry?: FoliarParchoneoEntry;
+    cloudSynced?: boolean;
+    cloudError?: string;
+  }> => {
+    const now = new Date().toISOString();
+    const existing = existingId
+      ? foliarParchoneos.find((p) => p.id === existingId)
+      : undefined;
+    const entry: FoliarParchoneoEntry = {
+      ...input,
+      id: existingId || `fpar-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      applicationDate: input.applicationDate || now.slice(0, 10),
+      moduleName: input.moduleName || 'Santa Cruz Módulo 1',
+      variety: (input.variety || '').trim(),
+      waterLiters: Number(input.waterLiters || 0),
+      productId: input.productId || '',
+      productName: input.productName || '',
+      objective: (input.objective || '').trim(),
+      baseDoseAmount: Number(input.baseDoseAmount || 0),
+      baseDoseUnit: input.baseDoseUnit || 'ml',
+      baseWaterLiters: Number(input.baseWaterLiters || 200),
+      calculatedDose: Number(input.calculatedDose || 0),
+      unitCostApplied: Number(input.unitCostApplied || 0),
+      calculatedCost: Number(Number(input.calculatedCost || 0).toFixed(2)),
+      notes: input.notes || '',
+      createdBy: input.createdBy || existing?.createdBy || currentUser?.fullName || '',
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setFoliarParchoneos((prev) => {
+      const exists = prev.some((p) => p.id === entry.id);
+      const updated = exists
+        ? prev.map((p) => (p.id === entry.id ? entry : p))
+        : [entry, ...prev];
+      saveState('foliar_parchoneos', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase(
+      'foliar_parchoneos',
+      mapFoliarParchoneoToDb(entry)
+    );
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapFoliarParchoneoFromDb(cloudRes.savedRow);
+      setFoliarParchoneos((prev) => {
+        const updated = prev.map((p) => (p.id === entry.id ? synced : p));
+        saveState('foliar_parchoneos', updated);
+        return updated;
+      });
+    }
+    addAuditLog(
+      'Parchoneo Foliar',
+      `${entry.moduleName} (${entry.variety || 'General'}) • ${entry.productName} ${entry.calculatedDose} ${entry.baseDoseUnit} • $${entry.calculatedCost.toFixed(2)}`
+    );
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteFoliarParchoneo = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setFoliarParchoneos((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      saveState('foliar_parchoneos', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('foliar_parchoneos', id);
+    addAuditLog('Parchoneo Foliar', `Registro de parchoneo eliminado (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
   // Demo data wipe function (as requested in the prompt)
   const clearAllDemoData = () => {
     setModules([]);
@@ -3400,6 +3613,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSupplyPurchases([]);
     setGreenhouseApplications([]);
     setBitacoraEntries([]);
+    setFoliarGeneralApplications([]);
+    setFoliarParchoneos([]);
 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}demo_cleared`, 'true');
     localStorage.setItem(`${STORAGE_KEY_PREFIX}never_show_demo`, 'true');
@@ -3436,6 +3651,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'supply_purchases',
       'greenhouse_applications',
       'bitacora_entries',
+      'foliar_general_applications',
+      'foliar_parchoneos',
     ];
     keys.forEach((k) => localStorage.removeItem(`${STORAGE_KEY_PREFIX}${k}`));
 
@@ -3546,6 +3763,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           supplyPurchases,
           greenhouseApplications,
           bitacoraEntries,
+          foliarGeneralApplications,
+          foliarParchoneos,
           modules,
           tasks,
           irrigation,
@@ -4139,7 +4358,56 @@ CREATE TABLE IF NOT EXISTS bitacora_entries (
 CREATE INDEX IF NOT EXISTS idx_bitacora_entries_cat_date ON bitacora_entries (category, entry_date DESC, sort_order ASC);
 CREATE INDEX IF NOT EXISTS idx_bitacora_entries_module ON bitacora_entries (module_name, entry_date DESC);
 
--- 21. Habilitar RLS y políticas de acceso para las 19 tablas activas de Aroma Flower
+-- 21. Aplicaciones Foliares (Presentación en Insumos + Aplicación General por Unidad + Parchoneo)
+ALTER TABLE supply_items ADD COLUMN IF NOT EXISTS presentation TEXT NOT NULL DEFAULT 'liquido';
+
+INSERT INTO supply_items (id, name, area, category, purpose, active_ingredient, recommended_dose, unit, presentation, stock, min_stock, unit_cost, supplier, active, created_at)
+VALUES
+  ('sup-consist-max', 'Consis Max', 'invernadero', 'Fungicida Sistémico', 'Control preventivo y curativo de cenicilla (Oídio) y manchas foliares.', 'Trifloxistrobin + Tebuconazol', '50 ml por 200L', 'L', 'liquido', 4.50, 2.00, 2000.00, 'Agroquímicos del Valle', TRUE, '2026-11-01 08:00'),
+  ('sup-tocat-240', 'Tocat 240', 'invernadero', 'Fungicida / Acaricida', 'Control de cenicilla y peronospora en cultivo de rosa.', 'Formulación 240 SC', '100 ml por 200L', 'L', 'liquido', 3.00, 1.00, 1650.00, 'Agroquímicos del Valle', TRUE, '2026-11-01 08:10'),
+  ('sup-tocat-cln', 'Tocat CLN', 'invernadero', 'Fungicida Polvo', 'Control preventivo de peronospora y tizón foliar.', 'Polvo humectable', '250 g por 200L', 'kg', 'polvo', 5.00, 2.00, 480.00, 'Agroquímicos del Valle', TRUE, '2026-11-01 08:15'),
+  ('sup-adherente', 'Adherente', 'invernadero', 'Coadyuvante / Adherente', 'Mejora dispersión, adherencia y penetración de la mezcla foliar.', 'Surfactante no iónico', '100 ml por 200L', 'L', 'liquido', 10.00, 3.00, 220.00, 'Agroquímicos del Valle', TRUE, '2026-11-01 08:20')
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS foliar_general_applications (
+    id TEXT PRIMARY KEY,
+    application_date TEXT NOT NULL,
+    units JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_water_liters NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_products_count INT NOT NULL DEFAULT 0,
+    grand_total_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    notes TEXT DEFAULT '',
+    created_by TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_foliar_general_date ON foliar_general_applications (application_date DESC);
+
+CREATE TABLE IF NOT EXISTS foliar_parchoneos (
+    id TEXT PRIMARY KEY,
+    application_date TEXT NOT NULL,
+    module_name TEXT NOT NULL DEFAULT 'Santa Cruz Módulo 1',
+    variety TEXT NOT NULL DEFAULT '',
+    water_liters NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    product_id TEXT DEFAULT '',
+    product_name TEXT NOT NULL DEFAULT '',
+    objective TEXT NOT NULL DEFAULT '',
+    base_dose_amount NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    base_dose_unit TEXT NOT NULL DEFAULT 'ml' CHECK (base_dose_unit IN ('ml', 'g', 'kg', 'L')),
+    base_water_liters NUMERIC(12, 2) NOT NULL DEFAULT 200,
+    calculated_dose NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    unit_cost_applied NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    calculated_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    notes TEXT DEFAULT '',
+    created_by TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_foliar_parchoneos_date ON foliar_parchoneos (application_date DESC, module_name);
+
+-- 22. Habilitar RLS y políticas de acceso para las 21 tablas activas de Aroma Flower
 DO $$
 DECLARE
   t TEXT;
@@ -4162,7 +4430,9 @@ DECLARE
     'supply_items',
     'supply_purchases',
     'greenhouse_applications',
-    'bitacora_entries'
+    'bitacora_entries',
+    'foliar_general_applications',
+    'foliar_parchoneos'
   ];
 BEGIN
   FOREACH t IN ARRAY tbls LOOP
@@ -4508,12 +4778,14 @@ TRUNCATE TABLE
   client_payments,
   supply_purchases,
   greenhouse_applications,
-  bitacora_entries
+  bitacora_entries,
+  foliar_general_applications,
+  foliar_parchoneos
 CASCADE;
 UPDATE payroll_employees SET loan_balance = 0;
 UPDATE sales_clients SET balance = 0;
 COMMIT;
--- Las 19 tablas activas permanecen listas para operación real.
+-- Las 21 tablas activas permanecen listas para operación real.
 `;
     }
 
@@ -4582,6 +4854,8 @@ COMMIT;
       supplyPurchases,
       greenhouseApplications,
       bitacoraEntries,
+      foliarGeneralApplications,
+      foliarParchoneos,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -4622,6 +4896,8 @@ COMMIT;
       if (data.supplyPurchases) setSupplyPurchases(data.supplyPurchases);
       if (data.greenhouseApplications) setGreenhouseApplications(data.greenhouseApplications);
       if (data.bitacoraEntries) setBitacoraEntries(data.bitacoraEntries);
+      if (data.foliarGeneralApplications) setFoliarGeneralApplications(data.foliarGeneralApplications);
+      if (data.foliarParchoneos) setFoliarParchoneos(data.foliarParchoneos);
 
       setDemoDataCleared(false);
       addAuditLog('Restauración de Respaldo', 'Base de datos restaurada desde archivo JSON');
@@ -4730,6 +5006,12 @@ COMMIT;
         bitacoraEntries,
         saveBitacoraEntry,
         deleteBitacoraEntry,
+        foliarGeneralApplications,
+        saveFoliarGeneralApplication,
+        deleteFoliarGeneralApplication,
+        foliarParchoneos,
+        saveFoliarParchoneo,
+        deleteFoliarParchoneo,
         refreshFromSupabase,
         addModule,
         updateModule,

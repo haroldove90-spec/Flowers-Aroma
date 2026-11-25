@@ -36,6 +36,8 @@ import {
   SupplyPurchase,
   GreenhouseApplication,
   BitacoraEntry,
+  FoliarGeneralApplication,
+  FoliarParchoneoEntry,
 } from '../types/greenhouse';
 
 export const DEFAULT_SUPABASE_URL =
@@ -122,6 +124,8 @@ export async function testSupabaseConnection(
       client.from('supply_purchases').select('id').limit(1),
       client.from('greenhouse_applications').select('id').limit(1),
       client.from('bitacora_entries').select('id').limit(1),
+      client.from('foliar_general_applications').select('id').limit(1),
+      client.from('foliar_parchoneos').select('id').limit(1),
     ]);
     const error = checks.find((c) => c.error)?.error;
     if (!error) {
@@ -1256,6 +1260,9 @@ export const mapSupplyItemToDb = (s: SupplyItem) => ({
   active_ingredient: s.activeIngredient || '',
   recommended_dose: s.recommendedDose || '',
   unit: s.unit || 'pza',
+  presentation:
+    s.presentation ||
+    (['kg', 'g'].includes((s.unit || '').toLowerCase()) ? 'polvo' : 'liquido'),
   stock: Number(s.stock || 0),
   min_stock: Number(s.minStock || 0),
   unit_cost: Number(s.unitCost || 0),
@@ -1265,23 +1272,31 @@ export const mapSupplyItemToDb = (s: SupplyItem) => ({
   updated_at: new Date().toISOString(),
 });
 
-export const mapSupplyItemFromDb = (r: any): SupplyItem => ({
-  id: String(r.id),
-  name: r.name || '',
-  area: normalizeArea(r.area),
-  category: r.category || 'General',
-  unit: r.unit || 'pza',
-  purpose: r.purpose || '',
-  activeIngredient: r.active_ingredient || '',
-  recommendedDose: r.recommended_dose || '',
-  stock: Number(r.stock || 0),
-  minStock: Number(r.min_stock || 0),
-  unitCost: Number(r.unit_cost || 0),
-  supplier: r.supplier || '',
-  active: r.active !== false,
-  createdAt: r.created_at || '',
-  updatedAt: r.updated_at || undefined,
-});
+export const mapSupplyItemFromDb = (r: any): SupplyItem => {
+  const unitStr = r.unit || 'pza';
+  const inferredPres = ['kg', 'g'].includes(String(unitStr).toLowerCase()) ? 'polvo' : 'liquido';
+  return {
+    id: String(r.id),
+    name: r.name || '',
+    area: normalizeArea(r.area),
+    category: r.category || 'General',
+    unit: unitStr,
+    presentation:
+      r.presentation === 'polvo' || r.presentation === 'liquido'
+        ? r.presentation
+        : inferredPres,
+    purpose: r.purpose || '',
+    activeIngredient: r.active_ingredient || '',
+    recommendedDose: r.recommended_dose || '',
+    stock: Number(r.stock || 0),
+    minStock: Number(r.min_stock || 0),
+    unitCost: Number(r.unit_cost || 0),
+    supplier: r.supplier || '',
+    active: r.active !== false,
+    createdAt: r.created_at || '',
+    updatedAt: r.updated_at || undefined,
+  };
+};
 
 export const mapSupplyPurchaseToDb = (p: SupplyPurchase) => ({
   id: p.id,
@@ -1465,6 +1480,77 @@ export const mapBitacoraEntryFromDb = (r: any): BitacoraEntry => {
   };
 };
 
+export const mapFoliarGeneralToDb = (f: FoliarGeneralApplication) => ({
+  id: f.id,
+  application_date: f.applicationDate,
+  units: Array.isArray(f.units) ? f.units : [],
+  total_water_liters: Number(f.totalWaterLiters || 0),
+  total_products_count: Number(f.totalProductsCount || 0),
+  grand_total_cost: Number(f.grandTotalCost || 0),
+  notes: f.notes || '',
+  created_by: f.createdBy || '',
+  created_at: f.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapFoliarGeneralFromDb = (r: any): FoliarGeneralApplication => ({
+  id: String(r.id),
+  applicationDate: r.application_date || '',
+  units: Array.isArray(r.units) ? r.units : [],
+  totalWaterLiters: Number(r.total_water_liters || 0),
+  totalProductsCount: Number(r.total_products_count || 0),
+  grandTotalCost: Number(r.grand_total_cost || 0),
+  notes: r.notes || '',
+  createdBy: r.created_by || '',
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
+export const mapFoliarParchoneoToDb = (p: FoliarParchoneoEntry) => ({
+  id: p.id,
+  application_date: p.applicationDate,
+  module_name: p.moduleName || 'Santa Cruz Módulo 1',
+  variety: p.variety || '',
+  water_liters: Number(p.waterLiters || 0),
+  product_id: p.productId || '',
+  product_name: p.productName || '',
+  objective: p.objective || '',
+  base_dose_amount: Number(p.baseDoseAmount || 0),
+  base_dose_unit: p.baseDoseUnit || 'ml',
+  base_water_liters: Number(p.baseWaterLiters || 200),
+  calculated_dose: Number(p.calculatedDose || 0),
+  unit_cost_applied: Number(p.unitCostApplied || 0),
+  calculated_cost: Number(p.calculatedCost || 0),
+  notes: p.notes || '',
+  created_by: p.createdBy || '',
+  created_at: p.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapFoliarParchoneoFromDb = (r: any): FoliarParchoneoEntry => ({
+  id: String(r.id),
+  applicationDate: r.application_date || '',
+  moduleName: r.module_name || 'Santa Cruz Módulo 1',
+  variety: r.variety || '',
+  waterLiters: Number(r.water_liters || 0),
+  productId: r.product_id || '',
+  productName: r.product_name || '',
+  objective: r.objective || '',
+  baseDoseAmount: Number(r.base_dose_amount || 0),
+  baseDoseUnit:
+    r.base_dose_unit === 'g' || r.base_dose_unit === 'kg' || r.base_dose_unit === 'L'
+      ? r.base_dose_unit
+      : 'ml',
+  baseWaterLiters: Number(r.base_water_liters || 200),
+  calculatedDose: Number(r.calculated_dose || 0),
+  unitCostApplied: Number(r.unit_cost_applied || 0),
+  calculatedCost: Number(r.calculated_cost || 0),
+  notes: r.notes || '',
+  createdBy: r.created_by || '',
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
 // ---------- Sync Helpers ----------
 
 export async function upsertRowsToSupabase(
@@ -1475,6 +1561,16 @@ export async function upsertRowsToSupabase(
   if (rows.length === 0) return { ok: true };
   const { error } = await client.from(table).upsert(rows, { onConflict: 'id' });
   if (!error) return { ok: true };
+
+  if (
+    error.code === 'PGRST204' &&
+    table === 'supply_items' &&
+    error.message?.toLowerCase().includes('presentation')
+  ) {
+    const stripped = rows.map(({ presentation: _p, ...rest }) => rest);
+    const retry = await client.from(table).upsert(stripped, { onConflict: 'id' });
+    if (!retry.error) return { ok: true };
+  }
 
   if (
     error.code === 'PGRST205' ||
@@ -1514,6 +1610,23 @@ export async function upsertSingleRecordToSupabase(
 
   if (!error) {
     return { ok: true, savedRow: data || payload };
+  }
+
+  // Safe fallback if optional presentation column has not been added to supply_items yet
+  if (
+    error.code === 'PGRST204' &&
+    table === 'supply_items' &&
+    error.message?.toLowerCase().includes('presentation')
+  ) {
+    const { presentation: _p, ...rest } = payload;
+    const retry = await client
+      .from(table)
+      .upsert(rest, { onConflict: 'id' })
+      .select()
+      .maybeSingle();
+    if (!retry.error) {
+      return { ok: true, savedRow: { ...(retry.data || rest), presentation: payload.presentation } };
+    }
   }
 
   if (
@@ -1604,6 +1717,8 @@ export interface RemoteSnapshot {
   supplyPurchases?: SupplyPurchase[];
   greenhouseApplications?: GreenhouseApplication[];
   bitacoraEntries?: BitacoraEntry[];
+  foliarGeneralApplications?: FoliarGeneralApplication[];
+  foliarParchoneos?: FoliarParchoneoEntry[];
   modules?: GreenhouseModule[];
   tasks?: CulturalTask[];
   irrigation?: IrrigationLog[];
@@ -1645,6 +1760,8 @@ export async function fetchAllFromSupabase(
     spurRes,
     gappRes,
     bitacoraRes,
+    foliarGenRes,
+    foliarParRes,
   ] = await Promise.all([
     client.from('app_users').select('*'),
     client.from('app_products').select('*').order('sort_order', { ascending: true }),
@@ -1669,6 +1786,14 @@ export async function fetchAllFromSupabase(
       .select('*')
       .order('entry_date', { ascending: false })
       .order('sort_order', { ascending: true }),
+    client
+      .from('foliar_general_applications')
+      .select('*')
+      .order('application_date', { ascending: false }),
+    client
+      .from('foliar_parchoneos')
+      .select('*')
+      .order('application_date', { ascending: false }),
   ]);
 
   const isMissingTable = (err: any) =>
@@ -1697,6 +1822,8 @@ export async function fetchAllFromSupabase(
     spurRes,
     gappRes,
     bitacoraRes,
+    foliarGenRes,
+    foliarParRes,
   ];
 
   const mappedBase = {
@@ -1719,6 +1846,14 @@ export async function fetchAllFromSupabase(
     supplyPurchases: !spurRes.error && spurRes.data ? spurRes.data.map(mapSupplyPurchaseFromDb) : undefined,
     greenhouseApplications: !gappRes.error && gappRes.data ? gappRes.data.map(mapGreenhouseAppFromDb) : undefined,
     bitacoraEntries: !bitacoraRes.error && bitacoraRes.data ? bitacoraRes.data.map(mapBitacoraEntryFromDb) : undefined,
+    foliarGeneralApplications:
+      !foliarGenRes.error && foliarGenRes.data
+        ? foliarGenRes.data.map(mapFoliarGeneralFromDb)
+        : undefined,
+    foliarParchoneos:
+      !foliarParRes.error && foliarParRes.data
+        ? foliarParRes.data.map(mapFoliarParchoneoFromDb)
+        : undefined,
   };
 
   if (allRes.some((r) => isMissingTable(r.error))) {
@@ -1818,6 +1953,8 @@ export interface LocalStateSnapshot {
   supplyPurchases: SupplyPurchase[];
   greenhouseApplications: GreenhouseApplication[];
   bitacoraEntries: BitacoraEntry[];
+  foliarGeneralApplications: FoliarGeneralApplication[];
+  foliarParchoneos: FoliarParchoneoEntry[];
   modules: GreenhouseModule[];
   tasks: CulturalTask[];
   irrigation: IrrigationLog[];
@@ -1860,6 +1997,8 @@ export async function pushAllLocalToSupabase(
     { table: 'supply_purchases', rows: state.supplyPurchases.map(mapSupplyPurchaseToDb) },
     { table: 'greenhouse_applications', rows: state.greenhouseApplications.map(mapGreenhouseAppToDb) },
     { table: 'bitacora_entries', rows: state.bitacoraEntries.map(mapBitacoraEntryToDb) },
+    { table: 'foliar_general_applications', rows: state.foliarGeneralApplications.map(mapFoliarGeneralToDb) },
+    { table: 'foliar_parchoneos', rows: state.foliarParchoneos.map(mapFoliarParchoneoToDb) },
   ];
 
   const batches = onlyAromaFlowers
