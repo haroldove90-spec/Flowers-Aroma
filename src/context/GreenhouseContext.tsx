@@ -1861,15 +1861,42 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       for (const row of saved.rows) {
         const emp = payrollEmployees.find((e) => e.id === row.employeeId);
         if (!emp) continue;
-        const targetBalance = Math.max(0, round2(row.loanRemainingBalance));
-        if (row.loanPayment > 0 || (row.loanPreviousBalance > 0 && targetBalance !== emp.loanBalance)) {
+        const addedLoan = Math.max(0, round2(row.loanAddedAmount || 0));
+        const paidLoan = Math.max(0, round2(row.loanPayment || 0));
+        const targetBalance = Math.max(
+          0,
+          round2(Number(row.loanPreviousBalance || 0) + addedLoan - paidLoan)
+        );
+        if (
+          addedLoan > 0 ||
+          paidLoan > 0 ||
+          (row.loanPreviousBalance > 0 && targetBalance !== emp.loanBalance)
+        ) {
           employeesToSync.push({
             ...emp,
             loanBalance: targetBalance,
             updatedAt: now,
           });
         }
-        if (row.loanPayment > 0) {
+        if (addedLoan > 0) {
+          const newLoanMovId = `eln-pw-new-${saved.id}-${row.employeeId}`;
+          const balanceAfterNewLoan = round2(Number(row.loanPreviousBalance || 0) + addedLoan);
+          loansToSync.push({
+            id: newLoanMovId,
+            employeeId: row.employeeId,
+            employeeName: row.employeeName,
+            movementDate: row.loanDate || saved.startDate || saved.endDate,
+            movementType: 'prestamo',
+            amount: addedLoan,
+            balanceAfter: balanceAfterNewLoan,
+            concept: `Préstamo registrado en nómina ${saved.weekLabel}`,
+            payrollWeekId: saved.id,
+            notes: `Saldo anterior: $${round2(row.loanPreviousBalance).toFixed(2)} + Préstamo: $${addedLoan.toFixed(2)}`,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        if (paidLoan > 0) {
           const movementId = `eln-pw-${saved.id}-${row.employeeId}`;
           loansToSync.push({
             id: movementId,
@@ -1877,11 +1904,11 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             employeeName: row.employeeName,
             movementDate: saved.endDate || saved.startDate,
             movementType: 'abono',
-            amount: round2(row.loanPayment),
+            amount: paidLoan,
             balanceAfter: targetBalance,
             concept: `Pago de préstamo en nómina ${saved.weekLabel}`,
             payrollWeekId: saved.id,
-            notes: `Saldo anterior: $${round2(row.loanPreviousBalance).toFixed(2)} → Resta: $${targetBalance.toFixed(2)}`,
+            notes: `Saldo anterior: $${round2(row.loanPreviousBalance).toFixed(2)}${addedLoan > 0 ? ` + Nuevo: $${addedLoan.toFixed(2)}` : ''} → Resta: $${targetBalance.toFixed(2)}`,
             createdAt: now,
             updatedAt: now,
           });
@@ -3633,7 +3660,7 @@ VALUES
   ('emp-regina', 'REGINA', 'AARON', 'Operaria Invernadero', 2300.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00')
 ON CONFLICT (id) DO NOTHING;
 
--- 7. Nóminas Semanales (Tambos 200L, Bonos/Descuentos AyP, Horas Extras, Trabajos Extras + Historial Anual)
+-- 7. Nóminas Semanales (Ficha Individual por Trabajador: Asistencia/Retardos/Permisos, Reglas de Bonos, Fumigadas, Horas/Trabajos Extras y Préstamos)
 CREATE TABLE IF NOT EXISTS payroll_weeks (
     id TEXT PRIMARY KEY,
     week_label TEXT NOT NULL,
@@ -3644,12 +3671,15 @@ CREATE TABLE IF NOT EXISTS payroll_weeks (
     rows JSONB NOT NULL DEFAULT '[]'::jsonb,
     total_week_pay NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_bonus NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_attendance_discounts NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_fumigadas NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_cargadas NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_extra_hours NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_destajos NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_extra_work NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_commissions NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_other_deductions NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    total_new_loans NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_loan_payments NUMERIC(12, 2) NOT NULL DEFAULT 0,
     total_loan_remaining NUMERIC(12, 2) NOT NULL DEFAULT 0,
     grand_total_pay NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -3659,7 +3689,46 @@ CREATE TABLE IF NOT EXISTS payroll_weeks (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE payroll_weeks ADD COLUMN IF NOT EXISTS total_attendance_discounts NUMERIC(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_weeks ADD COLUMN IF NOT EXISTS total_commissions NUMERIC(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE payroll_weeks ADD COLUMN IF NOT EXISTS total_new_loans NUMERIC(12, 2) NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_payroll_weeks_dates ON payroll_weeks (start_date DESC, team_group);
+
+CREATE OR REPLACE VIEW v_nomina_por_trabajador AS
+SELECT
+    pw.id AS payroll_week_id,
+    pw.week_label,
+    pw.start_date,
+    pw.end_date,
+    pw.team_group,
+    pw.status AS week_status,
+    (r->>'employeeId') AS employee_id,
+    (r->>'employeeName') AS employee_name,
+    COALESCE((r->>'weeklySalary')::NUMERIC(12,2), 0) AS weekly_salary,
+    COALESCE((r->>'daysWorked')::NUMERIC(6,2), 0) AS days_worked,
+    COALESCE((r->>'tardiesCount')::INT, 0) AS tardies_count,
+    COALESCE((r->>'permissionsCount')::INT, 0) AS permissions_count,
+    COALESCE((r->>'weekPay')::NUMERIC(12,2), 0) AS week_pay,
+    COALESCE((r->>'attendanceBonus')::NUMERIC(12,2), 0) AS attendance_bonus,
+    COALESCE((r->>'attendanceDiscount')::NUMERIC(12,2), 0) AS attendance_penalty,
+    COALESCE((r->>'fumigadasQty')::NUMERIC(10,2), 0) AS fumigadas_qty,
+    COALESCE((r->>'fumigadasAmount')::NUMERIC(12,2), 0) AS fumigadas_amount,
+    COALESCE((r->>'extraHoursQty')::NUMERIC(10,2), 0) AS extra_hours_qty,
+    COALESCE((r->>'extraHoursAmount')::NUMERIC(12,2), 0) AS extra_hours_amount,
+    COALESCE((r->>'extraWorkAmount')::NUMERIC(12,2), 0) AS extra_work_amount,
+    COALESCE((r->>'extraWorkDescription'), '') AS extra_work_description,
+    COALESCE((r->>'commissionBonusAmount')::NUMERIC(12,2), 0) AS commission_bonus_amount,
+    COALESCE((r->>'otherDeductions')::NUMERIC(12,2), 0) AS other_deductions,
+    COALESCE((r->>'loanDate'), '') AS loan_date,
+    COALESCE((r->>'loanPreviousBalance')::NUMERIC(12,2), 0) AS loan_previous_balance,
+    COALESCE((r->>'loanAddedAmount')::NUMERIC(12,2), 0) AS loan_added_amount,
+    COALESCE((r->>'loanPayment')::NUMERIC(12,2), 0) AS loan_payment,
+    COALESCE((r->>'loanRemainingBalance')::NUMERIC(12,2), 0) AS loan_remaining_balance,
+    COALESCE((r->>'totalNetPay')::NUMERIC(12,2), 0) AS total_net_pay,
+    COALESCE((r->>'paid')::BOOLEAN, FALSE) AS paid
+FROM payroll_weeks pw
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(pw.rows, '[]'::jsonb)) AS r;
 
 -- 8. Préstamos y Descuentos de Empleados
 CREATE TABLE IF NOT EXISTS employee_loans (

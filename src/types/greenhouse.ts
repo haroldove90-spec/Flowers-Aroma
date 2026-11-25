@@ -250,8 +250,18 @@ export interface PayrollRates {
   cargadaRate: number; // configurable
   extraHourRate: number; // configurable
   destajoRate: number; // configurable
-  defaultBonus: number; // default 150
+  defaultBonus: number; // default 150 (100 asistencia + 50 puntualidad)
   workDaysPerWeek: number; // default 6
+  attendanceBonusPart?: number; // default 100
+  punctualityBonusPart?: number; // default 50
+  unjustifiedPenalty?: number; // default 150
+  manyTardiesBonus?: number; // default 50 (configurable a 0 o 50 para >2 retardos)
+}
+
+export interface PayrollExtraWorkItem {
+  id: string;
+  concept: string;
+  amount: number;
 }
 
 export interface PayrollWeekRow {
@@ -259,11 +269,14 @@ export interface PayrollWeekRow {
   employeeName: string;
   teamGroup: string;
   daysWorked: number; // DIAS (base 6)
+  tardiesCount?: number; // Retardos en la semana
+  permissionsCount?: number; // Faltas con permiso previo (>=1 día de anticipación)
+  manualBonusOverride?: boolean; // true si el admin ajustó manualmente el bono/penalización
   weeklySalary: number; // P/ SEMANAL
   weekPay: number; // SEMANA = (weeklySalary / 6) * daysWorked
-  attendanceBonus: number; // BONO/AyP
-  attendanceDiscount?: number; // Descuento por asistencia / puntualidad
-  fumigadasQty: number; // Tambos de 200L aplicados
+  attendanceBonus: number; // BONO/AyP (+)
+  attendanceDiscount?: number; // Penalización / Descuento por asistencia (-)
+  fumigadasQty: number; // Tambos / aplicaciones realizadas
   fumigadasAmount: number;
   cargadasQty: number;
   cargadasAmount: number;
@@ -272,15 +285,18 @@ export interface PayrollWeekRow {
   destajosQty: number;
   destajosAmount: number;
   extraWorkQty: number;
-  extraWorkAmount: number; // TRABAJO EXTRA ($)
-  extraWorkDescription?: string; // Campo abierto: descripción del trabajo extra
+  extraWorkAmount: number; // TRABAJO EXTRA ($) = suma de extraWorkItems
+  extraWorkDescription?: string; // Resumen textual de trabajos extras
+  extraWorkItems?: PayrollExtraWorkItem[]; // Lista dinámica de trabajos extras (concepto + monto)
   commissionBonusAmount?: number; // Bonos de productividad, comisiones y pagos adicionales (+)
   commissionBonusNotes?: string; // Detalle de bonos/comisiones
   otherDeductions: number; // Otros descuentos (daños, vales, etc.)
   appliedAdjustmentIds?: string[]; // IDs de incidencias/ajustes sincronizados en esta nómina
-  loanPreviousBalance: number; // PRESTAMO (saldo antes del abono)
-  loanPayment: number; // PAGO DE PRESTAMO (descuento en esta nómina)
-  loanRemainingBalance: number; // RESTA DEL PRESTAMO = max(0, loanPreviousBalance - loanPayment)
+  loanDate?: string; // Fecha del préstamo (YYYY-MM-DD)
+  loanPreviousBalance: number; // Saldo anterior arrastrado
+  loanAddedAmount?: number; // Préstamo nuevo otorgado esta semana
+  loanPayment: number; // Abono / Pago de préstamo descontado en esta nómina
+  loanRemainingBalance: number; // Saldo pendiente = max(0, loanPreviousBalance + loanAddedAmount - loanPayment)
   totalNetPay: number; // TOTAL neto a pagar
   paid: boolean;
   notes?: string;
@@ -288,7 +304,7 @@ export interface PayrollWeekRow {
 
 export interface PayrollWeekEntry {
   id: string;
-  weekLabel: string; // ej. 'DEL 9 DE NOVIEMBRE AL 14 DE NOVIEMBRE'
+  weekLabel: string; // ej. '23 NOV - 29 NOV 2026'
   startDate: string; // YYYY-MM-DD
   endDate: string; // YYYY-MM-DD
   teamGroup: string; // ej. 'AARON' o 'TODOS'
@@ -304,6 +320,7 @@ export interface PayrollWeekEntry {
   totalExtraWork: number;
   totalCommissions?: number;
   totalOtherDeductions: number;
+  totalNewLoans?: number;
   totalLoanPayments: number;
   totalLoanRemaining: number;
   grandTotalPay: number;

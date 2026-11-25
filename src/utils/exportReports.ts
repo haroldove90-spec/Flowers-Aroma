@@ -1346,58 +1346,72 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
     (a, r) => a + Number(r.commissionBonusAmount || 0),
     0
   );
+  const totalNewLoans = week.rows.reduce(
+    (a, r) => a + Number(r.loanAddedAmount || 0),
+    0
+  );
   const rows: any[][] = [
     [week.weekLabel, '', 'EQUIPO / GRUPO:', week.teamGroup, 'ESTATUS:', week.status.toUpperCase()],
     [
       'NOMBRE',
       'DIAS',
+      'RETARDOS',
+      'PERMISOS',
       'P/ SEMANAL',
       'SEMANA',
-      'BONO/AyP',
-      'DESC. FALTAS / AyP',
+      'BONO AyP (+)',
+      'PENALIZACION (-)',
       'FUMIGADAS (Cant)',
       'FUMIGADAS ($)',
-      'CARGADAS (Cant)',
-      'CARGADAS ($)',
-      'HORAS EXTRAS (Cant)',
+      'HORAS EXTRAS (Hrs)',
       'HORAS EXTRAS ($)',
-      'DESTAJOS (Cant)',
-      'DESTAJOS ($)',
-      'TRABAJO EXTRA ($)',
-      'COMISION / BONO PROD ($)',
+      'TRABAJOS EXTRAS ($)',
+      'DETALLE TRAB. EXTRAS',
+      'COMISION / BONO+ ($)',
       'OTROS DESC ($)',
-      'PAGO DE PRESTAMO',
-      'PRESTAMO',
-      'RESTA DEL PRESTAMO',
+      'SALDO ANT. PREST.',
+      'PREST. SEMANA',
+      'ABONO PRESTAMO',
+      'SALDO PEND. PREST.',
       'TOTAL NETO',
       'PAGADO',
     ],
-    ...week.rows.map((r) => [
-      r.employeeName,
-      Number(r.daysWorked || 0),
-      Number(r.weeklySalary || 0),
-      Number(r.weekPay || 0),
-      Number(r.attendanceBonus || 0),
-      Number(r.attendanceDiscount || 0),
-      Number(r.fumigadasQty || 0),
-      Number(r.fumigadasAmount || 0),
-      Number(r.cargadasQty || 0),
-      Number(r.cargadasAmount || 0),
-      Number(r.extraHoursQty || 0),
-      Number(r.extraHoursAmount || 0),
-      Number(r.destajosQty || 0),
-      Number(r.destajosAmount || 0),
-      Number(r.extraWorkAmount || 0),
-      Number(r.commissionBonusAmount || 0),
-      Number(r.otherDeductions || 0),
-      Number(r.loanPayment || 0),
-      Number(r.loanPreviousBalance || 0),
-      Number(r.loanRemainingBalance || 0),
-      Number(r.totalNetPay || 0),
-      r.paid ? 'SI' : 'NO',
-    ]),
+    ...week.rows.map((r) => {
+      const extraDesc =
+        r.extraWorkItems && r.extraWorkItems.length > 0
+          ? r.extraWorkItems
+              .map((it) => `${it.concept || 'Trabajo extra'} ($${Number(it.amount || 0).toFixed(2)})`)
+              .join(' | ')
+          : r.extraWorkDescription || '';
+      return [
+        r.employeeName,
+        Number(r.daysWorked || 0),
+        Number(r.tardiesCount || 0),
+        Number(r.permissionsCount || 0),
+        Number(r.weeklySalary || 0),
+        Number(r.weekPay || 0),
+        Number(r.attendanceBonus || 0),
+        Number(r.attendanceDiscount || 0),
+        Number(r.fumigadasQty || 0),
+        Number(r.fumigadasAmount || 0),
+        Number(r.extraHoursQty || 0),
+        Number(r.extraHoursAmount || 0),
+        Number(r.extraWorkAmount || 0),
+        extraDesc,
+        Number(r.commissionBonusAmount || 0),
+        Number(r.otherDeductions || 0),
+        Number(r.loanPreviousBalance || 0),
+        Number(r.loanAddedAmount || 0),
+        Number(r.loanPayment || 0),
+        Number(r.loanRemainingBalance || 0),
+        Number(r.totalNetPay || 0),
+        r.paid ? 'SI' : 'NO',
+      ];
+    }),
     [
       'TOTAL',
+      '',
+      '',
       '',
       '',
       Number(week.totalWeekPay || 0),
@@ -1406,16 +1420,14 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
       '',
       Number(week.totalFumigadas || 0),
       '',
-      Number(week.totalCargadas || 0),
-      '',
       Number(week.totalExtraHours || 0),
-      '',
-      Number(week.totalDestajos || 0),
       Number(week.totalExtraWork || 0),
+      '',
       totalCommissions,
       Number(week.totalOtherDeductions || 0),
-      Number(week.totalLoanPayments || 0),
       '',
+      totalNewLoans,
+      Number(week.totalLoanPayments || 0),
       Number(week.totalLoanRemaining || 0),
       Number(week.grandTotalPay || 0),
       '',
@@ -1431,87 +1443,96 @@ export function exportPayrollWeekExcel(week: PayrollWeekEntry) {
 
 export function exportPayrollWeekPdf(week: PayrollWeekEntry) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const totalAttendanceDiscounts = week.rows.reduce(
-    (a, r) => a + Number(r.attendanceDiscount || 0),
+  const totalBonusNet = week.rows.reduce(
+    (a, r) => a + Number(r.attendanceBonus || 0) - Number(r.attendanceDiscount || 0),
     0
   );
-  const totalCommissions = week.rows.reduce(
-    (a, r) => a + Number(r.commissionBonusAmount || 0),
+  const totalExtrasAll = week.rows.reduce(
+    (a, r) =>
+      a +
+      Number(r.fumigadasAmount || 0) +
+      Number(r.extraHoursAmount || 0) +
+      Number(r.extraWorkAmount || 0) +
+      Number(r.cargadasAmount || 0) +
+      Number(r.destajosAmount || 0) +
+      Number(r.commissionBonusAmount || 0),
     0
   );
+  const totalNewLoans = week.rows.reduce((a, r) => a + Number(r.loanAddedAmount || 0), 0);
+
   addPdfHeader(
     doc,
-    `Nómina Semanal: ${week.weekLabel}`,
-    `Equipo: ${week.teamGroup} • Del ${week.startDate} al ${week.endDate} • Total Neto a Pagar: ${fmtMoney(week.grandTotalPay)}`
+    `Resumen General de Nómina: ${week.weekLabel}`,
+    `Equipo: ${week.teamGroup} • Del ${week.startDate} al ${week.endDate} • Gran Total Neto: ${fmtMoney(week.grandTotalPay)}`
   );
 
   autoTable(doc, {
     startY: 32,
     head: [
       [
-        'NOMBRE',
-        'DIAS',
-        'SEMANA',
-        'BONO AyP',
-        'DESC. AyP',
+        'TRABAJADOR',
+        'D/R/P',
+        'SUELDO BASE',
+        'BONO / PENAL.',
         'FUMIG.',
-        'H.EXT/CARG',
-        'TR.EXT',
-        'COM/BONO+',
-        'OTR.DESC',
+        'H.EXT',
+        'TRAB. EXT / COM.',
+        'PREST. SEM.',
         'ABONO PR.',
-        'RESTA PR.',
+        'SALDO PR.',
         'TOTAL NETO',
+        'ESTATUS',
       ],
     ],
-    body: week.rows.map((r) => [
-      r.employeeName,
-      r.daysWorked,
-      fmtMoney(r.weekPay),
-      fmtMoney(r.attendanceBonus),
-      Number(r.attendanceDiscount || 0) > 0 ? `- ${fmtMoney(Number(r.attendanceDiscount || 0))}` : '$0.00',
-      r.fumigadasQty ? `${r.fumigadasQty} (${fmtMoney(r.fumigadasAmount)})` : '$0.00',
-      fmtMoney(Number(r.extraHoursAmount || 0) + Number(r.cargadasAmount || 0) + Number(r.destajosAmount || 0)),
-      fmtMoney(r.extraWorkAmount),
-      fmtMoney(Number(r.commissionBonusAmount || 0)),
-      Number(r.otherDeductions || 0) > 0 ? `- ${fmtMoney(r.otherDeductions)}` : '$0.00',
-      Number(r.loanPayment || 0) > 0 ? `- ${fmtMoney(r.loanPayment)}` : '$0.00',
-      fmtMoney(r.loanRemainingBalance),
-      fmtMoney(r.totalNetPay),
-    ]),
+    body: week.rows.map((r) => {
+      const netBonus = Number(r.attendanceBonus || 0) - Number(r.attendanceDiscount || 0);
+      const extrasCombo =
+        Number(r.extraWorkAmount || 0) +
+        Number(r.cargadasAmount || 0) +
+        Number(r.destajosAmount || 0) +
+        Number(r.commissionBonusAmount || 0);
+      return [
+        r.employeeName,
+        `${r.daysWorked}d / ${r.tardiesCount || 0}r / ${r.permissionsCount || 0}p`,
+        fmtMoney(r.weekPay),
+        netBonus >= 0 ? `+${fmtMoney(netBonus)}` : `-${fmtMoney(Math.abs(netBonus))}`,
+        fmtMoney(r.fumigadasAmount),
+        fmtMoney(r.extraHoursAmount),
+        fmtMoney(extrasCombo),
+        Number(r.loanAddedAmount || 0) > 0 ? `+${fmtMoney(Number(r.loanAddedAmount || 0))}` : '$0.00',
+        Number(r.loanPayment || 0) > 0 ? `-${fmtMoney(r.loanPayment)}` : '$0.00',
+        fmtMoney(r.loanRemainingBalance),
+        fmtMoney(r.totalNetPay),
+        r.paid ? 'PAGADO' : 'PENDIENTE',
+      ];
+    }),
     foot: [
       [
-        'TOTALES',
-        `${week.rows.length} emp.`,
+        'GRAN TOTAL',
+        `${week.rows.length} trab.`,
         fmtMoney(week.totalWeekPay),
-        fmtMoney(week.totalBonus),
-        totalAttendanceDiscounts > 0 ? `- ${fmtMoney(totalAttendanceDiscounts)}` : '$0.00',
+        totalBonusNet >= 0 ? `+${fmtMoney(totalBonusNet)}` : `-${fmtMoney(Math.abs(totalBonusNet))}`,
         fmtMoney(week.totalFumigadas),
+        fmtMoney(week.totalExtraHours),
         fmtMoney(
-          Number(week.totalExtraHours || 0) +
-            Number(week.totalCargadas || 0) +
-            Number(week.totalDestajos || 0)
+          Math.max(0, totalExtrasAll - Number(week.totalFumigadas || 0) - Number(week.totalExtraHours || 0))
         ),
-        fmtMoney(week.totalExtraWork),
-        fmtMoney(totalCommissions),
-        Number(week.totalOtherDeductions || 0) > 0
-          ? `- ${fmtMoney(week.totalOtherDeductions)}`
-          : '$0.00',
-        Number(week.totalLoanPayments || 0) > 0
-          ? `- ${fmtMoney(week.totalLoanPayments)}`
-          : '$0.00',
+        fmtMoney(totalNewLoans),
+        Number(week.totalLoanPayments || 0) > 0 ? `-${fmtMoney(week.totalLoanPayments)}` : '$0.00',
         fmtMoney(week.totalLoanRemaining),
         fmtMoney(week.grandTotalPay),
+        '',
       ],
     ],
     theme: 'grid',
     headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 6.8, fontStyle: 'bold' },
-    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 7, fontStyle: 'bold' },
+    footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 7.2, fontStyle: 'bold' },
     alternateRowStyles: { fillColor: CREAM },
-    styles: { fontSize: 6.6, cellPadding: 1.5 },
+    styles: { fontSize: 6.8, cellPadding: 1.6 },
     columnStyles: {
       1: { halign: 'center' },
-      12: { halign: 'right', fontStyle: 'bold' },
+      10: { halign: 'right', fontStyle: 'bold' },
+      11: { halign: 'center' },
     },
   });
 
@@ -1523,57 +1544,84 @@ export function exportEmployeePaySlipPdf(week: PayrollWeekEntry, row: PayrollWee
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   addPdfHeader(
     doc,
-    `Recibo Individual de Pago — ${row.employeeName}`,
-    `Periodo: ${week.weekLabel} (${week.startDate} al ${week.endDate}) • Grupo: ${row.teamGroup || week.teamGroup}`
+    `Recibo Individual de Nómina — ${row.employeeName}`,
+    `Periodo: ${week.weekLabel} (${week.startDate} al ${week.endDate}) • Equipo: ${row.teamGroup || week.teamGroup}`
   );
 
   let y = 36;
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...BURGUNDY);
-  doc.text('Detalle de Percepciones y Deducciones', 14, y);
+  doc.text('Desglose de Percepciones y Deducciones', 14, y);
   y += 4;
 
+  const bonusNet = Number(row.attendanceBonus || 0) - Number(row.attendanceDiscount || 0);
+  const extraItemsText =
+    row.extraWorkItems && row.extraWorkItems.length > 0
+      ? row.extraWorkItems
+          .map((it) => `${it.concept || 'Extra'}: ${fmtMoney(it.amount)}`)
+          .join(' | ')
+      : row.extraWorkDescription || (row.extraWorkAmount > 0 ? 'Trabajo extra registrado' : '—');
+
   const lines: Array<[string, string, string]> = [
-    ['Sueldo Semanal Base (6 días)', `${row.daysWorked} días trabajados`, fmtMoney(row.weekPay)],
-    ['Bono de Asistencia y Puntualidad (AyP)', row.attendanceBonus > 0 ? 'Aplicado' : 'No aplica', fmtMoney(row.attendanceBonus)],
-    ['Fumigadas', `${row.fumigadasQty || 0} tambos 200L`, fmtMoney(row.fumigadasAmount)],
-    ['Cargadas', `${row.cargadasQty || 0} u.`, fmtMoney(row.cargadasAmount)],
-    ['Horas Extras', `${row.extraHoursQty || 0} hrs`, fmtMoney(row.extraHoursAmount)],
-    ['Destajos (Estajos)', `${row.destajosQty || 0} u.`, fmtMoney(row.destajosAmount)],
-    ['Trabajo Extra', row.extraWorkDescription || (row.extraWorkAmount > 0 ? 'Extra registrado' : '—'), fmtMoney(row.extraWorkAmount)],
     [
-      'Comisiones / Bono Productividad / Adicionales (+)',
-      row.commissionBonusNotes || (Number(row.commissionBonusAmount || 0) > 0 ? 'Pago adicional' : '—'),
-      fmtMoney(Number(row.commissionBonusAmount || 0)),
+      '(+) Sueldo por días laborados',
+      `${row.daysWorked} días (Base ${fmtMoney(row.weeklySalary)} / 6) · ${row.tardiesCount || 0} ret. · ${row.permissionsCount || 0} perm.`,
+      fmtMoney(row.weekPay),
     ],
     [
-      'Descuento por Faltas / Asistencia (-)',
-      Number(row.attendanceDiscount || 0) > 0 ? 'Descuento aplicado' : '—',
-      Number(row.attendanceDiscount || 0) > 0 ? `- ${fmtMoney(Number(row.attendanceDiscount || 0))}` : '$0.00',
+      '(+/-) Bono / Penalización por Asistencia',
+      bonusNet > 0
+        ? 'Bono ganado'
+        : bonusNet < 0
+        ? 'Penalización por falta injustificada'
+        : 'Sin bono ni penalización',
+      bonusNet >= 0 ? `+ ${fmtMoney(bonusNet)}` : `- ${fmtMoney(Math.abs(bonusNet))}`,
     ],
-    [
-      'Descuento / Abono a Préstamo (-)',
-      `Saldo anterior: ${fmtMoney(row.loanPreviousBalance)}`,
-      row.loanPayment > 0 ? `- ${fmtMoney(row.loanPayment)}` : '$0.00',
-    ],
-    [
-      'Otros Descuentos (-)',
-      row.otherDeductions > 0 ? 'Aplicado' : '—',
-      row.otherDeductions > 0 ? `- ${fmtMoney(row.otherDeductions)}` : '$0.00',
-    ],
+    ['(+) Fumigadas / Aplicaciones', `${row.fumigadasQty || 0} aplic.`, fmtMoney(row.fumigadasAmount)],
+    ['(+) Horas Extras', `${row.extraHoursQty || 0} hrs`, fmtMoney(row.extraHoursAmount)],
+    ['(+) Trabajos Extras', extraItemsText, fmtMoney(row.extraWorkAmount)],
   ];
+
+  if (Number(row.commissionBonusAmount || 0) > 0) {
+    lines.push([
+      '(+) Comisiones / Bonos Adicionales',
+      row.commissionBonusNotes || 'Bono / comisión',
+      fmtMoney(Number(row.commissionBonusAmount || 0)),
+    ]);
+  }
+  if (Number(row.cargadasAmount || 0) + Number(row.destajosAmount || 0) > 0) {
+    lines.push([
+      '(+) Cargadas / Destajos',
+      `Carg: ${row.cargadasQty || 0} · Dest: ${row.destajosQty || 0}`,
+      fmtMoney(Number(row.cargadasAmount || 0) + Number(row.destajosAmount || 0)),
+    ]);
+  }
+  if (Number(row.otherDeductions || 0) > 0) {
+    lines.push(['(-) Otros Descuentos', 'Aplicado en nómina', `- ${fmtMoney(row.otherDeductions)}`]);
+  }
+  lines.push([
+    '(-) Abono a Préstamo',
+    `Saldo ant.: ${fmtMoney(row.loanPreviousBalance)}${Number(row.loanAddedAmount || 0) > 0 ? ` + Nuevo: ${fmtMoney(Number(row.loanAddedAmount || 0))}` : ''}`,
+    row.loanPayment > 0 ? `- ${fmtMoney(row.loanPayment)}` : '$0.00',
+  ]);
 
   autoTable(doc, {
     startY: y,
-    head: [['Concepto', 'Referencia / Cantidad', 'Importe ($ MXN)']],
+    head: [['Concepto', 'Detalle / Referencia', 'Importe ($ MXN)']],
     body: lines,
-    foot: [['TOTAL NETO A RECIBIR', row.paid ? 'ESTATUS: PAGADO' : 'ESTATUS: PENDIENTE', fmtMoney(row.totalNetPay)]],
+    foot: [
+      [
+        'TOTAL NETO A PAGAR',
+        row.paid ? 'ESTATUS: PAGADO' : 'ESTATUS: PENDIENTE',
+        fmtMoney(row.totalNetPay),
+      ],
+    ],
     theme: 'grid',
     headStyles: { fillColor: BURGUNDY, textColor: 255, fontSize: 9, fontStyle: 'bold' },
     footStyles: { fillColor: BLACK, textColor: [195, 162, 93], fontSize: 10, fontStyle: 'bold' },
     alternateRowStyles: { fillColor: CREAM },
-    styles: { fontSize: 8.8, cellPadding: 2.8 },
+    styles: { fontSize: 8.6, cellPadding: 2.8 },
     columnStyles: { 2: { halign: 'right', fontStyle: 'bold' } },
   });
 
@@ -1581,15 +1629,20 @@ export function exportEmployeePaySlipPdf(week: PayrollWeekEntry, row: PayrollWee
   doc.setFontSize(9.5);
   doc.setTextColor(40, 40, 40);
   doc.setFont('helvetica', 'bold');
-  doc.text(`Estado de Préstamo Personal:`, 14, y);
+  doc.text('Estado de Cuenta de Préstamo Personal:', 14, y);
   doc.setFont('helvetica', 'normal');
   doc.text(
-    `Saldo Anterior: ${fmtMoney(row.loanPreviousBalance)}   |   Abono en esta Nómina: ${fmtMoney(row.loanPayment)}   |   Saldo Restante: ${fmtMoney(row.loanRemainingBalance)}`,
+    `Fecha: ${row.loanDate || week.endDate}   |   Saldo Anterior: ${fmtMoney(row.loanPreviousBalance)}   |   Préstamo Semana: ${fmtMoney(Number(row.loanAddedAmount || 0))}`,
     14,
     y + 6
   );
+  doc.text(
+    `Abono en esta Nómina: ${fmtMoney(row.loanPayment)}   |   Saldo Pendiente Actual: ${fmtMoney(row.loanRemainingBalance)}`,
+    14,
+    y + 12
+  );
 
-  y += 28;
+  y += 32;
   doc.setDrawColor(140, 140, 140);
   doc.line(20, y, 85, y);
   doc.line(125, y, 190, y);

@@ -42,12 +42,19 @@ import {
   exportAnnualPayrollHistoryPdf,
   exportEmployeeLoansExcel,
   exportEmployeeLoansPdf,
-  exportEmployeePaySlipPdf,
   exportPayrollWeekExcel,
   exportPayrollWeekPdf,
   exportSupplierPaymentsExcel,
   exportSupplierPaymentsPdf,
 } from '../../utils/exportReports';
+import {
+  DEFAULT_PAYROLL_RATES,
+  WorkerPayrollWorkbench,
+  evaluateAttendanceBonusRule,
+  formatShortPeriodRange,
+  normalizeRowExtraItems,
+  recalculatePayrollRow,
+} from './WorkerPayrollWorkbench';
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -114,37 +121,34 @@ const buildSpanishWeekLabel = (startIso: string, endIso: string): string => {
   return `DEL ${fmtPart(startIso)} AL ${fmtPart(endIso)}`;
 };
 
-const recalculateRow = (row: PayrollWeekRow, workDaysPerWeek = 6): PayrollWeekRow => {
-  const baseDays = workDaysPerWeek > 0 ? workDaysPerWeek : 6;
-  const weekPay = round2((Number(row.weeklySalary || 0) / baseDays) * Number(row.daysWorked || 0));
-  const loanPrev = Math.max(0, round2(row.loanPreviousBalance));
-  const loanPay = Math.max(0, round2(row.loanPayment));
-  const loanRemaining = Math.max(0, round2(loanPrev - loanPay));
-  const attendanceDiscount = Math.max(0, round2(row.attendanceDiscount || 0));
-  const commissionBonusAmount = Math.max(0, round2(row.commissionBonusAmount || 0));
-  const totalNetPay = round2(
-    weekPay +
-      Number(row.attendanceBonus || 0) -
-      attendanceDiscount +
-      Number(row.fumigadasAmount || 0) +
-      Number(row.cargadasAmount || 0) +
-      Number(row.extraHoursAmount || 0) +
-      Number(row.destajosAmount || 0) +
-      Number(row.extraWorkAmount || 0) +
-      commissionBonusAmount -
-      loanPay -
-      Number(row.otherDeductions || 0)
+const normalizeIncomingRow = (row: PayrollWeekRow, activeRates: PayrollRates): PayrollWeekRow => {
+  const mergedRates: PayrollRates = { ...DEFAULT_PAYROLL_RATES, ...activeRates };
+  const extraWorkItems = normalizeRowExtraItems(row);
+  const hasExplicitNewFields =
+    row.tardiesCount !== undefined ||
+    row.permissionsCount !== undefined ||
+    row.manualBonusOverride !== undefined;
+
+  let manualBonusOverride = Boolean(row.manualBonusOverride);
+  if (!hasExplicitNewFields) {
+    const autoEval = evaluateAttendanceBonusRule(row.daysWorked, 0, 0, mergedRates);
+    const savedNet = round2(Number(row.attendanceBonus || 0) - Number(row.attendanceDiscount || 0));
+    if (savedNet !== autoEval.netAmount) {
+      manualBonusOverride = true;
+    }
+  }
+
+  return recalculatePayrollRow(
+    {
+      ...row,
+      tardiesCount: row.tardiesCount ?? 0,
+      permissionsCount: row.permissionsCount ?? 0,
+      manualBonusOverride,
+      extraWorkItems,
+      loanAddedAmount: row.loanAddedAmount ?? 0,
+    },
+    mergedRates
   );
-  return {
-    ...row,
-    weekPay,
-    attendanceDiscount,
-    commissionBonusAmount,
-    loanPreviousBalance: loanPrev,
-    loanPayment: loanPay,
-    loanRemainingBalance: loanRemaining,
-    totalNetPay,
-  };
 };
 
 const computeWeekTotals = (rows: PayrollWeekRow[]) => {
@@ -162,6 +166,7 @@ const computeWeekTotals = (rows: PayrollWeekRow[]) => {
       acc.totalExtraWork = round2(acc.totalExtraWork + Number(r.extraWorkAmount || 0));
       acc.totalCommissions = round2(acc.totalCommissions + Number(r.commissionBonusAmount || 0));
       acc.totalOtherDeductions = round2(acc.totalOtherDeductions + Number(r.otherDeductions || 0));
+      acc.totalNewLoans = round2(acc.totalNewLoans + Number(r.loanAddedAmount || 0));
       acc.totalLoanPayments = round2(acc.totalLoanPayments + Number(r.loanPayment || 0));
       acc.totalLoanRemaining = round2(acc.totalLoanRemaining + Number(r.loanRemainingBalance || 0));
       acc.grandTotalPay = round2(acc.grandTotalPay + Number(r.totalNetPay || 0));
@@ -178,6 +183,7 @@ const computeWeekTotals = (rows: PayrollWeekRow[]) => {
       totalExtraWork: 0,
       totalCommissions: 0,
       totalOtherDeductions: 0,
+      totalNewLoans: 0,
       totalLoanPayments: 0,
       totalLoanRemaining: 0,
       grandTotalPay: 0,
@@ -188,6 +194,7 @@ const computeWeekTotals = (rows: PayrollWeekRow[]) => {
 export const PaymentsView: React.FC = () => {
   const {
     payrollEmployees,
+    savePayrollEmployee,
     payrollWeeks,
     savePayrollWeek,
     deletePayrollWeek,
@@ -209,9 +216,13 @@ export const PaymentsView: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // ==================== TAB 1: WEEKLY PAYROLL STATE ====================
+  const initialRates: PayrollRates = {
+    ...DEFAULT_PAYROLL_RATES,
+    ...(payrollWeeks[0]?.rates || {}),
+  };
   const [selectedWeekId, setSelectedWeekId] = useState<string>(payrollWeeks[0]?.id || 'new');
   const [weekLabel, setWeekLabel] = useState<string>(
-    payrollWeeks[0]?.weekLabel || buildSpanishWeekLabel(today, today)
+    payrollWeeks[0]?.weekLabel || formatShortPeriodRange(today, today)
   );
   const [startDate, setStartDate] = useState<string>(payrollWeeks[0]?.startDate || today);
   const [endDate, setEndDate] = useState<string>(payrollWeeks[0]?.endDate || today);
@@ -220,15 +231,17 @@ export const PaymentsView: React.FC = () => {
     payrollWeeks[0]?.status || 'borrador'
   );
   const [weekNotes, setWeekNotes] = useState<string>(payrollWeeks[0]?.notes || '');
-  const [rates, setRates] = useState<PayrollRates>(payrollWeeks[0]?.rates || DEFAULT_RATES);
-  const [showRatesPanel, setShowRatesPanel] = useState<boolean>(false);
-  const [rows, setRows] = useState<PayrollWeekRow[]>(payrollWeeks[0]?.rows || []);
+  const [rates, setRates] = useState<PayrollRates>(initialRates);
+  const [rows, setRows] = useState<PayrollWeekRow[]>(() =>
+    (payrollWeeks[0]?.rows || []).map((r) => normalizeIncomingRow(r, initialRates))
+  );
   const [syncLoansOnSave, setSyncLoansOnSave] = useState<boolean>(true);
   const [isSavingWeek, setIsSavingWeek] = useState<boolean>(false);
   const [confirmDeleteWeekId, setConfirmDeleteWeekId] = useState<string | null>(null);
 
   // Sync editor when user picks an existing saved week
   const loadWeekIntoEditor = (week: PayrollWeekEntry) => {
+    const mergedRates: PayrollRates = { ...DEFAULT_PAYROLL_RATES, ...(week.rates || {}) };
     setSelectedWeekId(week.id);
     setWeekLabel(week.weekLabel);
     setStartDate(week.startDate);
@@ -236,8 +249,8 @@ export const PaymentsView: React.FC = () => {
     setTeamGroup(week.teamGroup);
     setWeekStatus(week.status);
     setWeekNotes(week.notes || '');
-    setRates(week.rates || DEFAULT_RATES);
-    setRows(week.rows.map((r) => recalculateRow(r, week.rates?.workDaysPerWeek || 6)));
+    setRates(mergedRates);
+    setRows((week.rows || []).map((r) => normalizeIncomingRow(r, mergedRates)));
   };
 
   const pendingAdjustments = useMemo(
@@ -247,7 +260,7 @@ export const PaymentsView: React.FC = () => {
 
   const applyPendingIncidentsToRows = (
     targetRows: PayrollWeekRow[],
-    workDaysPerWeek: number,
+    activeRates: PayrollRates,
     refreshLoans: boolean
   ) => {
     let appliedCount = 0;
@@ -271,6 +284,7 @@ export const PaymentsView: React.FC = () => {
       let attendanceDiscount = Number(row.attendanceDiscount || 0);
       let otherDeductions = Number(row.otherDeductions || 0);
       let commissionBonusAmount = Number(row.commissionBonusAmount || 0);
+      let manualBonusOverride = Boolean(row.manualBonusOverride);
       const notesList = row.commissionBonusNotes ? [row.commissionBonusNotes] : [];
       const nextAppliedIds = [...alreadyApplied];
 
@@ -279,6 +293,7 @@ export const PaymentsView: React.FC = () => {
         if (amt <= 0) return;
         if (adj.adjustmentType === 'descuento_falta') {
           attendanceDiscount = round2(attendanceDiscount + amt);
+          manualBonusOverride = true;
         } else if (adj.adjustmentType === 'otro_descuento') {
           otherDeductions = round2(otherDeductions + amt);
         } else {
@@ -295,17 +310,18 @@ export const PaymentsView: React.FC = () => {
         loansSynced += 1;
       }
 
-      return recalculateRow(
+      return recalculatePayrollRow(
         {
           ...row,
           attendanceDiscount,
+          manualBonusOverride,
           otherDeductions,
           commissionBonusAmount,
           commissionBonusNotes: notesList.join(' | '),
           appliedAdjustmentIds: nextAppliedIds,
           loanPreviousBalance,
         },
-        workDaysPerWeek
+        activeRates
       );
     });
 
@@ -316,7 +332,7 @@ export const PaymentsView: React.FC = () => {
   const startNewAutomatedWeek = (filterGroup = 'AARON') => {
     const start = today;
     const endDt = new Date(today + 'T12:00:00');
-    endDt.setDate(endDt.getDate() + 5);
+    endDt.setDate(endDt.getDate() + 6);
     const end = endDt.toISOString().slice(0, 10);
 
     const activeEmps = payrollEmployees.filter((e) => {
@@ -328,17 +344,18 @@ export const PaymentsView: React.FC = () => {
       activeEmps.length > 0 ? activeEmps : payrollEmployees.filter((e) => e.active !== false);
 
     const baseRows: PayrollWeekRow[] = listToUse.map((emp: PayrollEmployee) =>
-      recalculateRow(
+      recalculatePayrollRow(
         {
           employeeId: emp.id,
           employeeName: emp.fullName,
           teamGroup: emp.teamGroup || 'AARON',
           daysWorked: rates.workDaysPerWeek || 6,
+          tardiesCount: 0,
+          permissionsCount: 0,
+          manualBonusOverride: false,
           weeklySalary: Number(emp.weeklySalary || 0),
           weekPay: Number(emp.weeklySalary || 0),
-          attendanceBonus: emp.hasAttendanceBonus
-            ? Number(emp.defaultBonusAmount || rates.defaultBonus || 150)
-            : 0,
+          attendanceBonus: 0,
           attendanceDiscount: 0,
           fumigadasQty: 0,
           fumigadasAmount: 0,
@@ -351,36 +368,35 @@ export const PaymentsView: React.FC = () => {
           extraWorkQty: 0,
           extraWorkAmount: 0,
           extraWorkDescription: '',
+          extraWorkItems: [],
           commissionBonusAmount: 0,
           commissionBonusNotes: '',
           appliedAdjustmentIds: [],
           otherDeductions: 0,
+          loanDate: start,
           loanPreviousBalance: Number(emp.loanBalance || 0),
+          loanAddedAmount: 0,
           loanPayment: 0,
           loanRemainingBalance: Number(emp.loanBalance || 0),
           totalNetPay: 0,
           paid: false,
         },
-        rates.workDaysPerWeek || 6
+        rates
       )
     );
 
-    const { updatedRows, appliedCount } = applyPendingIncidentsToRows(
-      baseRows,
-      rates.workDaysPerWeek || 6,
-      false
-    );
+    const { updatedRows, appliedCount } = applyPendingIncidentsToRows(baseRows, rates, false);
 
     setSelectedWeekId('new');
     setStartDate(start);
     setEndDate(end);
-    setWeekLabel(buildSpanishWeekLabel(start, end));
+    setWeekLabel(formatShortPeriodRange(start, end));
     setTeamGroup(filterGroup);
     setWeekStatus('borrador');
     setWeekNotes('');
     setRows(updatedRows);
     setFeedback(
-      `Nueva nómina generada con ${updatedRows.length} empleado(s), saldos vigentes de préstamos${
+      `Nueva semana generada con ${updatedRows.length} trabajador(es), saldos vigentes de préstamos${
         appliedCount > 0 ? ` y ${appliedCount} incidencia(s)/comisión(es) sincronizada(s)` : ''
       }.`
     );
@@ -390,7 +406,7 @@ export const PaymentsView: React.FC = () => {
   const handleSyncPendingIncidents = () => {
     const { updatedRows, appliedCount, loansSynced } = applyPendingIncidentsToRows(
       rows,
-      rates.workDaysPerWeek || 6,
+      rates,
       true
     );
     setRows(updatedRows);
@@ -428,16 +444,18 @@ export const PaymentsView: React.FC = () => {
     updater: (row: PayrollWeekRow) => PayrollWeekRow
   ) => {
     setRows((prev) =>
-      prev.map((row, i) =>
-        i === idx ? recalculateRow(updater(row), rates.workDaysPerWeek || 6) : row
-      )
+      prev.map((row, i) => (i === idx ? recalculatePayrollRow(updater(row), rates) : row))
     );
   };
 
   const handleRateChange = (field: keyof PayrollRates, value: number) => {
-    const nextRates = { ...rates, [field]: value };
+    const nextRates: PayrollRates = { ...rates, [field]: value };
+    if (field === 'attendanceBonusPart' || field === 'punctualityBonusPart') {
+      nextRates.defaultBonus = round2(
+        (nextRates.attendanceBonusPart ?? 100) + (nextRates.punctualityBonusPart ?? 50)
+      );
+    }
     setRates(nextRates);
-    // Recalculate rows with updated unit rates when qty > 0
     setRows((prev) =>
       prev.map((row) => {
         const nextRow = { ...row };
@@ -453,9 +471,40 @@ export const PaymentsView: React.FC = () => {
         if (field === 'destajoRate' && nextRow.destajosQty > 0) {
           nextRow.destajosAmount = round2(nextRow.destajosQty * value);
         }
-        return recalculateRow(nextRow, nextRates.workDaysPerWeek || 6);
+        return recalculatePayrollRow(nextRow, nextRates);
       })
     );
+  };
+
+  const handleSaveEmployeeBaseSalary = async (employeeId: string, newSalary: number) => {
+    const emp = payrollEmployees.find((e) => e.id === employeeId);
+    if (!emp) return;
+    const res = await savePayrollEmployee(
+      {
+        fullName: emp.fullName,
+        teamGroup: emp.teamGroup,
+        jobTitle: emp.jobTitle,
+        phone: emp.phone,
+        email: emp.email || '',
+        weeklySalary: round2(newSalary),
+        hasAttendanceBonus: emp.hasAttendanceBonus,
+        defaultBonusAmount: emp.defaultBonusAmount,
+        loanBalance: emp.loanBalance,
+        hireDate: emp.hireDate,
+        terminationDate: emp.terminationDate,
+        terminationReason: emp.terminationReason,
+        active: emp.active,
+        linkedUserId: emp.linkedUserId,
+        notes: emp.notes,
+      },
+      emp.id
+    );
+    setFeedback(
+      res.cloudSynced
+        ? `Sueldo base de ${emp.fullName} actualizado a ${fmtMoney(newSalary)} en Supabase.`
+        : `Sueldo base de ${emp.fullName} actualizado localmente a ${fmtMoney(newSalary)}.`
+    );
+    setTimeout(() => setFeedback(null), 4000);
   };
 
   const handlePullMissingActiveEmployees = () => {
@@ -472,17 +521,18 @@ export const PaymentsView: React.FC = () => {
       return;
     }
     const additions = missing.map((emp) =>
-      recalculateRow(
+      recalculatePayrollRow(
         {
           employeeId: emp.id,
           employeeName: emp.fullName,
           teamGroup: emp.teamGroup || 'AARON',
           daysWorked: rates.workDaysPerWeek || 6,
+          tardiesCount: 0,
+          permissionsCount: 0,
+          manualBonusOverride: false,
           weeklySalary: Number(emp.weeklySalary || 0),
           weekPay: Number(emp.weeklySalary || 0),
-          attendanceBonus: emp.hasAttendanceBonus
-            ? Number(emp.defaultBonusAmount || rates.defaultBonus || 150)
-            : 0,
+          attendanceBonus: 0,
           attendanceDiscount: 0,
           fumigadasQty: 0,
           fumigadasAmount: 0,
@@ -495,18 +545,24 @@ export const PaymentsView: React.FC = () => {
           extraWorkQty: 0,
           extraWorkAmount: 0,
           extraWorkDescription: '',
+          extraWorkItems: [],
+          commissionBonusAmount: 0,
+          commissionBonusNotes: '',
+          appliedAdjustmentIds: [],
           otherDeductions: 0,
+          loanDate: startDate || today,
           loanPreviousBalance: Number(emp.loanBalance || 0),
+          loanAddedAmount: 0,
           loanPayment: 0,
           loanRemainingBalance: Number(emp.loanBalance || 0),
           totalNetPay: 0,
           paid: false,
         },
-        rates.workDaysPerWeek || 6
+        rates
       )
     );
     setRows((prev) => [...prev, ...additions]);
-    setFeedback(`Se agregaron ${additions.length} empleado(s) nuevos a esta nómina.`);
+    setFeedback(`Se agregaron ${additions.length} trabajador(es) nuevos a esta nómina.`);
     setTimeout(() => setFeedback(null), 3500);
   };
 
@@ -516,7 +572,7 @@ export const PaymentsView: React.FC = () => {
   };
 
   const buildCurrentWeekObject = (): Omit<PayrollWeekEntry, 'id' | 'createdAt' | 'updatedAt'> => ({
-    weekLabel: weekLabel.trim() || buildSpanishWeekLabel(startDate, endDate),
+    weekLabel: weekLabel.trim() || formatShortPeriodRange(startDate, endDate),
     startDate,
     endDate,
     teamGroup: teamGroup || 'AARON',
@@ -532,6 +588,7 @@ export const PaymentsView: React.FC = () => {
     totalExtraWork: weekTotals.totalExtraWork,
     totalCommissions: weekTotals.totalCommissions,
     totalOtherDeductions: round2(weekTotals.totalOtherDeductions + weekTotals.totalAttendanceDiscounts),
+    totalNewLoans: weekTotals.totalNewLoans,
     totalLoanPayments: weekTotals.totalLoanPayments,
     totalLoanRemaining: weekTotals.totalLoanRemaining,
     grandTotalPay: weekTotals.grandTotalPay,
@@ -1001,817 +1058,58 @@ export const PaymentsView: React.FC = () => {
         </div>
       )}
 
-      {/* ==================== SUB-TAB 1: NÓMINA SEMANAL ==================== */}
+      {/* ==================== SUB-TAB 1: NÓMINA SEMANAL (FICHA INDIVIDUAL POR TRABAJADOR) ==================== */}
       {subTab === 'nomina' && (
-        <div className="space-y-5">
-          {/* Week Selector & Actions Bar */}
-          <div className="bg-white rounded-2xl border border-stone-200 shadow-xs p-4 sm:p-5 space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <label className="text-xs font-extrabold text-stone-700 uppercase">
-                  Semana Registrada:
-                </label>
-                <select
-                  value={selectedWeekId}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === 'new') {
-                      startNewAutomatedWeek(teamGroup || 'AARON');
-                    } else {
-                      const found = payrollWeeks.find((w) => w.id === val);
-                      if (found) loadWeekIntoEditor(found);
-                    }
-                  }}
-                  className="px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold bg-[#FAF8F5] text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
-                >
-                  {selectedWeekId === 'new' && (
-                    <option value="new">+ Nueva Nómina (Sin guardar)</option>
-                  )}
-                  {payrollWeeks.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.weekLabel} ({w.teamGroup}) — {fmtMoney(w.grandTotalPay)}
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  onClick={() => startNewAutomatedWeek(teamGroup || 'AARON')}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold transition cursor-pointer"
-                >
-                  <PlusCircle className="w-4 h-4 text-[#C3A25D]" />
-                  <span>Nueva Semana Automática</span>
-                </button>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowRatesPanel((s) => !s)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#FAF8F5] hover:bg-stone-200 text-[#000000] text-xs font-bold border border-stone-300 transition cursor-pointer"
-                >
-                  <Sliders className="w-3.5 h-3.5 text-[#5C1125]" />
-                  <span>Tarifas (200L: ${rates.fumigadaRate} | H.Ext: ${rates.extraHourRate})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => exportPayrollWeekExcel(currentExportWeek)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold transition cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-[#C3A25D]" />
-                  <span>Excel</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => exportPayrollWeekPdf(currentExportWeek)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-bold transition cursor-pointer"
-                >
-                  <FileText className="w-3.5 h-3.5 text-[#C3A25D]" />
-                  <span>PDF</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Period Metadata Inputs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-2 border-t border-stone-100">
-              <div className="lg:col-span-2">
-                <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">
-                  Título / Periodo de Nómina
-                </label>
-                <input
-                  type="text"
-                  value={weekLabel}
-                  onChange={(e) => setWeekLabel(e.target.value.toUpperCase())}
-                  placeholder="DEL 9 DE NOVIEMBRE AL 14 DE NOVIEMBRE"
-                  className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold uppercase focus:ring-2 focus:ring-[#5C1125]"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">
-                  Inicio
-                </label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    setWeekLabel(buildSpanishWeekLabel(e.target.value, endDate));
-                  }}
-                  className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-[#5C1125]"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">
-                  Fin
-                </label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => {
-                    setEndDate(e.target.value);
-                    setWeekLabel(buildSpanishWeekLabel(startDate, e.target.value));
-                  }}
-                  className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-[#5C1125]"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-stone-600 uppercase mb-1">
-                  Equipo / Encargado
-                </label>
-                <select
-                  value={teamGroup}
-                  onChange={(e) => setTeamGroup(e.target.value)}
-                  className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold bg-white focus:ring-2 focus:ring-[#5C1125]"
-                >
-                  {availableGroups.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                  <option value="TODOS">TODOS LOS EQUIPOS</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Configurable Unit Rates Panel */}
-            {showRatesPanel && (
-              <div className="p-4 rounded-xl bg-[#FAF8F5] border border-[#C3A25D]/50 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold uppercase tracking-wider text-[#5C1125]">
-                    Tarifas Automáticas de Cálculo (editables)
-                  </span>
-                  <span className="text-[11px] text-stone-500">
-                    Al cambiar una tarifa se recalculan las filas que tengan cantidad capturada.
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                  {(
-                    [
-                      ['fumigadaRate', 'Fumigada Tambo 200L ($)'],
-                      ['cargadaRate', 'Cargada ($/u)'],
-                      ['extraHourRate', 'Hora Extra ($/h)'],
-                      ['destajoRate', 'Destajo ($/u)'],
-                      ['defaultBonus', 'Bono AyP Base ($)'],
-                      ['workDaysPerWeek', 'Días Base Sem.'],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <div key={key}>
-                      <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                        {label}
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={String(rates[key])}
-                        onChange={(e) => handleRateChange(key, parseDec(e.target.value))}
-                        className="no-spinner w-full px-2.5 py-1.5 border border-stone-300 rounded-lg text-xs font-bold bg-white focus:ring-2 focus:ring-[#5C1125]"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Live Summary Strip */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            <div className="p-3.5 rounded-2xl bg-white border border-stone-200 shadow-xs">
-              <span className="text-[10px] font-bold uppercase text-stone-500">Sueldo Semana</span>
-              <p className="text-lg font-black text-[#000000] mt-0.5">{fmtMoney(weekTotals.totalWeekPay)}</p>
-            </div>
-            <div className="p-3.5 rounded-2xl bg-white border border-stone-200 shadow-xs">
-              <span className="text-[10px] font-bold uppercase text-[#535B28]">Bonos + Comis. + Extras</span>
-              <p className="text-lg font-black text-[#535B28] mt-0.5 tabular-nums">
-                {fmtMoney(
-                  weekTotals.totalBonus +
-                    weekTotals.totalFumigadas +
-                    weekTotals.totalCargadas +
-                    weekTotals.totalExtraHours +
-                    weekTotals.totalDestajos +
-                    weekTotals.totalExtraWork +
-                    weekTotals.totalCommissions
-                )}
-              </p>
-            </div>
-            <div className="p-3.5 rounded-2xl bg-white border border-stone-200 shadow-xs">
-              <span className="text-[10px] font-bold uppercase text-amber-700">Desc. + Abonos Prést.</span>
-              <p className="text-lg font-black text-amber-800 mt-0.5">
-                - {fmtMoney(weekTotals.totalLoanPayments + weekTotals.totalOtherDeductions + weekTotals.totalAttendanceDiscounts)}
-              </p>
-            </div>
-            <div className="p-3.5 rounded-2xl bg-white border border-stone-200 shadow-xs">
-              <span className="text-[10px] font-bold uppercase text-stone-500">Resta Préstamos</span>
-              <p className="text-lg font-black text-[#5C1125] mt-0.5">
-                {fmtMoney(weekTotals.totalLoanRemaining)}
-              </p>
-            </div>
-            <div className="col-span-2 sm:col-span-1 p-3.5 rounded-2xl bg-[#5C1125] text-white border border-[#C3A25D]/40 shadow-sm">
-              <span className="text-[10px] font-bold uppercase text-[#C3A25D]">Total Neto a Pagar</span>
-              <p className="text-xl font-black mt-0.5">{fmtMoney(weekTotals.grandTotalPay)}</p>
-            </div>
-          </div>
-
-          {/* Automated Payroll Table */}
-          <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
-            <div className="px-4 py-3 bg-[#FAF8F5] border-b border-stone-200 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-xs sm:text-sm font-extrabold text-[#000000]">
-                  Planilla Semanal — {teamGroup} ({rows.length} empleados)
-                </h2>
-                <p className="text-[11px] text-stone-500">
-                  Captura manual sin flechitas. Todos los totales y restas de préstamos se calculan en tiempo real.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleSyncPendingIncidents}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-bold shadow-xs transition cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-[#C3A25D]" />
-                  <span>
-                    Sincronizar Préstamos, Desc. y Comisiones
-                    {pendingAdjustments.length > 0 ? ` (${pendingAdjustments.length})` : ''}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePullMissingActiveEmployees}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 text-xs font-bold text-stone-700 hover:bg-stone-100 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5 text-[#535B28]" />
-                  <span>Traer Empleados Faltantes</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleMarkAllPaid}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#f7f8f2] border border-[#dce4bf] text-xs font-bold text-[#535B28] hover:bg-[#dce4bf]/50 cursor-pointer"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Marcar Todos Pagados</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse min-w-[1720px]">
-                <thead>
-                  <tr className="bg-[#5C1125] text-white text-[10px] uppercase tracking-wider">
-                    <th className="py-2.5 px-2.5 text-left sticky left-0 bg-[#5C1125] z-20 min-w-[175px] shadow-[4px_0_8px_rgba(0,0,0,0.08)]">
-                      Nombre / Neto Vivo
-                    </th>
-                    <th className="py-2.5 px-1.5 text-center w-14">Días</th>
-                    <th className="py-2.5 px-1.5 text-right w-24">P/ Semanal</th>
-                    <th className="py-2.5 px-2 text-right w-24">Semana</th>
-                    <th className="py-2.5 px-1.5 text-right w-20">Bono AyP</th>
-                    <th className="py-2.5 px-1.5 text-right w-22">Desc. Faltas / AyP</th>
-                    <th className="py-2.5 px-1.5 text-center w-28">
-                      Fumig. 200L (Cant / $)
-                    </th>
-                    <th className="py-2.5 px-1.5 text-center w-28">
-                      Carg. (Cant / $)
-                    </th>
-                    <th className="py-2.5 px-1.5 text-center w-28">
-                      H.Ext (Hrs / $)
-                    </th>
-                    <th className="py-2.5 px-1.5 text-center w-28">
-                      Destajo (Cant / $)
-                    </th>
-                    <th className="py-2.5 px-1.5 text-left w-36">Trab. Extra ($ / Desc.)</th>
-                    <th className="py-2.5 px-1.5 text-left w-36">Comisión / Bono+ ($ / Motivo)</th>
-                    <th className="py-2.5 px-1.5 text-right w-20">Otros Desc.</th>
-                    <th className="py-2.5 px-1.5 text-right w-24">Pago Prést.</th>
-                    <th className="py-2.5 px-1.5 text-right w-24">Préstamo</th>
-                    <th className="py-2.5 px-2 text-right w-24">Resta Prést.</th>
-                    <th className="py-2.5 px-2 text-center w-20">Recibo</th>
-                    <th className="py-2.5 px-2.5 text-right bg-[#3f0918] text-[#C3A25D] w-32 sticky right-0 z-20 shadow-[-6px_0_10px_rgba(0,0,0,0.16)]">
-                      Total Neto
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {rows.map((r, idx) => {
-                    const rowAdditions = round2(
-                      Number(r.attendanceBonus || 0) +
-                        Number(r.fumigadasAmount || 0) +
-                        Number(r.cargadasAmount || 0) +
-                        Number(r.extraHoursAmount || 0) +
-                        Number(r.destajosAmount || 0) +
-                        Number(r.extraWorkAmount || 0) +
-                        Number(r.commissionBonusAmount || 0)
-                    );
-                    const rowDeductions = round2(
-                      Number(r.attendanceDiscount || 0) +
-                        Number(r.otherDeductions || 0) +
-                        Number(r.loanPayment || 0)
-                    );
-                    return (
-                    <tr
-                      key={`${r.employeeId}-${idx}`}
-                      className={`hover:bg-[#FAF8F5] ${r.paid ? 'bg-[#f7f8f2]/35' : ''}`}
-                    >
-                      <td className="py-2 px-2.5 font-extrabold text-[#000000] sticky left-0 z-10 bg-white border-r border-stone-200 shadow-[4px_0_8px_rgba(0,0,0,0.04)]">
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type="checkbox"
-                            checked={r.paid}
-                            onChange={(e) =>
-                              updateRowField(idx, (row) => ({ ...row, paid: e.target.checked }))
-                            }
-                            title="Marcar pagado"
-                            className="rounded border-stone-300 text-[#535B28] focus:ring-[#535B28] cursor-pointer shrink-0"
-                          />
-                          <span className="truncate">{r.employeeName}</span>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold tabular-nums">
-                          <span className="text-[#5C1125]">Neto: {fmtMoney(r.totalNetPay)}</span>
-                          {rowAdditions > 0 && (
-                            <span className="text-[#535B28]">+{fmtMoney(rowAdditions)}</span>
-                          )}
-                          {rowDeductions > 0 && (
-                            <span className="text-rose-700">-{fmtMoney(rowDeductions)}</span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* DIAS */}
-                      <td className="py-1.5 px-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={r.daysWorked ? String(r.daysWorked) : ''}
-                          placeholder="0"
-                          onChange={(e) => {
-                            const nextDays = parseDec(e.target.value);
-                            const empRef = payrollEmployees.find((em) => em.id === r.employeeId);
-                            updateRowField(idx, (row) => ({
-                              ...row,
-                              daysWorked: nextDays,
-                              attendanceBonus:
-                                empRef?.hasAttendanceBonus && nextDays >= (rates.workDaysPerWeek || 6)
-                                  ? Number(empRef.defaultBonusAmount || rates.defaultBonus || 150)
-                                  : nextDays < (rates.workDaysPerWeek || 6)
-                                  ? 0
-                                  : row.attendanceBonus,
-                            }));
-                          }}
-                          className="no-spinner w-full text-center px-1.5 py-1 border border-stone-200 rounded-lg font-bold focus:ring-1 focus:ring-[#5C1125]"
-                        />
-                      </td>
-
-                      {/* P/ SEMANAL */}
-                      <td className="py-1.5 px-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={r.weeklySalary ? String(r.weeklySalary) : ''}
-                          placeholder="0"
-                          onChange={(e) =>
-                            updateRowField(idx, (row) => ({
-                              ...row,
-                              weeklySalary: parseDec(e.target.value),
-                            }))
-                          }
-                          className="no-spinner w-full text-right px-1.5 py-1 border border-stone-200 rounded-lg font-semibold focus:ring-1 focus:ring-[#5C1125]"
-                        />
-                      </td>
-
-                      {/* SEMANA (Auto) */}
-                      <td className="py-1.5 px-2 text-right font-bold text-stone-800 whitespace-nowrap">
-                        {fmtMoney(r.weekPay)}
-                      </td>
-
-                      {/* BONO/AyP */}
-                      <td className="py-1.5 px-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={r.attendanceBonus ? String(r.attendanceBonus) : ''}
-                          placeholder="0"
-                          onChange={(e) =>
-                            updateRowField(idx, (row) => ({
-                              ...row,
-                              attendanceBonus: parseDec(e.target.value),
-                            }))
-                          }
-                          className="no-spinner w-full text-right px-1.5 py-1 border border-stone-200 rounded-lg font-semibold text-[#535B28] focus:ring-1 focus:ring-[#5C1125]"
-                        />
-                      </td>
-
-                      {/* DESCUENTO AyP (Asistencia y Puntualidad) */}
-                      <td className="py-1.5 px-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={r.attendanceDiscount ? String(r.attendanceDiscount) : ''}
-                          placeholder="0"
-                          title="Descuento por falta o retardo (Asistencia y Puntualidad)"
-                          onChange={(e) =>
-                            updateRowField(idx, (row) => ({
-                              ...row,
-                              attendanceDiscount: parseDec(e.target.value),
-                            }))
-                          }
-                          className="no-spinner w-full text-right px-1.5 py-1 border border-rose-200 rounded-lg font-semibold text-rose-700 focus:ring-1 focus:ring-[#5C1125]"
-                        />
-                      </td>
-
-                      {/* FUMIGADAS (Qty + $) */}
-                      <td className="py-1.5 px-1">
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.fumigadasQty ? String(r.fumigadasQty) : ''}
-                            placeholder="Cant"
-                            onChange={(e) => {
-                              const qty = parseDec(e.target.value);
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                fumigadasQty: qty,
-                                fumigadasAmount: round2(qty * (rates.fumigadaRate || 20)),
-                              }));
-                            }}
-                            className="no-spinner w-12 text-center px-1 py-1 border border-stone-200 rounded-lg text-[11px] focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.fumigadasAmount ? String(r.fumigadasAmount) : ''}
-                            placeholder="$"
-                            onChange={(e) =>
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                fumigadasAmount: parseDec(e.target.value),
-                              }))
-                            }
-                            className="no-spinner w-14 text-right px-1 py-1 border border-stone-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                        </div>
-                      </td>
-
-                      {/* CARGADAS (Qty + $) */}
-                      <td className="py-1.5 px-1">
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.cargadasQty ? String(r.cargadasQty) : ''}
-                            placeholder="Cant"
-                            onChange={(e) => {
-                              const qty = parseDec(e.target.value);
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                cargadasQty: qty,
-                                cargadasAmount:
-                                  rates.cargadaRate > 0 ? round2(qty * rates.cargadaRate) : row.cargadasAmount,
-                              }));
-                            }}
-                            className="no-spinner w-12 text-center px-1 py-1 border border-stone-200 rounded-lg text-[11px] focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.cargadasAmount ? String(r.cargadasAmount) : ''}
-                            placeholder="$"
-                            onChange={(e) =>
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                cargadasAmount: parseDec(e.target.value),
-                              }))
-                            }
-                            className="no-spinner w-14 text-right px-1 py-1 border border-stone-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                        </div>
-                      </td>
-
-                      {/* HORAS EXTRAS (Qty + $) */}
-                      <td className="py-1.5 px-1">
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.extraHoursQty ? String(r.extraHoursQty) : ''}
-                            placeholder="Hrs"
-                            onChange={(e) => {
-                              const qty = parseDec(e.target.value);
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                extraHoursQty: qty,
-                                extraHoursAmount:
-                                  rates.extraHourRate > 0 ? round2(qty * rates.extraHourRate) : row.extraHoursAmount,
-                              }));
-                            }}
-                            className="no-spinner w-12 text-center px-1 py-1 border border-stone-200 rounded-lg text-[11px] focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.extraHoursAmount ? String(r.extraHoursAmount) : ''}
-                            placeholder="$"
-                            onChange={(e) =>
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                extraHoursAmount: parseDec(e.target.value),
-                              }))
-                            }
-                            className="no-spinner w-14 text-right px-1 py-1 border border-stone-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                        </div>
-                      </td>
-
-                      {/* DESTAJOS (Qty + $) */}
-                      <td className="py-1.5 px-1">
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.destajosQty ? String(r.destajosQty) : ''}
-                            placeholder="Cant"
-                            onChange={(e) => {
-                              const qty = parseDec(e.target.value);
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                destajosQty: qty,
-                                destajosAmount:
-                                  rates.destajoRate > 0 ? round2(qty * rates.destajoRate) : row.destajosAmount,
-                              }));
-                            }}
-                            className="no-spinner w-12 text-center px-1 py-1 border border-stone-200 rounded-lg text-[11px] focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.destajosAmount ? String(r.destajosAmount) : ''}
-                            placeholder="$"
-                            onChange={(e) =>
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                destajosAmount: parseDec(e.target.value),
-                              }))
-                            }
-                            className="no-spinner w-14 text-right px-1 py-1 border border-stone-200 rounded-lg text-[11px] font-semibold focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                        </div>
-                      </td>
-
-                      {/* TRABAJO EXTRA (Monto + Descripción abierta) */}
-                      <td className="py-1.5 px-1">
-                        <div className="space-y-1">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.extraWorkAmount ? String(r.extraWorkAmount) : ''}
-                            placeholder="$ Monto"
-                            onChange={(e) =>
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                extraWorkAmount: parseDec(e.target.value),
-                              }))
-                            }
-                            className="no-spinner w-full text-right px-1.5 py-1 border border-stone-200 rounded-lg font-semibold focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                          <input
-                            type="text"
-                            value={r.extraWorkDescription || ''}
-                            placeholder="Descripción trabajo extra..."
-                            onChange={(e) =>
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                extraWorkDescription: e.target.value,
-                              }))
-                            }
-                            className="w-full px-1.5 py-0.5 border border-stone-200 rounded-md text-[10px] text-stone-700 bg-[#FAF8F5] focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                        </div>
-                      </td>
-
-                      {/* COMISIÓN / BONO PRODUCTIVIDAD / PAGO ADICIONAL */}
-                      <td className="py-1.5 px-1">
-                        <div className="space-y-1">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={r.commissionBonusAmount ? String(r.commissionBonusAmount) : ''}
-                            placeholder="$ +Bono/Comis."
-                            onChange={(e) =>
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                commissionBonusAmount: parseDec(e.target.value),
-                              }))
-                            }
-                            className="no-spinner w-full text-right px-1.5 py-1 border border-[#dce4bf] bg-[#f7f8f2]/60 rounded-lg font-bold text-[#535B28] focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                          <input
-                            type="text"
-                            value={r.commissionBonusNotes || ''}
-                            placeholder="Bono prod., comisión..."
-                            onChange={(e) =>
-                              updateRowField(idx, (row) => ({
-                                ...row,
-                                commissionBonusNotes: e.target.value,
-                              }))
-                            }
-                            className="w-full px-1.5 py-0.5 border border-stone-200 rounded-md text-[10px] text-stone-700 bg-[#FAF8F5] focus:ring-1 focus:ring-[#5C1125]"
-                          />
-                        </div>
-                      </td>
-
-                      {/* OTROS DESCUENTOS */}
-                      <td className="py-1.5 px-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={r.otherDeductions ? String(r.otherDeductions) : ''}
-                          placeholder="0"
-                          onChange={(e) =>
-                            updateRowField(idx, (row) => ({
-                              ...row,
-                              otherDeductions: parseDec(e.target.value),
-                            }))
-                          }
-                          className="no-spinner w-full text-right px-1.5 py-1 border border-rose-200 rounded-lg font-semibold text-rose-700 focus:ring-1 focus:ring-[#5C1125]"
-                        />
-                      </td>
-
-                      {/* PAGO DE PRESTAMO */}
-                      <td className="py-1.5 px-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={r.loanPayment ? String(r.loanPayment) : ''}
-                          placeholder="0"
-                          onChange={(e) =>
-                            updateRowField(idx, (row) => ({
-                              ...row,
-                              loanPayment: parseDec(e.target.value),
-                            }))
-                          }
-                          className="no-spinner w-full text-right px-1.5 py-1 border border-amber-300 bg-amber-50/40 rounded-lg font-bold text-amber-900 focus:ring-1 focus:ring-[#5C1125]"
-                        />
-                      </td>
-
-                      {/* PRESTAMO ANTERIOR */}
-                      <td className="py-1.5 px-1">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={r.loanPreviousBalance ? String(r.loanPreviousBalance) : ''}
-                          placeholder="0"
-                          onChange={(e) =>
-                            updateRowField(idx, (row) => ({
-                              ...row,
-                              loanPreviousBalance: parseDec(e.target.value),
-                            }))
-                          }
-                          className="no-spinner w-full text-right px-1.5 py-1 border border-stone-200 rounded-lg font-semibold text-stone-700 focus:ring-1 focus:ring-[#5C1125]"
-                        />
-                      </td>
-
-                      {/* RESTA DEL PRESTAMO */}
-                      <td className="py-1.5 px-2 text-right font-extrabold text-[#5C1125] whitespace-nowrap tabular-nums">
-                        {fmtMoney(r.loanRemainingBalance)}
-                      </td>
-
-                      {/* RECIBO PDF */}
-                      <td className="py-1.5 px-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => exportEmployeePaySlipPdf(currentExportWeek, r)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#fbf2f4] hover:bg-[#ebccd4] text-[#5C1125] text-[11px] font-bold border border-[#ebccd4] cursor-pointer"
-                          title={`Descargar recibo PDF de ${r.employeeName}`}
-                        >
-                          <Receipt className="w-3 h-3" />
-                          <span>Recibo</span>
-                        </button>
-                      </td>
-
-                      {/* TOTAL NETO (SIEMPRE VISIBLE FIJO A LA DERECHA) */}
-                      <td className="py-1.5 px-2.5 text-right font-black text-sm text-[#5C1125] bg-[#FAF8F5] border-l border-[#C3A25D]/40 whitespace-nowrap tabular-nums sticky right-0 z-10 shadow-[-6px_0_10px_rgba(0,0,0,0.06)]">
-                        {fmtMoney(r.totalNetPay)}
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-[#000000] text-[#C3A25D] font-extrabold text-xs tabular-nums">
-                    <td className="py-3 px-2.5 sticky left-0 z-20 bg-[#000000]">TOTALES ({rows.length})</td>
-                    <td />
-                    <td />
-                    <td className="py-3 px-2 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalWeekPay)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalBonus)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right text-rose-300 whitespace-nowrap">
-                      -{fmtMoney(weekTotals.totalAttendanceDiscounts)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalFumigadas)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalCargadas)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalExtraHours)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalDestajos)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalExtraWork)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right text-[#d6be83] whitespace-nowrap">
-                      +{fmtMoney(weekTotals.totalCommissions)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right text-rose-300 whitespace-nowrap">
-                      -{fmtMoney(weekTotals.totalOtherDeductions)}
-                    </td>
-                    <td className="py-3 px-1.5 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalLoanPayments)}
-                    </td>
-                    <td />
-                    <td className="py-3 px-2 text-right whitespace-nowrap">
-                      {fmtMoney(weekTotals.totalLoanRemaining)}
-                    </td>
-                    <td />
-                    <td className="py-3 px-2.5 text-right text-sm text-white bg-[#5C1125] whitespace-nowrap sticky right-0 z-20 shadow-[-6px_0_10px_rgba(0,0,0,0.2)]">
-                      {fmtMoney(weekTotals.grandTotalPay)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            {/* Footer Save Bar */}
-            <div className="p-4 bg-[#FAF8F5] border-t border-stone-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-4">
-                <label className="flex items-center gap-2 text-xs font-bold text-stone-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={syncLoansOnSave}
-                    onChange={(e) => setSyncLoansOnSave(e.target.checked)}
-                    className="rounded border-stone-300 text-[#5C1125] focus:ring-[#5C1125]"
-                  />
-                  <span>Descontar abonos de préstamos y marcar descuentos/comisiones como aplicados</span>
-                </label>
-
-                <select
-                  value={weekStatus}
-                  onChange={(e) => setWeekStatus(e.target.value as 'borrador' | 'pagada')}
-                  className="px-3 py-1.5 rounded-lg border border-stone-300 bg-white text-xs font-bold"
-                >
-                  <option value="borrador">Estatus: Borrador</option>
-                  <option value="pagada">Estatus: Nómina Pagada</option>
-                </select>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {selectedWeekId !== 'new' &&
-                  (confirmDeleteWeekId === selectedWeekId ? (
-                    <div className="flex items-center gap-2 bg-rose-50 px-3 py-2 rounded-xl border border-rose-200">
-                      <span className="text-xs font-bold text-rose-800">¿Eliminar nómina?</span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteWeek(selectedWeekId)}
-                        className="text-xs font-extrabold text-rose-700 hover:underline cursor-pointer"
-                      >
-                        Sí, borrar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteWeekId(null)}
-                        className="text-xs text-stone-500 hover:underline cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteWeekId(selectedWeekId)}
-                      className="flex items-center gap-1 px-3 py-2 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-bold cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Eliminar Semana</span>
-                    </button>
-                  ))}
-
-                <button
-                  type="button"
-                  disabled={isSavingWeek}
-                  onClick={handleSavePayrollWeek}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer disabled:opacity-60"
-                >
-                  <Save className="w-4 h-4 text-[#C3A25D]" />
-                  <span>{isSavingWeek ? 'Guardando...' : 'Guardar Nómina en Supabase'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <WorkerPayrollWorkbench
+          today={today}
+          payrollEmployees={payrollEmployees}
+          payrollWeeks={payrollWeeks}
+          selectedWeekId={selectedWeekId}
+          weekLabel={weekLabel}
+          startDate={startDate}
+          endDate={endDate}
+          teamGroup={teamGroup}
+          weekStatus={weekStatus}
+          rates={rates}
+          rows={rows}
+          weekTotals={weekTotals}
+          availableGroups={availableGroups}
+          pendingAdjustmentsCount={pendingAdjustments.length}
+          syncLoansOnSave={syncLoansOnSave}
+          isSavingWeek={isSavingWeek}
+          confirmDeleteWeekId={confirmDeleteWeekId}
+          currentExportWeek={currentExportWeek}
+          onSelectWeek={(val) => {
+            if (val === 'new') {
+              startNewAutomatedWeek(teamGroup || 'AARON');
+            } else {
+              const found = payrollWeeks.find((w) => w.id === val);
+              if (found) loadWeekIntoEditor(found);
+            }
+          }}
+          onStartNewWeek={startNewAutomatedWeek}
+          onWeekLabelChange={setWeekLabel}
+          onStartDateChange={(val) => {
+            setStartDate(val);
+            setWeekLabel(formatShortPeriodRange(val, endDate));
+          }}
+          onEndDateChange={(val) => {
+            setEndDate(val);
+            setWeekLabel(formatShortPeriodRange(startDate, val));
+          }}
+          onTeamGroupChange={setTeamGroup}
+          onWeekStatusChange={setWeekStatus}
+          onRateChange={handleRateChange}
+          onUpdateRow={updateRowField}
+          onSyncPendingIncidents={handleSyncPendingIncidents}
+          onPullMissingEmployees={handlePullMissingActiveEmployees}
+          onMarkAllPaid={handleMarkAllPaid}
+          onSyncLoansOnSaveChange={setSyncLoansOnSave}
+          onSavePayrollWeek={handleSavePayrollWeek}
+          onRequestDeleteWeek={setConfirmDeleteWeekId}
+          onConfirmDeleteWeek={handleDeleteWeek}
+          onSaveEmployeeBaseSalary={handleSaveEmployeeBaseSalary}
+        />
       )}
 
       {/* ==================== SUB-TAB 2: PRÉSTAMOS Y DESCUENTOS ==================== */}
