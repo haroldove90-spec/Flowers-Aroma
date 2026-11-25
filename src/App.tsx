@@ -24,6 +24,7 @@ import { CostControlView } from './components/admin/CostControlView';
 import { DailyProductionView } from './components/production/DailyProductionView';
 import { DailySalesView } from './components/sales/DailySalesView';
 import { SalesOperationsView } from './components/sales/SalesOperationsView';
+import { BitacoraView } from './components/bitacora/BitacoraView';
 import { ProfileView } from './components/profile/ProfileView';
 import { ROLES } from './types/greenhouse';
 
@@ -77,6 +78,9 @@ const MainAppLayout: React.FC = () => {
         if (activeView === 'produccion_dia') {
           return <DailyProductionView />;
         }
+        if (activeView === 'bitacora') {
+          return <BitacoraView />;
+        }
         if (activeView === 'ventas_operacion') {
           return <SalesOperationsView />;
         }
@@ -85,6 +89,9 @@ const MainAppLayout: React.FC = () => {
         }
         return <AdminRoleView />;
       case 'produccion':
+        if (activeView === 'bitacora') {
+          return <BitacoraView />;
+        }
         if (activeView === 'ventas_operacion') {
           return <SalesOperationsView />;
         }

@@ -21,7 +21,7 @@ import {
   UserCog,
   PackageCheck,
   Truck,
-  Calculator,
+  ClipboardList,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { UserRole } from '../../types/greenhouse';
@@ -50,14 +50,15 @@ export const BottomBar: React.FC = () => {
         return [
           { id: 'admin_panel', label: 'Admin', icon: ShieldCheck },
           { id: 'produccion_dia', label: 'Prod.', icon: PackageCheck },
+          { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
           { id: 'ventas_operacion', label: 'Ventas', icon: Truck },
           { id: 'admin_insumos', label: 'Insumos', icon: Sprout },
-          { id: 'admin_costos', label: 'Costos', icon: Calculator },
           { id: 'admin_pagos', label: 'Nómina', icon: Wallet },
         ];
       case 'produccion':
         return [
           { id: 'produccion_dia', label: 'Producción', icon: PackageCheck },
+          { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
           { id: 'ventas_operacion', label: 'Remisiones', icon: Truck },
           { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
           ...(currentUser?.role === 'admin'

@@ -31,6 +31,7 @@ import {
   ArrowLeftRight,
   Truck,
   Calculator,
+  ClipboardList,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { UserRole } from '../../types/greenhouse';
@@ -79,6 +80,7 @@ export const Sidebar: React.FC = () => {
         return [
           { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
           { id: 'produccion_dia', label: 'Producción e Inventario', icon: Layers },
+          { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
           { id: 'ventas_operacion', label: 'Ventas, Remisiones y Cobranza', icon: Truck },
           { id: 'admin_insumos', label: 'Insumos y Aplicaciones', icon: Sprout },
           { id: 'admin_costos', label: 'Control de Costos y Utilidad', icon: Calculator },
@@ -93,6 +95,7 @@ export const Sidebar: React.FC = () => {
       case 'produccion':
         return [
           { id: 'produccion_dia', label: 'Producción e Inventario', icon: PackageCheck },
+          { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
           { id: 'ventas_operacion', label: 'Ventas y Remisiones (Tablet)', icon: Truck },
           { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
         ];

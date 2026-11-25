@@ -35,6 +35,7 @@ import {
   SupplyItem,
   SupplyPurchase,
   GreenhouseApplication,
+  BitacoraEntry,
   ROLES,
 } from '../types/greenhouse';
 import {
@@ -103,6 +104,8 @@ import {
   mapEquipmentToDb,
   mapGreenhouseApplicationFromDb,
   mapGreenhouseApplicationToDb,
+  mapBitacoraEntryFromDb,
+  mapBitacoraEntryToDb,
   mapHarvestToDb,
   mapInventoryToDb,
   mapIrrigationToDb,
@@ -361,6 +364,14 @@ interface GreenhouseContextType {
     input: Omit<GreenhouseApplication, 'id' | 'createdAt' | 'updatedAt'>
   ) => Promise<{ ok: boolean; entry?: GreenhouseApplication; cloudSynced?: boolean; cloudError?: string }>;
   deleteGreenhouseApplication: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  // Bitácora diaria de operaciones agrícolas
+  bitacoraEntries: BitacoraEntry[];
+  saveBitacoraEntry: (
+    input: Omit<BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; entry?: BitacoraEntry; cloudSynced?: boolean; cloudError?: string }>;
+  deleteBitacoraEntry: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
 
   refreshFromSupabase: () => Promise<boolean>;
 
@@ -682,6 +693,20 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     loadInitial('greenhouse_applications', INITIAL_GREENHOUSE_APPLICATIONS)
   );
 
+  // Bitácora diaria de operaciones agrícolas (Labores culturales, Aplicaciones foliares, Riego, Monitoreo)
+  const [bitacoraEntries, setBitacoraEntries] = useState<BitacoraEntry[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}bitacora_entries`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+
   // Inventario General Único (Consolidado Producción - Cargas de Camioneta - Remisiones Directas)
   const generalInventory = useMemo<GeneralInventoryRow[]>(() => {
     const map = new Map<string, GeneralInventoryRow>();
@@ -883,6 +908,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'supply_items',
       'supply_purchases',
       'greenhouse_applications',
+      'bitacora_entries',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -937,6 +963,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'supply_items',
       'supply_purchases',
       'greenhouse_applications',
+      'bitacora_entries',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -1065,6 +1092,10 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (snap.greenhouseApplications !== undefined && !pendingTables.has('greenhouse_applications')) {
       setGreenhouseApplications(snap.greenhouseApplications);
       saveState('greenhouse_applications', snap.greenhouseApplications);
+    }
+    if (snap.bitacoraEntries !== undefined && !pendingTables.has('bitacora_entries')) {
+      setBitacoraEntries(snap.bitacoraEntries);
+      saveState('bitacora_entries', snap.bitacoraEntries);
     }
     if (snap.modules) {
       setModules(snap.modules);
@@ -3278,6 +3309,67 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { ok: true, cloudSynced: res.ok };
   };
 
+  // ==================== BITÁCORA DIARIA DE OPERACIONES AGRÍCOLAS ====================
+  const saveBitacoraEntry = async (
+    input: Omit<BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{ ok: boolean; entry?: BitacoraEntry; cloudSynced?: boolean; cloudError?: string }> => {
+    const now = new Date().toISOString();
+    const existing = existingId ? bitacoraEntries.find((b) => b.id === existingId) : undefined;
+    const pct = Math.max(0, Math.min(100, Math.round(Number(input.progressPercent || 0))));
+    const computedStatus =
+      pct >= 100 ? 'terminado' : pct > 0 ? 'en_proceso' : 'pendiente';
+    const entry: BitacoraEntry = {
+      id: existingId || `bit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      category: input.category || 'labores_culturales',
+      entryDate: input.entryDate || new Date().toISOString().slice(0, 10),
+      moduleName: input.moduleName || 'Santa Cruz Módulo 1',
+      activity: input.activity ?? '',
+      personnelCount: Math.max(0, Math.round(Number(input.personnelCount || 0))),
+      progressPercent: pct,
+      status: input.status || computedStatus,
+      notes: input.notes ?? '',
+      extraData: input.extraData || {},
+      createdBy: input.createdBy || existing?.createdBy || currentUser?.fullName || '',
+      sortOrder: Number(input.sortOrder ?? existing?.sortOrder ?? Date.now()),
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setBitacoraEntries((prev) => {
+      const exists = prev.some((b) => b.id === entry.id);
+      const updated = exists
+        ? prev.map((b) => (b.id === entry.id ? entry : b))
+        : [...prev, entry];
+      saveState('bitacora_entries', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase('bitacora_entries', mapBitacoraEntryToDb(entry));
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapBitacoraEntryFromDb(cloudRes.savedRow);
+      setBitacoraEntries((prev) => {
+        const updated = prev.map((b) => (b.id === entry.id ? synced : b));
+        saveState('bitacora_entries', updated);
+        return updated;
+      });
+    }
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteBitacoraEntry = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setBitacoraEntries((prev) => {
+      const updated = prev.filter((b) => b.id !== id);
+      saveState('bitacora_entries', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('bitacora_entries', id);
+    addAuditLog('Bitácora', `Registro de bitácora eliminado (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
   // Demo data wipe function (as requested in the prompt)
   const clearAllDemoData = () => {
     setModules([]);
@@ -3307,6 +3399,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setClientPayments([]);
     setSupplyPurchases([]);
     setGreenhouseApplications([]);
+    setBitacoraEntries([]);
 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}demo_cleared`, 'true');
     localStorage.setItem(`${STORAGE_KEY_PREFIX}never_show_demo`, 'true');
@@ -3342,6 +3435,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'client_payments',
       'supply_purchases',
       'greenhouse_applications',
+      'bitacora_entries',
     ];
     keys.forEach((k) => localStorage.removeItem(`${STORAGE_KEY_PREFIX}${k}`));
 
@@ -3451,6 +3545,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           supplyItems,
           supplyPurchases,
           greenhouseApplications,
+          bitacoraEntries,
           modules,
           tasks,
           irrigation,
@@ -4023,7 +4118,28 @@ CREATE TABLE IF NOT EXISTS employee_adjustments (
 
 CREATE INDEX IF NOT EXISTS idx_employee_adjustments_emp_status ON employee_adjustments (employee_id, status, adjustment_date DESC);
 
--- 20. Habilitar RLS y políticas de acceso para las 18 tablas activas de Aroma Flower
+-- 20. Bitácora Diaria de Operaciones Agrícolas (Labores culturales, Aplicaciones foliares, Riego, Monitoreo)
+CREATE TABLE IF NOT EXISTS bitacora_entries (
+    id TEXT PRIMARY KEY,
+    category TEXT NOT NULL DEFAULT 'labores_culturales',
+    entry_date TEXT NOT NULL,
+    module_name TEXT NOT NULL DEFAULT 'Santa Cruz Módulo 1',
+    activity TEXT NOT NULL DEFAULT '',
+    personnel_count INT NOT NULL DEFAULT 0,
+    progress_percent INT NOT NULL DEFAULT 0 CHECK (progress_percent >= 0 AND progress_percent <= 100),
+    status TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'en_proceso', 'terminado')),
+    notes TEXT DEFAULT '',
+    extra_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_by TEXT DEFAULT '',
+    sort_order BIGINT NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bitacora_entries_cat_date ON bitacora_entries (category, entry_date DESC, sort_order ASC);
+CREATE INDEX IF NOT EXISTS idx_bitacora_entries_module ON bitacora_entries (module_name, entry_date DESC);
+
+-- 21. Habilitar RLS y políticas de acceso para las 19 tablas activas de Aroma Flower
 DO $$
 DECLARE
   t TEXT;
@@ -4045,7 +4161,8 @@ DECLARE
     'client_payments',
     'supply_items',
     'supply_purchases',
-    'greenhouse_applications'
+    'greenhouse_applications',
+    'bitacora_entries'
   ];
 BEGIN
   FOREACH t IN ARRAY tbls LOOP
@@ -4390,12 +4507,13 @@ TRUNCATE TABLE
   remission_notes,
   client_payments,
   supply_purchases,
-  greenhouse_applications
+  greenhouse_applications,
+  bitacora_entries
 CASCADE;
 UPDATE payroll_employees SET loan_balance = 0;
 UPDATE sales_clients SET balance = 0;
 COMMIT;
--- Las 18 tablas activas permanecen listas para operación real.
+-- Las 19 tablas activas permanecen listas para operación real.
 `;
     }
 
@@ -4463,6 +4581,7 @@ COMMIT;
       supplyItems,
       supplyPurchases,
       greenhouseApplications,
+      bitacoraEntries,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -4502,6 +4621,7 @@ COMMIT;
       if (data.supplyItems) setSupplyItems(data.supplyItems);
       if (data.supplyPurchases) setSupplyPurchases(data.supplyPurchases);
       if (data.greenhouseApplications) setGreenhouseApplications(data.greenhouseApplications);
+      if (data.bitacoraEntries) setBitacoraEntries(data.bitacoraEntries);
 
       setDemoDataCleared(false);
       addAuditLog('Restauración de Respaldo', 'Base de datos restaurada desde archivo JSON');
@@ -4607,6 +4727,9 @@ COMMIT;
         greenhouseApplications,
         addGreenhouseApplication,
         deleteGreenhouseApplication,
+        bitacoraEntries,
+        saveBitacoraEntry,
+        deleteBitacoraEntry,
         refreshFromSupabase,
         addModule,
         updateModule,

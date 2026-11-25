@@ -35,6 +35,7 @@ import {
   SupplyItem,
   SupplyPurchase,
   GreenhouseApplication,
+  BitacoraEntry,
 } from '../types/greenhouse';
 
 export const DEFAULT_SUPABASE_URL =
@@ -120,6 +121,7 @@ export async function testSupabaseConnection(
       client.from('supply_items').select('id').limit(1),
       client.from('supply_purchases').select('id').limit(1),
       client.from('greenhouse_applications').select('id').limit(1),
+      client.from('bitacora_entries').select('id').limit(1),
     ]);
     const error = checks.find((c) => c.error)?.error;
     if (!error) {
@@ -128,7 +130,7 @@ export async function testSupabaseConnection(
         tablesReady: true,
         status: 'connected',
         message:
-          'Conexión exitosa y las 16 tablas activas de Aroma Flower están listas en Supabase.',
+          'Conexión exitosa y todas las tablas activas de Aroma Flower están listas en Supabase.',
       };
     }
 
@@ -142,7 +144,7 @@ export async function testSupabaseConnection(
         tablesReady: false,
         status: 'missing_tables',
         message:
-          'Proyecto Supabase conectado, pero falta ejecutar el SQL actualizado (16 tablas activas) en Supabase → SQL Editor (botón Run).',
+          'Proyecto Supabase conectado, pero falta ejecutar el SQL actualizado en Supabase → SQL Editor (botón Run).',
       };
     }
 
@@ -1415,6 +1417,54 @@ export const mapGreenhouseAppFromDb = (r: any): GreenhouseApplication => {
 export const mapGreenhouseApplicationToDb = mapGreenhouseAppToDb;
 export const mapGreenhouseApplicationFromDb = mapGreenhouseAppFromDb;
 
+export const mapBitacoraEntryToDb = (b: BitacoraEntry) => {
+  const pct = Math.max(0, Math.min(100, Math.round(Number(b.progressPercent || 0))));
+  const computedStatus =
+    pct >= 100 ? 'terminado' : pct > 0 ? 'en_proceso' : 'pendiente';
+  return {
+    id: b.id,
+    category: b.category || 'labores_culturales',
+    entry_date: b.entryDate,
+    module_name: b.moduleName || 'Santa Cruz Módulo 1',
+    activity: b.activity || '',
+    personnel_count: Math.max(0, Math.round(Number(b.personnelCount || 0))),
+    progress_percent: pct,
+    status: b.status || computedStatus,
+    notes: b.notes || '',
+    extra_data: b.extraData || {},
+    created_by: b.createdBy || '',
+    sort_order: Number(b.sortOrder || 0),
+    created_at: b.createdAt || '',
+    updated_at: new Date().toISOString(),
+  };
+};
+
+export const mapBitacoraEntryFromDb = (r: any): BitacoraEntry => {
+  const pct = Math.max(0, Math.min(100, Math.round(Number(r.progress_percent ?? 0))));
+  const status =
+    r.status === 'terminado' || pct >= 100
+      ? 'terminado'
+      : r.status === 'en_proceso' || pct > 0
+      ? 'en_proceso'
+      : 'pendiente';
+  return {
+    id: String(r.id),
+    category: r.category || 'labores_culturales',
+    entryDate: r.entry_date || '',
+    moduleName: r.module_name || 'Santa Cruz Módulo 1',
+    activity: r.activity || '',
+    personnelCount: Math.max(0, Math.round(Number(r.personnel_count ?? 0))),
+    progressPercent: pct,
+    status,
+    notes: r.notes || '',
+    extraData: r.extra_data && typeof r.extra_data === 'object' ? r.extra_data : {},
+    createdBy: r.created_by || '',
+    sortOrder: Number(r.sort_order ?? 0),
+    createdAt: r.created_at || '',
+    updatedAt: r.updated_at || undefined,
+  };
+};
+
 // ---------- Sync Helpers ----------
 
 export async function upsertRowsToSupabase(
@@ -1553,6 +1603,7 @@ export interface RemoteSnapshot {
   supplyItems?: SupplyItem[];
   supplyPurchases?: SupplyPurchase[];
   greenhouseApplications?: GreenhouseApplication[];
+  bitacoraEntries?: BitacoraEntry[];
   modules?: GreenhouseModule[];
   tasks?: CulturalTask[];
   irrigation?: IrrigationLog[];
@@ -1593,6 +1644,7 @@ export async function fetchAllFromSupabase(
     sitemRes,
     spurRes,
     gappRes,
+    bitacoraRes,
   ] = await Promise.all([
     client.from('app_users').select('*'),
     client.from('app_products').select('*').order('sort_order', { ascending: true }),
@@ -1612,6 +1664,11 @@ export async function fetchAllFromSupabase(
     client.from('supply_items').select('*').order('name', { ascending: true }),
     client.from('supply_purchases').select('*').order('purchase_date', { ascending: false }),
     client.from('greenhouse_applications').select('*').order('application_date', { ascending: false }),
+    client
+      .from('bitacora_entries')
+      .select('*')
+      .order('entry_date', { ascending: false })
+      .order('sort_order', { ascending: true }),
   ]);
 
   const isMissingTable = (err: any) =>
@@ -1639,6 +1696,7 @@ export async function fetchAllFromSupabase(
     sitemRes,
     spurRes,
     gappRes,
+    bitacoraRes,
   ];
 
   const mappedBase = {
@@ -1660,6 +1718,7 @@ export async function fetchAllFromSupabase(
     supplyItems: !sitemRes.error && sitemRes.data?.length ? sitemRes.data.map(mapSupplyItemFromDb) : undefined,
     supplyPurchases: !spurRes.error && spurRes.data ? spurRes.data.map(mapSupplyPurchaseFromDb) : undefined,
     greenhouseApplications: !gappRes.error && gappRes.data ? gappRes.data.map(mapGreenhouseAppFromDb) : undefined,
+    bitacoraEntries: !bitacoraRes.error && bitacoraRes.data ? bitacoraRes.data.map(mapBitacoraEntryFromDb) : undefined,
   };
 
   if (allRes.some((r) => isMissingTable(r.error))) {
@@ -1758,6 +1817,7 @@ export interface LocalStateSnapshot {
   supplyItems: SupplyItem[];
   supplyPurchases: SupplyPurchase[];
   greenhouseApplications: GreenhouseApplication[];
+  bitacoraEntries: BitacoraEntry[];
   modules: GreenhouseModule[];
   tasks: CulturalTask[];
   irrigation: IrrigationLog[];
@@ -1799,6 +1859,7 @@ export async function pushAllLocalToSupabase(
     { table: 'supply_items', rows: state.supplyItems.map(mapSupplyItemToDb) },
     { table: 'supply_purchases', rows: state.supplyPurchases.map(mapSupplyPurchaseToDb) },
     { table: 'greenhouse_applications', rows: state.greenhouseApplications.map(mapGreenhouseAppToDb) },
+    { table: 'bitacora_entries', rows: state.bitacoraEntries.map(mapBitacoraEntryToDb) },
   ];
 
   const batches = onlyAromaFlowers

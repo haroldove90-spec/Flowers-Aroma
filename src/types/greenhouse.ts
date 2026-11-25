@@ -900,3 +900,57 @@ export interface AuditLogEntry {
   action: string;
   details: string;
 }
+
+// ==================== BITÁCORA DIARIA DE OPERACIONES AGRÍCOLAS ====================
+
+export type BitacoraCategory =
+  | 'labores_culturales'
+  | 'aplicaciones_foliares'
+  | 'riego'
+  | 'monitoreo'
+  | (string & {});
+
+export const BITACORA_MODULES = [
+  'Santa Cruz Módulo 1',
+  'Santa Cruz Módulo 2',
+  'Saúl Módulo 1',
+  'Saúl Módulo 2',
+  'Lapisaco Módulo 1',
+  'Lapisaco Módulo 2',
+  'Lapisaco Módulo 3',
+] as const;
+
+export type BitacoraModuleName = (typeof BITACORA_MODULES)[number];
+
+export const BITACORA_ACTIVITY_SUGGESTIONS = [
+  'Corte',
+  'Deshierbe',
+  'Poda',
+  'Tutoreo',
+  'Desbotonado',
+  'Desahije',
+  'Toque de hoja',
+  'Limpieza de camas',
+  'Manejo de cortinas',
+  'Acomodo de mallas',
+] as const;
+
+export type BitacoraStatus = 'pendiente' | 'en_proceso' | 'terminado';
+
+export interface BitacoraEntry {
+  id: string;
+  category: BitacoraCategory;
+  entryDate: string; // YYYY-MM-DD
+  moduleName: string;
+  activity: string;
+  personnelCount: number;
+  progressPercent: number; // 0 - 100
+  status: BitacoraStatus;
+  notes?: string;
+  extraData?: Record<string, any>;
+  createdBy?: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
