@@ -8,25 +8,11 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
-  ArrowRight,
   FileSpreadsheet,
   FileText,
-  UserCog,
   KeyRound,
   Eye,
   EyeOff,
-  Boxes,
-  Layers,
-  TrendingUp,
-  Wallet,
-  Truck,
-  Sprout,
-  Calculator,
-  CreditCard,
-  Building2,
-  ClipboardList,
-  SprayCan,
-  Store,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import {
@@ -60,8 +46,6 @@ export const AdminRoleView: React.FC = () => {
     employeeAdjustments,
     suppliers,
     supplierPayments,
-    setActiveRole,
-    setActiveView,
   } = useGreenhouse();
 
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -255,245 +239,76 @@ export const AdminRoleView: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      {/* Admin Hero Banner */}
-      <div className="bg-linear-to-r from-[#5C1125] via-[#430c1b] to-[#000000] text-white p-5 sm:p-7 rounded-2xl shadow-sm border border-[#C3A25D]/30">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <AromaFlowersLogo size="lg" className="shrink-0" />
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-widest text-[#C3A25D]">
-                  Rol Administrador &bull; Acceso Dual
-                </span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#535B28] text-white">
-                  Admin + Producción
-                </span>
-              </div>
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight mt-0.5">
-                Panel General de Administración
-              </h1>
-              <p className="text-xs sm:text-sm text-[#d6be83] mt-0.5">
-                Sesión activa: <strong className="text-white">{currentUser?.fullName}</strong> (@{currentUser?.username})
-              </p>
+      {/* Admin Hero Banner (Clean Header - Navigation lives solely in Sidebar/Navbar) */}
+      <div className="bg-linear-to-r from-[#5C1125] via-[#430c1b] to-[#000000] text-white p-5 sm:p-6 rounded-2xl shadow-sm border border-[#C3A25D]/30">
+        <div className="flex items-center gap-3.5">
+          <AromaFlowersLogo size="lg" className="shrink-0" />
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-[#C3A25D]">
+                Rol Administrador
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#535B28] text-white">
+                Acceso Total
+              </span>
             </div>
-          </div>
-
-          {/* Direct module buttons inside Admin + switch to Producción */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveView('pos_caja')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-black shadow-md transition cursor-pointer"
-            >
-              <Store className="w-4 h-4" />
-              <span>POS Pantalla Completa</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_pagos')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
-            >
-              <Wallet className="w-4 h-4 text-[#C3A25D]" />
-              <span>Nómina y Pagos</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_incidencias')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
-            >
-              <CreditCard className="w-4 h-4 text-[#C3A25D]" />
-              <span>Préstamos y Desc.</span>
-              {kpis.pendingAdjustmentsCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded bg-[#C3A25D] text-[#000000] text-[10px] font-black">
-                  {kpis.pendingAdjustmentsCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_proveedores')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
-            >
-              <Building2 className="w-4 h-4 text-[#C3A25D]" />
-              <span>Proveedores ({kpis.activeSuppliersCount})</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_empleados')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
-            >
-              <Users className="w-4 h-4 text-[#C3A25D]" />
-              <span>Empleados ({kpis.activeEmployees})</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('produccion_dia')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs sm:text-sm font-bold shadow-md transition cursor-pointer border border-[#C3A25D]/40"
-            >
-              <Layers className="w-4 h-4 text-[#C3A25D]" />
-              <span>Producción e Inventario</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('bitacora')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
-            >
-              <ClipboardList className="w-4 h-4 text-[#C3A25D]" />
-              <span>Bitácora</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('aplicaciones_foliares')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
-            >
-              <SprayCan className="w-4 h-4 text-[#C3A25D]" />
-              <span>Aplicaciones Foliares</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('ventas_operacion')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
-            >
-              <Truck className="w-4 h-4 text-[#C3A25D]" />
-              <span>Ventas y Remisiones</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_insumos')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
-            >
-              <Sprout className="w-4 h-4 text-[#C3A25D]" />
-              <span>Insumos y Aplicaciones</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_costos')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
-            >
-              <Calculator className="w-4 h-4 text-[#C3A25D]" />
-              <span>Costos y Utilidad</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_productos')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
-            >
-              <Boxes className="w-4 h-4 text-[#C3A25D]" />
-              <span>Productos ({kpis.totalProductos})</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setActiveRole('ventas');
-                setActiveView('ventas_operacion');
-              }}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
-            >
-              <TrendingUp className="w-4 h-4 text-[#C3A25D]" />
-              <span>Rol Ventas</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setActiveRole('bitacora');
-                setActiveView('bitacora');
-              }}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
-            >
-              <ClipboardList className="w-4 h-4 text-[#C3A25D]" />
-              <span>Rol Bitácora</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('mi_perfil')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-semibold border border-white/15 transition cursor-pointer"
-            >
-              <UserCog className="w-4 h-4 text-[#C3A25D]" />
-              <span>Mi Perfil</span>
-            </button>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight mt-0.5">
+              Panel General de Administración
+            </h1>
+            <p className="text-xs sm:text-sm text-[#d6be83] mt-0.5">
+              Sesión activa: <strong className="text-white">{currentUser?.fullName}</strong> (@{currentUser?.username})
+            </p>
           </div>
         </div>
       </div>
 
       {/* KPI Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <button
-          type="button"
-          onClick={() => setActiveView('produccion_dia')}
-          className="text-left p-4 rounded-2xl bg-white border border-stone-200 hover:border-[#5C1125] shadow-xs transition cursor-pointer"
-        >
+        <div className="text-left p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
           <span className="text-[11px] font-bold text-[#5C1125] uppercase tracking-wider">
             Producción Hoy
           </span>
-          <p className="mt-1 text-2xl font-black text-[#000000]">
+          <p className="mt-1 text-2xl font-black text-[#000000] tabular-nums">
             {kpis.totalHoy.toLocaleString()}
           </p>
           <span className="text-[10px] text-stone-500">
             {kpis.empleadosHoy} empleado(s) hoy
           </span>
-        </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveView('admin_pagos')}
-          className="text-left p-4 rounded-2xl bg-white border border-stone-200 hover:border-[#C3A25D] shadow-xs transition cursor-pointer"
-        >
+        <div className="text-left p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
           <span className="text-[11px] font-bold text-[#8a6d2b] uppercase tracking-wider">
             Última Nómina
           </span>
-          <p className="mt-1 text-2xl font-black text-[#000000]">
+          <p className="mt-1 text-2xl font-black text-[#000000] tabular-nums">
             ${kpis.lastWeekTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <span className="text-[10px] text-stone-500">
             Préstamos: ${kpis.totalLoanPending.toLocaleString('es-MX', { minimumFractionDigits: 2 })} &bull; Prov. pend: ${kpis.pendingSuppliers.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
           </span>
-        </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveView('admin_empleados')}
-          className="text-left p-4 rounded-2xl bg-white border border-stone-200 hover:border-[#535B28] shadow-xs transition cursor-pointer"
-        >
+        <div className="text-left p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
           <span className="text-[11px] font-bold text-[#535B28] uppercase tracking-wider">
             Empleados Activos
           </span>
-          <p className="mt-1 text-2xl font-black text-[#000000]">{kpis.activeEmployees}</p>
+          <p className="mt-1 text-2xl font-black text-[#000000] tabular-nums">{kpis.activeEmployees}</p>
           <span className="text-[10px] text-stone-500">
             Alta, bajas, credenciales y WhatsApp
           </span>
-        </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveView('admin_productos')}
-          className="text-left p-4 rounded-2xl bg-white border border-stone-200 hover:border-[#5C1125] shadow-xs transition cursor-pointer"
-        >
+        <div className="text-left p-4 rounded-2xl bg-white border border-stone-200 shadow-xs">
           <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wider">
             Productos / Cuentas
           </span>
-          <p className="mt-1 text-2xl font-black text-[#000000]">
+          <p className="mt-1 text-2xl font-black text-[#000000] tabular-nums">
             {kpis.totalProductos} <span className="text-sm font-bold text-stone-400">/ {kpis.totalAdmins + kpis.totalProd}</span>
           </p>
           <span className="text-[10px] text-stone-500">
             {kpis.totalAdmins} Admin &bull; {kpis.totalProd} Operativos
           </span>
-        </button>
+        </div>
       </div>
 
       {/* Export All Admin Records Bar (Excel & PDF) */}

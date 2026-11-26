@@ -33,7 +33,7 @@ export const AgrochemicalsCatalogPanel: React.FC<AgrochemicalsCatalogPanelProps>
   isOpen,
   onClose,
 }) => {
-  const { supplyItems, supplyPurchases, saveSupplyItem, canAccessModule, setActiveView } =
+  const { supplyItems, supplyPurchases, saveSupplyItem } =
     useGreenhouse();
 
   const [search, setSearch] = useState('');
@@ -174,19 +174,6 @@ export const AgrochemicalsCatalogPanel: React.FC<AgrochemicalsCatalogPanelProps>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {canAccessModule('admin_insumos') && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  setActiveView('admin_insumos');
-                }}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-xs font-semibold text-[#535B28] transition cursor-pointer whitespace-nowrap"
-              >
-                <ShoppingBag className="w-3.5 h-3.5" />
-                <span>Abrir Compras / Inventario</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={onClose}

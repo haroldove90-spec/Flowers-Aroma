@@ -7,10 +7,24 @@ import {
   ShieldCheck,
   TrendingUp,
   ClipboardList,
-  ArrowLeftRight,
+  Menu,
+  X,
+  Store,
+  Layers,
+  SprayCan,
+  Truck,
+  Sprout,
+  Calculator,
+  Wallet,
+  CreditCard,
+  Building2,
+  Users,
+  Boxes,
+  UserCog,
+  PackageCheck,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
-import { UserRole } from '../../types/greenhouse';
+import { UserRole, getUserRoleDisplayInfo } from '../../types/greenhouse';
 import { AromaFlowersLogo } from './AromaFlowersLogo';
 import { PWAInstallButton } from './PWAInstallButton';
 import { DataManagementModal } from './DataManagementModal';
@@ -19,9 +33,11 @@ export const Header: React.FC = () => {
   const {
     currentUser,
     activeRole,
+    activeView,
     setActiveRole,
     setActiveView,
     canAccessRole,
+    canAccessModule,
     hasFullAccess,
     getDefaultAllowedView,
     logout,
@@ -32,6 +48,7 @@ export const Header: React.FC = () => {
   const isFullAdmin = hasFullAccess(currentUser);
 
   const [showDataModal, setShowDataModal] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   const handleSwitchRole = (role: UserRole) => {
     if (!isFullAdmin || !canAccessRole(role)) return;
@@ -49,6 +66,7 @@ export const Header: React.FC = () => {
     } else {
       setActiveView('principal');
     }
+    setShowMobileMenu(false);
   };
 
   const handleHomeLogoClick = () => {
@@ -71,6 +89,48 @@ export const Header: React.FC = () => {
     }
   };
 
+  const getMobileDrawerItems = () => {
+    const allMainModules = [
+      { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
+      { id: 'pos_caja', label: 'POS (Punto de Venta)', icon: Store },
+      { id: 'produccion_dia', label: 'Producción e Inventario', icon: Layers },
+      { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
+      { id: 'aplicaciones_foliares', label: 'Aplicaciones Foliares', icon: SprayCan },
+      { id: 'ventas_operacion', label: 'Ventas, Remisiones y Cobranza', icon: Truck },
+      { id: 'admin_insumos', label: 'Insumos y Aplicaciones', icon: Sprout },
+      { id: 'admin_costos', label: 'Control de Costos y Utilidad', icon: Calculator },
+      { id: 'admin_pagos', label: 'Nómina y Pagos', icon: Wallet },
+      { id: 'admin_incidencias', label: 'Préstamos, Desc. y Comis.', icon: CreditCard },
+      { id: 'admin_proveedores', label: 'Proveedores y Ctas. x Pagar', icon: Building2 },
+      { id: 'admin_empleados', label: 'Empleados', icon: Users },
+      { id: 'admin_productos', label: 'Catálogo de Productos', icon: Boxes },
+      { id: 'resumen_ventas', label: 'Resumen Diario (Histórico)', icon: TrendingUp },
+      { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
+    ];
+
+    if (!isFullAdmin) {
+      return allMainModules.filter((item) => canAccessModule(item.id));
+    }
+
+    if (activeRole === 'ventas') {
+      return [
+        { id: 'pos_caja', label: 'POS (Punto de Venta)', icon: Store },
+        { id: 'ventas_operacion', label: 'Ventas, Remisiones y Cobranza', icon: Truck },
+        { id: 'resumen_ventas', label: 'Resumen Diario (Histórico)', icon: TrendingUp },
+        { id: 'produccion_dia', label: 'Producción e Inventario', icon: PackageCheck },
+        { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
+      ];
+    }
+    if (activeRole === 'bitacora') {
+      return [
+        { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
+        { id: 'aplicaciones_foliares', label: 'Aplicaciones Foliares', icon: SprayCan },
+        { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
+      ];
+    }
+    return allMainModules;
+  };
+
   const userInitials = (currentUser?.fullName || 'AF')
     .split(' ')
     .filter(Boolean)
@@ -78,12 +138,23 @@ export const Header: React.FC = () => {
     .map((p) => p[0].toUpperCase())
     .join('');
 
+  const mobileDrawerItems = getMobileDrawerItems();
+
   return (
     <>
       <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-stone-200/90 shadow-xs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2">
-          {/* Brand Logo & System Name - Clean Unencapsulated Presentation */}
-          <div className="flex items-center gap-3">
+          {/* Left: Mobile Menu Trigger + Brand Logo */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => setShowMobileMenu(true)}
+              aria-label="Abrir menú de módulos"
+              className="lg:hidden p-2 rounded-xl bg-[#FAF8F5] hover:bg-[#f5e4e8] text-[#5C1125] border border-stone-200 transition cursor-pointer shrink-0"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
             <button
               onClick={handleHomeLogoClick}
               className="flex items-center gap-2.5 hover:opacity-95 transition text-left group cursor-pointer"
@@ -103,7 +174,7 @@ export const Header: React.FC = () => {
 
           {/* Right Action Section */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
-            {/* Quick Role Switcher for Full Admin only (Admin | Ventas | Bitácora) */}
+            {/* Single Role Switcher for Full Admin only (Admin | Ventas | Bitácora) */}
             {isFullAdmin && (
               <div className="hidden md:flex items-center bg-[#FAF8F5] p-1 rounded-xl border border-stone-200 gap-1">
                 <button
@@ -180,7 +251,7 @@ export const Header: React.FC = () => {
             {/* Quick PWA Install Button */}
             <PWAInstallButton compact />
 
-            {/* Profile / User Avatar Button (Opens Mi Perfil module inside active role) */}
+            {/* Profile / User Avatar Button */}
             {currentUser && (
               <button
                 type="button"
@@ -205,19 +276,6 @@ export const Header: React.FC = () => {
               </button>
             )}
 
-            {/* Switch Role selector button (Full Admin only) */}
-            {isFullAdmin && (
-              <button
-                type="button"
-                onClick={() => setActiveRole(null)}
-                title="Cambiar de Rol"
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-[#535B28] bg-[#f7f8f2] hover:bg-[#ecf0dc] border border-[#dce4bf] active:scale-95 transition cursor-pointer"
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5" />
-                <span className="hidden lg:inline">Roles</span>
-              </button>
-            )}
-
             {/* Full Logout Button */}
             <button
               type="button"
@@ -232,6 +290,120 @@ export const Header: React.FC = () => {
         </div>
       </header>
 
+      {/* Mobile & Tablet Navigation Drawer */}
+      {showMobileMenu && (
+        <div className="lg:hidden fixed inset-0 z-50 flex">
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs"
+            onClick={() => setShowMobileMenu(false)}
+          />
+          <aside className="relative z-10 w-72 max-w-[84vw] h-dvh bg-[#000000] text-stone-200 flex flex-col shadow-2xl border-r border-stone-800">
+            <div className="h-16 px-4 border-b border-stone-800 flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#C3A25D]">
+                {isFullAdmin
+                  ? activeRole === 'admin'
+                    ? 'Rol Admin'
+                    : activeRole === 'ventas'
+                    ? 'Rol Ventas'
+                    : 'Rol Bitácora'
+                  : getUserRoleDisplayInfo(currentUser).label}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowMobileMenu(false)}
+                aria-label="Cerrar menú"
+                className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-900 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {isFullAdmin && (
+              <div className="px-3 pt-3 pb-2 border-b border-stone-800">
+                <div className="grid grid-cols-3 gap-1 bg-stone-900 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchRole('admin')}
+                    className={`py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      activeRole === 'admin'
+                        ? 'bg-[#5C1125] text-white'
+                        : 'text-stone-400 hover:text-white'
+                    }`}
+                  >
+                    Admin
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchRole('ventas')}
+                    className={`py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      activeRole === 'ventas'
+                        ? 'bg-[#C3A25D] text-[#000000]'
+                        : 'text-stone-400 hover:text-white'
+                    }`}
+                  >
+                    Ventas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchRole('bitacora')}
+                    className={`py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      activeRole === 'bitacora'
+                        ? 'bg-[#535B28] text-white'
+                        : 'text-stone-400 hover:text-white'
+                    }`}
+                  >
+                    Bitácora
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-1">
+              {mobileDrawerItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveView(item.id);
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer ${
+                      isActive
+                        ? 'bg-[#5C1125] text-white border border-[#C3A25D]/50'
+                        : 'text-stone-300 hover:bg-stone-900 hover:text-white'
+                    }`}
+                  >
+                    <Icon
+                      className={`w-4 h-4 shrink-0 ${
+                        isActive ? 'text-[#C3A25D]' : 'text-stone-400'
+                      }`}
+                    />
+                    <span className="truncate text-left">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="p-3 border-t border-stone-800 safe-bottom">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMobileMenu(false);
+                  logout();
+                }}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-300 hover:bg-[#5C1125]/30 hover:text-white border border-rose-900/30 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4 text-rose-400" />
+                <span>Cerrar Sesión</span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
       {/* Modal for Data Management */}
       <DataManagementModal
         isOpen={showDataModal}
@@ -240,4 +412,3 @@ export const Header: React.FC = () => {
     </>
   );
 };
-

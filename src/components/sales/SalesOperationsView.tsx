@@ -94,8 +94,6 @@ export const SalesOperationsView: React.FC = () => {
     refreshFromSupabase,
     supabaseConfig,
     isOnline,
-    setActiveView,
-    canAccessModule,
   } = useGreenhouse();
 
   const [activeTab, setActiveTab] = useState<
@@ -820,16 +818,6 @@ export const SalesOperationsView: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {canAccessModule('pos_caja') && (
-              <button
-                type="button"
-                onClick={() => setActiveView('pos_caja')}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-black shadow-md transition cursor-pointer whitespace-nowrap"
-              >
-                <Store className="w-4 h-4" />
-                <span>Abrir POS Pantalla Completa</span>
-              </button>
-            )}
             {supabaseConfig.isConnected && isOnline && (
               <button
                 type="button"

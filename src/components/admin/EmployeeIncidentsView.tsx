@@ -84,7 +84,6 @@ export const EmployeeIncidentsView: React.FC = () => {
     employeeAdjustments,
     saveEmployeeAdjustment,
     deleteEmployeeAdjustment,
-    setActiveView,
   } = useGreenhouse();
 
   const [subTab, setSubTab] = useState<SubTab>('incidencias');
@@ -359,14 +358,6 @@ export const EmployeeIncidentsView: React.FC = () => {
           >
             <FileText className="w-4 h-4 text-[#5C1125]" />
             Exportar PDF
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveView('admin_pagos')}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Ir a Nómina para Aplicar ({kpis.pendingCount})
-            <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       </div>

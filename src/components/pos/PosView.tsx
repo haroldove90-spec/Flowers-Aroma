@@ -26,6 +26,7 @@ import {
   AlertCircle,
   ShoppingBag,
   BarChart3,
+  Calculator,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import {
@@ -713,7 +714,7 @@ export const PosView: React.FC = () => {
         {/* Toast feedback */}
         {toast && (
           <div
-            className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-xl border text-xs sm:text-sm font-bold flex items-center gap-2 ${
+            className={`fixed top-14 sm:top-16 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-1.5rem)] px-3.5 sm:px-4 py-2.5 rounded-xl shadow-xl border text-xs sm:text-sm font-bold flex items-center gap-2 ${
               toast.type === 'error'
                 ? 'bg-[#5C1125] text-white border-[#C3A25D]/60'
                 : 'bg-[#535B28] text-white border-[#C3A25D]/60'
@@ -724,18 +725,18 @@ export const PosView: React.FC = () => {
             ) : (
               <CheckCircle2 className="w-4 h-4 text-[#C3A25D] shrink-0" />
             )}
-            <span>{toast.msg}</span>
+            <span className="truncate sm:whitespace-normal">{toast.msg}</span>
           </div>
         )}
 
         {/* TOP BAR */}
-        <header className="shrink-0 bg-white border-b border-[#C3A25D]/40 px-3 sm:px-4 py-1.5 flex items-center justify-between gap-2 shadow-2xs">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <header className="shrink-0 bg-white border-b border-[#C3A25D]/40 px-2.5 sm:px-4 py-1.5 flex items-center justify-between gap-1.5 sm:gap-2 shadow-2xs">
+          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
             {returnViewId && (
               <button
                 type="button"
                 onClick={() => setActiveView(returnViewId)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#5C1125] hover:bg-[#3f0918] text-white text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer whitespace-nowrap shrink-0"
+                className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#5C1125] hover:bg-[#3f0918] text-white text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer whitespace-nowrap shrink-0"
               >
                 <ArrowLeft className="w-4 h-4 text-[#C3A25D]" />
                 <span className="hidden sm:inline">Volver al Panel</span>
@@ -756,13 +757,13 @@ export const PosView: React.FC = () => {
             </div>
 
             {/* Punto de Venta Selector */}
-            <div className="flex items-center gap-1.5 bg-[#FAF8F5] border border-[#C3A25D]/50 rounded-xl px-2.5 py-1.5 min-w-0">
+            <div className="flex items-center gap-1 sm:gap-1.5 bg-[#FAF8F5] border border-[#C3A25D]/50 rounded-xl px-2 sm:px-2.5 py-1.5 min-w-0">
               <MapPin className="w-3.5 h-3.5 text-[#5C1125] shrink-0" />
               <select
                 value={selectedSalesPointId}
                 onChange={(e) => setSelectedSalesPointId(e.target.value)}
                 aria-label="Punto de Venta"
-                className="bg-transparent text-xs font-bold text-[#000000] focus:outline-none truncate max-w-[140px] sm:max-w-[210px] cursor-pointer"
+                className="bg-transparent text-xs font-bold text-[#000000] focus:outline-none truncate max-w-[125px] sm:max-w-[210px] cursor-pointer"
               >
                 {salesPoints.length === 0 ? (
                   <option value="">Punto de Venta General</option>
@@ -778,34 +779,21 @@ export const PosView: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Mobile Catalog/Ticket Switcher */}
-            <button
-              type="button"
-              onClick={() =>
-                setMobilePanel((p) => (p === 'catalog' ? 'ticket' : 'catalog'))
-              }
-              className="lg:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#C3A25D] text-[#000000] text-xs font-black shadow-xs cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>
-                {mobilePanel === 'catalog'
-                  ? `Ticket (${ticketTotalPackages})`
-                  : 'Productos'}
-              </span>
-            </button>
-
             {isFullAdmin && (
               <button
                 type="button"
                 onClick={() => setAdminEditMode((v) => !v)}
-                className={`hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition cursor-pointer whitespace-nowrap shrink-0 ${
+                title={adminEditMode ? 'Editando Fotos/Precios' : 'Editar Fotos / Precios'}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-xs font-bold border transition cursor-pointer whitespace-nowrap shrink-0 ${
                   adminEditMode
                     ? 'bg-[#C3A25D] text-[#000000] border-[#9f8241]'
                     : 'bg-[#FAF8F5] hover:bg-[#f8f2e2] text-[#000000] border-[#C3A25D]/60'
                 }`}
               >
-                <Camera className="w-3.5 h-3.5" />
-                <span>{adminEditMode ? 'Editando Fotos/Precios' : 'Editar Fotos / Precios'}</span>
+                <Camera className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">
+                  {adminEditMode ? 'Editando Fotos/Precios' : 'Editar Fotos / Precios'}
+                </span>
               </button>
             )}
 
@@ -815,7 +803,7 @@ export const PosView: React.FC = () => {
                 setCorteDate(todayIso());
                 setShowCorteModal(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#5C1125] hover:bg-[#3f0918] text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer whitespace-nowrap shrink-0"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#5C1125] hover:bg-[#3f0918] text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer whitespace-nowrap shrink-0"
             >
               <BarChart3 className="w-4 h-4 text-[#C3A25D]" />
               <span className="hidden sm:inline">Corte de Caja</span>
@@ -828,12 +816,71 @@ export const PosView: React.FC = () => {
               type="button"
               onClick={logout}
               title="Cerrar sesión"
-              className="p-2 rounded-xl bg-white hover:bg-[#fbf2f4] text-stone-600 hover:text-[#5C1125] border border-stone-200 transition cursor-pointer shrink-0"
+              className="p-1.5 sm:p-2 rounded-xl bg-white hover:bg-[#fbf2f4] text-stone-600 hover:text-[#5C1125] border border-stone-200 transition cursor-pointer shrink-0"
             >
               <LogOut className="w-4 h-4" />
             </button>
           </div>
         </header>
+
+        {/* MOBILE & TABLET DEDICATED MODE SWITCHER (PRODUCTOS <-> TICKET Y CALCULADORA) */}
+        <div className="lg:hidden shrink-0 bg-white border-b border-[#C3A25D]/35 px-2.5 py-1.5 grid grid-cols-2 gap-1.5 shadow-2xs">
+          <button
+            type="button"
+            onClick={() => setMobilePanel('catalog')}
+            className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-black transition cursor-pointer touch-manipulation ${
+              mobilePanel === 'catalog'
+                ? 'bg-[#5C1125] text-white shadow-xs'
+                : 'bg-[#FAF8F5] text-stone-700 border border-stone-200'
+            }`}
+          >
+            <ShoppingBag
+              className={`w-4 h-4 shrink-0 ${
+                mobilePanel === 'catalog' ? 'text-[#C3A25D]' : 'text-[#5C1125]'
+              }`}
+            />
+            <span>Productos</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums ${
+                mobilePanel === 'catalog'
+                  ? 'bg-white/15 text-[#f8f2e2]'
+                  : 'bg-stone-200/80 text-stone-700'
+              }`}
+            >
+              {filteredProducts.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMobilePanel('ticket')}
+            className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-black transition cursor-pointer touch-manipulation ${
+              mobilePanel === 'ticket'
+                ? 'bg-[#5C1125] text-white shadow-xs'
+                : cart.length > 0
+                ? 'bg-[#f8f2e2] text-[#5C1125] border-2 border-[#C3A25D]'
+                : 'bg-[#FAF8F5] text-stone-700 border border-stone-200'
+            }`}
+          >
+            <Calculator
+              className={`w-4 h-4 shrink-0 ${
+                mobilePanel === 'ticket' ? 'text-[#C3A25D]' : 'text-[#5C1125]'
+              }`}
+            />
+            <span className="truncate">Calculadora</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-md text-[10px] font-black tabular-nums shrink-0 ${
+                mobilePanel === 'ticket'
+                  ? 'bg-[#C3A25D] text-[#000000]'
+                  : cart.length > 0
+                  ? 'bg-[#5C1125] text-white'
+                  : 'bg-stone-200/80 text-stone-700'
+              }`}
+            >
+              {ticketTotalPackages > 0 ? `${ticketTotalPackages} · ${fmtMoney(ticketTotal)}` : '$0'}
+            </span>
+          </button>
+        </div>
 
         {/* SPLIT POS WORKSPACE: LEFT CATALOG + RIGHT TICKET & CALCULATOR */}
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
@@ -841,37 +888,38 @@ export const PosView: React.FC = () => {
           <section
             className={`${
               mobilePanel === 'ticket' ? 'hidden lg:flex' : 'flex'
-            } flex-1 min-w-0 flex-col overflow-hidden px-3 sm:px-5 pt-3 pb-2 gap-2.5`}
+            } flex-1 min-w-0 min-h-0 flex-col overflow-hidden px-2.5 sm:px-5 pt-2 sm:pt-3 pb-0 lg:pb-2 gap-2 sm:gap-2.5`}
           >
             {/* Caliber / Category Selector Row */}
-            <div className="shrink-0 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-stone-600 mr-1">
+            <div className="shrink-0 flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 sm:pb-0">
+                <span className="hidden sm:inline text-[11px] font-extrabold uppercase tracking-wider text-stone-600 mr-1 whitespace-nowrap">
                   Calibre (1 toque):
                 </span>
                 {(
                   [
-                    { id: 'lar', label: 'Largo (LAR)' },
-                    { id: 'med', label: 'Mediano (MED)' },
-                    { id: 'chi', label: 'Chico (CHI)' },
+                    { id: 'lar', label: 'Largo (LAR)', shortLabel: 'Largo' },
+                    { id: 'med', label: 'Mediano (MED)', shortLabel: 'Mediano' },
+                    { id: 'chi', label: 'Chico (CHI)', shortLabel: 'Chico' },
                   ] as const
                 ).map((cal) => (
                   <button
                     key={cal.id}
                     type="button"
                     onClick={() => setActiveCaliber(cal.id)}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0 border ${
+                    className={`flex-1 sm:flex-none px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0 border touch-manipulation ${
                       activeCaliber === cal.id
                         ? 'bg-[#5C1125] text-white border-[#C3A25D] shadow-xs'
                         : 'bg-white text-stone-700 border-stone-200 hover:border-[#C3A25D]'
                     }`}
                   >
-                    {cal.label}
+                    <span className="hidden sm:inline">{cal.label}</span>
+                    <span className="sm:hidden">{cal.shortLabel}</span>
                   </button>
                 ))}
               </div>
 
-              <div className="flex items-center gap-1 overflow-x-auto">
+              <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
                 {(
                   [
                     { id: 'all', label: 'Todas' },
@@ -886,7 +934,7 @@ export const PosView: React.FC = () => {
                     key={cat.id}
                     type="button"
                     onClick={() => setColorFilter(cat.id)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer whitespace-nowrap shrink-0 touch-manipulation ${
                       colorFilter === cat.id
                         ? 'bg-[#535B28] text-white'
                         : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
@@ -899,14 +947,16 @@ export const PosView: React.FC = () => {
             </div>
 
             {/* Catalog Header & Search Bar (matching reference structure) */}
-            <div className="shrink-0 bg-white rounded-2xl border border-[#C3A25D]/40 px-3.5 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#C3A25D] shrink-0" />
-                <span className="text-xs sm:text-sm font-black tracking-tight text-[#5C1125]">
-                  ROSA DE CORTE · {activeCaliberLabel}
-                </span>
-                <span className="text-xs font-semibold text-stone-500">
-                  ({filteredProducts.length} disponibles)
+            <div className="shrink-0 bg-white rounded-2xl border border-[#C3A25D]/40 px-3 sm:px-3.5 py-1.5 sm:py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 shadow-2xs">
+              <div className="flex items-center justify-between sm:justify-start gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <span className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-[#C3A25D] shrink-0" />
+                  <span className="text-xs sm:text-sm font-black tracking-tight text-[#5C1125]">
+                    ROSA DE CORTE · {activeCaliberLabel}
+                  </span>
+                </div>
+                <span className="text-[11px] sm:text-xs font-semibold text-stone-500 whitespace-nowrap">
+                  ({filteredProducts.length} disp.)
                 </span>
               </div>
 
@@ -931,8 +981,8 @@ export const PosView: React.FC = () => {
               </div>
             </div>
 
-            {/* Reorder Tip Strip (matching reference) */}
-            <div className="shrink-0 bg-[#fcfaf4] border border-[#C3A25D]/45 rounded-xl px-3 py-1.5 flex items-center justify-between gap-2 text-[11px] text-[#6d5726]">
+            {/* Reorder Tip Strip (desktop/tablet) */}
+            <div className="hidden sm:flex shrink-0 bg-[#fcfaf4] border border-[#C3A25D]/45 rounded-xl px-3 py-1.5 items-center justify-between gap-2 text-[11px] text-[#6d5726]">
               <div className="flex items-center gap-1.5 min-w-0">
                 <ArrowLeftRight className="w-3.5 h-3.5 text-[#C3A25D] shrink-0" />
                 <span className="truncate">
@@ -945,14 +995,14 @@ export const PosView: React.FC = () => {
             </div>
 
             {/* 4-COLUMN PHOTO CARD GRID */}
-            <div className="flex-1 min-h-0 overflow-y-auto pr-1 pb-4">
+            <div className="flex-1 min-h-0 overflow-y-auto pr-0.5 sm:pr-1 pb-3 lg:pb-4">
               {filteredProducts.length === 0 ? (
                 <div className="h-48 flex flex-col items-center justify-center bg-white rounded-2xl border border-dashed border-[#C3A25D]/60 text-stone-500 text-sm font-semibold">
                   <Store className="w-8 h-8 text-[#C3A25D] mb-2" />
                   <span>No se encontraron variedades con ese filtro.</span>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
                   {filteredProducts.map((prod) => {
                     const meta = getPosProductMeta(prod);
                     const effCal: PosCaliber =
@@ -1106,13 +1156,33 @@ export const PosView: React.FC = () => {
                 </div>
               )}
             </div>
+            {/* MOBILE & TABLET STICKY BOTTOM CHECKOUT BAR */}
+            <div className="lg:hidden shrink-0 -mx-2.5 sm:-mx-5 px-3 py-2 safe-bottom bg-white border-t border-[#C3A25D]/50 shadow-[0_-4px_14px_rgba(0,0,0,0.06)] flex items-center justify-between gap-2.5">
+              <div className="min-w-0 leading-tight">
+                <span className="block text-[10px] font-extrabold uppercase tracking-wide text-stone-500">
+                  {ticketTotalPackages} paquete(s) en ticket
+                </span>
+                <span className="block text-base sm:text-lg font-black text-[#5C1125] tabular-nums">
+                  {fmtMoney(ticketTotal)}{' '}
+                  <span className="text-[10px] font-extrabold text-[#8a6d2b]">MXN</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobilePanel('ticket')}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#5C1125] hover:bg-[#3f0918] text-white text-xs sm:text-sm font-black shadow-md transition active:scale-[0.98] cursor-pointer whitespace-nowrap shrink-0 touch-manipulation"
+              >
+                <Calculator className="w-4 h-4 text-[#C3A25D]" />
+                <span>Calculadora y Cobrar</span>
+              </button>
+            </div>
           </section>
 
           {/* RIGHT PANE: PERMANENT TICKET + TOUCH CALCULATOR (~33%) */}
           <aside
             className={`${
               mobilePanel === 'catalog' ? 'hidden lg:flex' : 'flex'
-            } w-full lg:w-[375px] xl:w-[405px] shrink-0 bg-white border-t lg:border-t-0 lg:border-l border-[#C3A25D]/45 flex-col h-full min-h-0 overflow-y-auto shadow-lg`}
+            } flex-1 lg:flex-none w-full lg:w-[375px] xl:w-[405px] shrink-0 bg-white border-t lg:border-t-0 lg:border-l border-[#C3A25D]/45 flex-col h-full min-h-0 overflow-y-auto shadow-lg`}
           >
             {/* Ticket Header */}
             <div className="shrink-0 px-3.5 py-2 border-b border-stone-100 flex items-center justify-between gap-2">
@@ -1126,16 +1196,26 @@ export const PosView: React.FC = () => {
                 </span>
               </div>
 
-              {cart.length > 0 && (
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={clearCart}
-                  className="text-[11px] font-bold text-[#5C1125] hover:underline flex items-center gap-1 cursor-pointer"
+                  onClick={() => setMobilePanel('catalog')}
+                  className="lg:hidden px-2 py-1 rounded-lg bg-[#FAF8F5] border border-[#C3A25D]/50 text-[11px] font-extrabold text-[#5C1125] flex items-center gap-1 cursor-pointer touch-manipulation"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Vaciar</span>
+                  <Plus className="w-3 h-3" />
+                  <span>Productos</span>
                 </button>
-              )}
+                {cart.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearCart}
+                    className="text-[11px] font-bold text-[#5C1125] hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Vaciar</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Client Selector (single compact row) */}
@@ -1170,11 +1250,16 @@ export const PosView: React.FC = () => {
               </div>
             </div>
 
-            {/* Scrollable Cart Items */}
-            <div className="flex-1 min-h-[60px] overflow-y-auto px-3.5 py-1.5 space-y-1.5 bg-[#FAF8F5]/50">
+            {/* Scrollable Cart Items (bounded on mobile so full calculator stays immediately visible) */}
+            <div className="shrink-0 lg:shrink lg:flex-1 max-h-[26vh] sm:max-h-[30vh] lg:max-h-none min-h-[54px] overflow-y-auto px-3.5 py-1.5 space-y-1.5 bg-[#FAF8F5]/50">
               {cart.length === 0 ? (
-                <div className="h-full min-h-[52px] flex items-center justify-center rounded-xl border border-dashed border-[#C3A25D]/60 bg-[#fcfaf4] text-xs font-semibold text-[#8a6d2b] px-3 text-center">
-                  Ticket vacío &bull; Toca productos a la izquierda
+                <div className="h-full min-h-[48px] flex items-center justify-center rounded-xl border border-dashed border-[#C3A25D]/60 bg-[#fcfaf4] text-xs font-semibold text-[#8a6d2b] px-3 py-2 text-center">
+                  <span className="hidden lg:inline">
+                    Ticket vacío &bull; Toca productos a la izquierda
+                  </span>
+                  <span className="lg:hidden">
+                    Ticket vacío &bull; Toca &ldquo;+ Productos&rdquo; para agregar rosas
+                  </span>
                 </div>
               ) : (
                 cart.map((item) => (
@@ -1256,7 +1341,7 @@ export const PosView: React.FC = () => {
             </div>
 
             {/* PERMANENT CHECKOUT & TOUCH CALCULATOR DOCK */}
-            <div className="shrink-0 px-3.5 pt-2 pb-2.5 border-t border-[#C3A25D]/40 bg-white space-y-1.5">
+            <div className="shrink-0 px-3.5 pt-2 pb-3 lg:pb-2.5 safe-bottom border-t border-[#C3A25D]/40 bg-white space-y-2 lg:space-y-1.5">
               {/* Total Highlight Box */}
               <div className="rounded-xl bg-[#f8f2e2] border-2 border-[#C3A25D] px-3 py-1.5 flex items-center justify-between gap-2">
                 <div className="leading-tight">
@@ -1282,7 +1367,7 @@ export const PosView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('contado')}
-                  className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1 py-2 lg:py-1.5 px-2 rounded-lg text-xs lg:text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap touch-manipulation ${
                     paymentMethod === 'contado'
                       ? 'bg-[#5C1125] text-white border-[#5C1125] shadow-xs'
                       : 'bg-white text-stone-700 border-stone-200 hover:border-[#C3A25D]'
@@ -1294,19 +1379,20 @@ export const PosView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('deposito')}
-                  className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1 py-2 lg:py-1.5 px-2 rounded-lg text-xs lg:text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap touch-manipulation ${
                     paymentMethod === 'deposito'
                       ? 'bg-[#5C1125] text-white border-[#5C1125] shadow-xs'
                       : 'bg-white text-stone-700 border-stone-200 hover:border-[#C3A25D]'
                   }`}
                 >
                   <CreditCard className="w-3.5 h-3.5 shrink-0" />
-                  <span>Tarjeta / SPEI</span>
+                  <span className="hidden sm:inline">Tarjeta / SPEI</span>
+                  <span className="sm:hidden">Tarjeta</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('credito')}
-                  className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1 py-2 lg:py-1.5 px-2 rounded-lg text-xs lg:text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap touch-manipulation ${
                     paymentMethod === 'credito'
                       ? 'bg-[#535B28] text-white border-[#535B28] shadow-xs'
                       : 'bg-white text-stone-700 border-stone-200 hover:border-[#C3A25D]'
@@ -1332,7 +1418,7 @@ export const PosView: React.FC = () => {
                     Exacto ({fmtMoney(ticketTotal)})
                   </button>
                 </div>
-                <div className="grid grid-cols-5 gap-1">
+                <div className="grid grid-cols-5 gap-1.5 lg:gap-1">
                   {QUICK_BILLS.map((bill) => (
                     <button
                       key={bill}
@@ -1341,7 +1427,7 @@ export const PosView: React.FC = () => {
                         setPaymentMethod('contado');
                         setCashInput(String(bill));
                       }}
-                      className="py-1 rounded-lg bg-[#FAF8F5] hover:bg-[#f8f2e2] border border-[#C3A25D]/50 text-[#000000] text-[11px] font-extrabold tabular-nums transition cursor-pointer"
+                      className="py-2 lg:py-1 rounded-lg bg-[#FAF8F5] hover:bg-[#f8f2e2] border border-[#C3A25D]/50 text-[#000000] text-xs lg:text-[11px] font-extrabold tabular-nums transition active:scale-95 cursor-pointer touch-manipulation"
                     >
                       ${bill}
                     </button>
@@ -1397,14 +1483,14 @@ export const PosView: React.FC = () => {
               </div>
 
               {/* Permanent 4x3 Touch Numeric Keypad */}
-              <div className="grid grid-cols-3 gap-1">
+              <div className="grid grid-cols-3 gap-1.5 lg:gap-1">
                 {['7', '8', '9', '4', '5', '6', '1', '2', '3', 'C', '0', '.'].map(
                   (key) => (
                     <button
                       key={key}
                       type="button"
                       onClick={() => handleKeypadPress(key)}
-                      className={`py-1.5 rounded-lg text-sm font-black tabular-nums transition active:scale-95 cursor-pointer border ${
+                      className={`py-3 lg:py-1.5 rounded-xl lg:rounded-lg text-base lg:text-sm font-black tabular-nums transition active:scale-95 cursor-pointer border touch-manipulation ${
                         key === 'C'
                           ? 'bg-[#000000] hover:bg-stone-800 text-white border-[#000000]'
                           : 'bg-white hover:bg-[#FAF8F5] text-[#000000] border-stone-200 shadow-2xs'
@@ -1432,7 +1518,7 @@ export const PosView: React.FC = () => {
                 type="button"
                 onClick={handleCheckout}
                 disabled={cart.length === 0 || isCheckingOut}
-                className="w-full py-2.5 px-4 rounded-xl bg-[#5C1125] hover:bg-[#3f0918] disabled:bg-stone-300 disabled:text-stone-500 text-white font-black text-xs sm:text-sm tracking-wide flex items-center justify-center gap-2 shadow-md transition cursor-pointer disabled:cursor-not-allowed tabular-nums"
+                className="w-full py-3 lg:py-2.5 px-4 rounded-xl bg-[#5C1125] hover:bg-[#3f0918] disabled:bg-stone-300 disabled:text-stone-500 text-white font-black text-sm tracking-wide flex items-center justify-center gap-2 shadow-md transition active:scale-[0.99] cursor-pointer disabled:cursor-not-allowed tabular-nums touch-manipulation"
               >
                 <Printer className="w-4 h-4 text-[#C3A25D]" />
                 <span>
@@ -1448,9 +1534,9 @@ export const PosView: React.FC = () => {
 
       {/* MODAL 1: + OPCIONES & ADMIN PHOTO/PRICE EDITOR */}
       {optionsProduct && (
-        <div className="pos-hide-on-print fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-[#C3A25D]/50 shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="px-5 py-3.5 bg-[#5C1125] text-white flex items-center justify-between">
+        <div className="pos-hide-on-print fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl border border-[#C3A25D]/50 shadow-2xl w-full max-w-md max-h-[92dvh] flex flex-col overflow-hidden">
+            <div className="shrink-0 px-5 py-3.5 bg-[#5C1125] text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4 text-[#C3A25D]" />
                 <h3 className="text-sm font-black uppercase tracking-wide">
@@ -1467,7 +1553,7 @@ export const PosView: React.FC = () => {
             </div>
 
             {isFullAdmin && (
-              <div className="grid grid-cols-2 border-b border-stone-200 bg-[#FAF8F5]">
+              <div className="shrink-0 grid grid-cols-2 border-b border-stone-200 bg-[#FAF8F5]">
                 <button
                   type="button"
                   onClick={() => setOptTab('sell')}
@@ -1493,8 +1579,9 @@ export const PosView: React.FC = () => {
               </div>
             )}
 
+            <div className="overflow-y-auto flex-1">
             {optTab === 'sell' ? (
-              <div className="p-5 space-y-4">
+              <div className="p-4 sm:p-5 space-y-4">
                 <div className="flex items-center gap-3.5">
                   <img
                     src={getPosProductMeta(optionsProduct).imageSrc}
@@ -1716,15 +1803,16 @@ export const PosView: React.FC = () => {
                 </button>
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
 
       {/* MODAL 2: POST-SALE RECEIPT CONFIRMATION */}
       {lastSale && (
-        <div className="pos-hide-on-print fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-[#C3A25D]/60 shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="p-5 bg-[#535B28] text-white text-center space-y-1">
+        <div className="pos-hide-on-print fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl border border-[#C3A25D]/60 shadow-2xl w-full max-w-md max-h-[92dvh] flex flex-col overflow-hidden">
+            <div className="shrink-0 p-5 bg-[#535B28] text-white text-center space-y-1">
               <CheckCircle2 className="w-10 h-10 text-[#C3A25D] mx-auto" />
               <h3 className="text-lg font-black">Venta Registrada</h3>
               <p className="text-xs text-[#edf1df] font-semibold">
@@ -1732,7 +1820,7 @@ export const PosView: React.FC = () => {
               </p>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
               <div className="rounded-xl bg-[#FAF8F5] border border-stone-200 p-3.5 space-y-1.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-stone-500 font-semibold">Cliente:</span>
@@ -1781,7 +1869,10 @@ export const PosView: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setLastSale(null)}
+                onClick={() => {
+                  setLastSale(null);
+                  setMobilePanel('catalog');
+                }}
                 className="w-full py-2.5 rounded-xl bg-[#f8f2e2] hover:bg-[#efe1c2] text-[#000000] border border-[#C3A25D] text-xs font-black transition cursor-pointer"
               >
                 Nueva Venta
@@ -1793,8 +1884,8 @@ export const PosView: React.FC = () => {
 
       {/* MODAL 3: CORTE DE CAJA */}
       {showCorteModal && (
-        <div className="pos-hide-on-print fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-[#C3A25D]/60 shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="pos-hide-on-print fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl border border-[#C3A25D]/60 shadow-2xl w-full max-w-2xl max-h-[92dvh] flex flex-col overflow-hidden">
             <div className="px-5 py-3.5 bg-[#5C1125] text-white flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 text-[#C3A25D]" />

@@ -148,8 +148,6 @@ export const SuppliesAndAppsView: React.FC = () => {
     addGreenhouseApplication,
     deleteGreenhouseApplication,
     payrollEmployees,
-    setActiveView,
-    canAccessModule,
   } = useGreenhouse();
 
   const today = new Date().toISOString().slice(0, 10);
@@ -1386,27 +1384,6 @@ export const SuppliesAndAppsView: React.FC = () => {
       {/* ==================== TAB 3: HOJAS DE APLICACIÓN FOLIAR Y NUTRICIÓN (UNIDAD / MÓDULO) ==================== */}
       {subTab === 'aplicaciones' && (
         <div className="space-y-6">
-          {canAccessModule('aplicaciones_foliares') && (
-            <div className="p-4 rounded-2xl bg-[#FAF8F5] border border-[#C3A25D]/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-extrabold text-[#000000]">
-                  ¿Buscas Aplicación General por litros o Parchoneo (Regla de Tres)?
-                </p>
-                <p className="text-xs text-stone-600 mt-0.5">
-                  Abre el módulo de <strong>Aplicaciones Foliares</strong> con cálculo automático de dosis, objetivo y costo por unidad.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveView('aplicaciones_foliares')}
-                className="h-10 px-4 rounded-xl bg-[#5C1125] hover:bg-[#430c1b] text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <Sprout className="w-4 h-4 text-[#C3A25D]" />
-                <span>Abrir Foliares y Parchoneo</span>
-              </button>
-            </div>
-          )}
-
           {/* 1. FORMATO DIGITAL DE HOJA DE APLICACIÓN (IDÉNTICO AL BOCETO DEL CLIENTE) */}
           <form
             onSubmit={handleSaveApplication}

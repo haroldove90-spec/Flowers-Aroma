@@ -93,7 +93,6 @@ export const EmployeesView: React.FC = () => {
     savePayrollEmployee,
     setPayrollEmployeeActive,
     deletePayrollEmployee,
-    setActiveView,
   } = useGreenhouse();
 
   const today = new Date().toISOString().slice(0, 10);
@@ -450,14 +449,6 @@ export const EmployeesView: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_pagos')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-bold shadow-md transition cursor-pointer"
-            >
-              <Wallet className="w-4 h-4" />
-              <span>Ir a Módulo Pagos</span>
-            </button>
             <button
               type="button"
               onClick={() => exportEmployeesDirectoryExcel(payrollEmployees, appUsers)}

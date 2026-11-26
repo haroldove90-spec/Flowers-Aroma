@@ -28,7 +28,6 @@ import {
   ShieldCheck,
   UserCog,
   PackageCheck,
-  ArrowLeftRight,
   Truck,
   Calculator,
   ClipboardList,
@@ -36,7 +35,7 @@ import {
   Store,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
-import { UserRole, getUserRoleDisplayInfo } from '../../types/greenhouse';
+import { getUserRoleDisplayInfo } from '../../types/greenhouse';
 
 const AROMA_MODULE_ITEMS = [
   { id: 'fi_general', label: '1. FI-General', icon: FileSpreadsheet },
@@ -52,10 +51,8 @@ export const Sidebar: React.FC = () => {
   const {
     currentUser,
     activeRole,
-    setActiveRole,
     activeView,
     setActiveView,
-    canAccessRole,
     canAccessModule,
     hasFullAccess,
     logout,
@@ -64,24 +61,6 @@ export const Sidebar: React.FC = () => {
   const isFullAdmin = hasFullAccess(currentUser);
 
   const [collapsed, setCollapsed] = useState(false);
-
-  const handleSwitchRole = (role: UserRole) => {
-    if (!canAccessRole(role)) return;
-    setActiveRole(role);
-    if (role === 'admin') {
-      setActiveView('admin_panel');
-    } else if (role === 'ventas') {
-      setActiveView('ventas_operacion');
-    } else if (role === 'bitacora') {
-      setActiveView('bitacora');
-    } else if (role === 'produccion') {
-      setActiveView('produccion_dia');
-    } else if (role === 'aroma_flowers') {
-      setActiveView('fi_general');
-    } else {
-      setActiveView('principal');
-    }
-  };
 
   // Return all comprehensive modules for the active role, strictly filtered by user permissions
   const getRoleSpecificMenuItems = () => {
@@ -230,66 +209,10 @@ export const Sidebar: React.FC = () => {
           );
         })}
 
-        {/* Quick Role Switch Section for Full Admin accounts only */}
-        {isFullAdmin && (
-          <div className="pt-4 border-t border-stone-800 mt-4 space-y-1.5">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[#535B28] px-3 py-1">
-              {!collapsed && 'Cambio Rápido de Rol'}
-            </div>
-
-            {activeRole !== 'admin' && (
-              <button
-                type="button"
-                onClick={() => handleSwitchRole('admin')}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
-                title="Ir a Rol Admin"
-              >
-                <ShieldCheck className="w-5 h-5 shrink-0 text-[#C3A25D]" />
-                {!collapsed && <span className="truncate text-left">Cambiar a Admin</span>}
-              </button>
-            )}
-
-            {activeRole !== 'ventas' && (
-              <button
-                type="button"
-                onClick={() => handleSwitchRole('ventas')}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
-                title="Ir a Rol Ventas"
-              >
-                <TrendingUp className="w-5 h-5 shrink-0 text-[#C3A25D]" />
-                {!collapsed && <span className="truncate text-left">Cambiar a Ventas</span>}
-              </button>
-            )}
-
-            {activeRole !== 'bitacora' && (
-              <button
-                type="button"
-                onClick={() => handleSwitchRole('bitacora')}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
-                title="Ir a Rol Bitácora"
-              >
-                <ClipboardList className="w-5 h-5 shrink-0 text-[#535B28]" />
-                {!collapsed && <span className="truncate text-left">Cambiar a Bitácora</span>}
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
-      {/* Sidebar Footer: Switch Role (Full Admin only) & Logout buttons */}
-      <div className="p-3 border-t border-stone-800 bg-[#000000] space-y-2">
-        {isFullAdmin && (
-          <button
-            type="button"
-            onClick={() => setActiveRole(null)}
-            className="w-full flex items-center justify-center sm:justify-start gap-3 px-3 py-2 rounded-xl text-xs font-bold text-[#C3A25D] hover:bg-stone-900 hover:text-white transition border border-stone-800 cursor-pointer"
-            title="Volver al selector de roles"
-          >
-            <ArrowLeftRight className="w-4 h-4 shrink-0" />
-            {!collapsed && <span>Cambiar de Rol</span>}
-          </button>
-        )}
-
+      {/* Sidebar Footer: Logout button */}
+      <div className="p-3 border-t border-stone-800 bg-[#000000]">
         <button
           type="button"
           onClick={logout}

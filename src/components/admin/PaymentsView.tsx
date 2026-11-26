@@ -205,7 +205,6 @@ export const PaymentsView: React.FC = () => {
     supplierPayments,
     saveSupplierPayment,
     deleteSupplierPayment,
-    setActiveView,
   } = useGreenhouse();
 
   const today = new Date().toISOString().slice(0, 10);
@@ -955,37 +954,6 @@ export const PaymentsView: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_incidencias')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
-            >
-              <CreditCard className="w-4 h-4 text-[#C3A25D]" />
-              <span>Préstamos y Desc.</span>
-              {pendingAdjustments.length > 0 && (
-                <span className="px-1.5 py-0.5 rounded bg-[#C3A25D] text-[#000000] text-[10px] font-black">
-                  {pendingAdjustments.length}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_proveedores')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/15 transition cursor-pointer"
-            >
-              <Building2 className="w-4 h-4 text-[#C3A25D]" />
-              <span>Proveedores</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveView('admin_empleados')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-bold shadow-md transition cursor-pointer"
-            >
-              <Users className="w-4 h-4" />
-              <span>Empleados ({payrollEmployees.filter((e) => e.active !== false).length})</span>
-            </button>
-          </div>
         </div>
       </div>
 

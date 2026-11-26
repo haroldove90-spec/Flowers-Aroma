@@ -7,13 +7,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Flower2,
-  ArrowRight,
-  Layers,
   FileSpreadsheet,
   FileText,
   Camera,
   RotateCcw,
-  Store,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AromaProduct, ProductCaptureMode } from '../../types/greenhouse';
@@ -32,7 +29,6 @@ export const AdminProductsView: React.FC = () => {
     aromaProducts,
     saveAromaProduct,
     deleteAromaProduct,
-    setActiveView,
   } = useGreenhouse();
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -177,7 +173,7 @@ export const AdminProductsView: React.FC = () => {
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Banner */}
-      <div className="bg-linear-to-r from-[#5C1125] via-[#430c1b] to-[#000000] text-white p-5 sm:p-7 rounded-2xl shadow-sm border border-[#C3A25D]/30 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-linear-to-r from-[#5C1125] via-[#430c1b] to-[#000000] text-white p-5 sm:p-6 rounded-2xl shadow-sm border border-[#C3A25D]/30">
         <div className="flex items-center gap-3.5">
           <AromaFlowersLogo size="lg" className="shrink-0" />
           <div>
@@ -191,26 +187,6 @@ export const AdminProductsView: React.FC = () => {
               Agrega, edita o elimina productos. Los empleados verán estos cambios al instante en Producción del Día e Inventario General.
             </p>
           </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
-          <button
-            type="button"
-            onClick={() => setActiveView('pos_caja')}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-black transition cursor-pointer"
-          >
-            <Store className="w-4 h-4" />
-            <span>Abrir POS</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveView('produccion_dia')}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
-          >
-            <Layers className="w-4 h-4 text-[#C3A25D]" />
-            <span>Ver Producción e Inventario</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
         </div>
       </div>
 

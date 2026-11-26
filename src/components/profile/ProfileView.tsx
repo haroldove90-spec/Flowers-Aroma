@@ -13,7 +13,6 @@ import {
   Building,
   User,
   ShieldCheck,
-  ArrowRight,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { getUserRoleDisplayInfo } from '../../types/greenhouse';
@@ -58,8 +57,6 @@ export const ProfileView: React.FC = () => {
     currentUser,
     activeRole,
     updateCurrentProfile,
-    setActiveRole,
-    setActiveView,
   } = useGreenhouse();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -245,23 +242,6 @@ export const ProfileView: React.FC = () => {
               Modifica tu fotografía, datos personales y contraseña de acceso.
             </p>
           </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {getUserRoleDisplayInfo(currentUser).roleId === 'admin' && (
-            <button
-              type="button"
-              onClick={() => {
-                setActiveRole('admin');
-                setActiveView('admin_panel');
-              }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#C3A25D] text-[#000000] text-xs font-bold hover:bg-[#d6be83] transition cursor-pointer"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>Panel Admin</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
       </div>
 

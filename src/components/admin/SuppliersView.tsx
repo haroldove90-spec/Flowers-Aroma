@@ -68,7 +68,6 @@ export const SuppliersView: React.FC = () => {
     supplierPayments,
     saveSupplierPayment,
     deleteSupplierPayment,
-    setActiveView,
   } = useGreenhouse();
 
   const [subTab, setSubTab] = useState<SubTab>('directorio');
@@ -456,14 +455,6 @@ export const SuppliersView: React.FC = () => {
           >
             <FileText className="w-4 h-4 text-[#5C1125]" />
             PDF Pagos
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveView('admin_costos')}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#C3A25D]/50 bg-[#FAF8F5] text-[#5C1125] hover:bg-[#f2ece2] text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            Ver en Costos
-            <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
           <button
             type="button"
