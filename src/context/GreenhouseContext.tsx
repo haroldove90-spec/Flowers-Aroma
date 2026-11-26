@@ -4117,38 +4117,20 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const generateSupabaseSql = (): string => {
     if (onlyAromaFlowers) {
       return `-- ================================================================
--- AROMA FLOWER - ESQUEMA COMPLETO ACTUALIZADO PARA SUPABASE (18 TABLAS)
--- Roles Activos: Admin y Producción (con Mi Perfil en ambos)
+-- AROMA FLOWER - ESQUEMA COMPLETO ACTUALIZADO PARA SUPABASE (23 TABLAS ACTIVAS)
+-- Roles Activos: Admin y Producción (con permisos granulares por módulo y Mi Perfil)
 -- Módulos: Producción e Inventario General Único, Ventas y Puntos de Venta,
 --          Cargas de Camioneta y Prorrateo de Gastos, Notas de Remisión (Tablet),
 --          Cuentas por Cobrar, Empleados, Préstamos/Descuentos/Comisiones,
---          Nómina Semanal, Proveedores y Pagos, Insumos y Aplicaciones
---          Foliares/Nutrición, y Control de Costos de Producción.
+--          Nómina Semanal, Proveedores y Pagos, Insumos y Compras,
+--          Bitácora (Labores Culturales, Aplicaciones Foliares General y Parchoneo,
+--          Riego por Aspersión/Regadera/Pasillo y Monitoreo Visual en Croquis).
 -- Proyecto: aromaflowers@appdesignsoftware.com's Project (syrchvrxkkwvwynvtzfq)
--- IMPORTANTE: Pega este código en SQL Editor y haz clic en el botón verde "Run"
+-- IMPORTANTE: Abre una pestaña NUEVA (+) en SQL Editor, pega este código y haz clic en "Run".
+-- Es 100% seguro volver a ejecutarlo: NO borra datos existentes.
 -- ================================================================
 
--- 1. Eliminar tablas heredadas desactivadas para conservar únicamente las 18 tablas activas
-DROP TABLE IF EXISTS
-  aroma_flower_sheets,
-  active_loans,
-  audit_logs,
-  bank_accounts,
-  cultural_tasks,
-  customers,
-  equipment_assets,
-  financial_movements,
-  harvest_records,
-  inventory_items,
-  irrigation_logs,
-  modules,
-  pest_monitoring,
-  phytosanitary_applications,
-  sales_orders,
-  workers
-CASCADE;
-
--- 2. Usuarios, Credenciales, Roles y Perfil
+-- 1. Usuarios, Credenciales, Roles, Permisos por Módulo y Perfil
 CREATE TABLE IF NOT EXISTS app_users (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
@@ -4175,7 +4157,7 @@ VALUES
   ('usr-aaron-mena', 'Aaron Mena', 'aaron_mena', 'Chevropar#1970', 'admin', 'Administrador de Producción', 'Producción & Ventas', 'Acceso completo a Admin y Producción.', TRUE, '2026-11-18 05:00'),
   ('usr-aaron-prod', 'Aaron', 'aaron', 'Chevropar#1970', 'produccion', 'Encargado de Producción', 'Producción Invernadero', 'Cuenta operativa de producción del día.', TRUE, '2026-11-18 05:00'),
   ('usr-david-prod', 'David', 'david', 'Chevropar#1970', 'produccion', 'Chofer / Vendedor / Producción', 'Producción & Reparto', 'Cuenta operativa de producción y reparto.', TRUE, '2026-11-18 05:00')
-ON CONFLICT (username) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- 3. Catálogo de Productos / Variedades
 CREATE TABLE IF NOT EXISTS app_products (
@@ -4215,9 +4197,14 @@ VALUES
   ('prod-inglesa', 'INGLESA', 'lar_med_chi', 21, TRUE, '2026-11-09 08:00'),
   ('prod-combinados', 'COMBINADOS', 'lar_med_chi', 22, TRUE, '2026-11-09 08:00'),
   ('prod-std-y-mol', 'STD Y MOL', 'direct_total', 23, TRUE, '2026-11-09 08:00')
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
-UPDATE app_products SET name = 'BOULEVARD' WHERE UPPER(name) = 'BOUEVARD';
+UPDATE app_products
+SET name = 'BOULEVARD'
+WHERE (id = 'prod-bouevard' OR UPPER(name) = 'BOUEVARD')
+  AND NOT EXISTS (
+    SELECT 1 FROM app_products WHERE UPPER(name) = 'BOULEVARD' AND id <> 'prod-bouevard'
+  );
 
 -- 4. Producción del Día (Alimenta el Inventario General Único)
 CREATE TABLE IF NOT EXISTS daily_productions (
@@ -4295,7 +4282,7 @@ VALUES
   ('emp-armando', 'ARMANDO', 'AARON', 'Operario / Fumigación', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
   ('emp-sergio', 'SERGIO', 'AARON', 'Operario / Fumigación', 2400.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00'),
   ('emp-regina', 'REGINA', 'AARON', 'Operaria Invernadero', 2300.00, TRUE, 150.00, 0.00, '2026-01-10', TRUE, '2026-11-09 08:00')
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- 7. Nóminas Semanales (Ficha Individual por Trabajador: Asistencia/Retardos/Permisos, Reglas de Bonos, Fumigadas, Horas/Trabajos Extras y Préstamos)
 CREATE TABLE IF NOT EXISTS payroll_weeks (
@@ -4425,7 +4412,7 @@ INSERT INTO sales_points (id, name, city, address, active, notes, created_at)
 VALUES
   ('pos-ceda-cdmx', 'Central de Abastos CDMX', 'Ciudad de México', 'Nave de Flores y Hortalizas, Iztapalapa', TRUE, 'Punto principal CDMX', '2026-11-09 08:00'),
   ('pos-puebla', 'Mercado Puebla', 'Puebla', 'Central de Abastos Puebla, Zona Flores', TRUE, 'Ruta Puebla', '2026-11-09 08:00')
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- 11. Clientes Comerciales y Saldo de Cuentas por Cobrar
 CREATE TABLE IF NOT EXISTS sales_clients (
@@ -4448,7 +4435,7 @@ INSERT INTO sales_clients (id, name, phone, default_sales_point_id, default_sale
 VALUES
   ('cli-chema', 'Chema', '5512345678', 'pos-ceda-cdmx', 'Central de Abastos CDMX', 25000.00, 4850.00, TRUE, 'Cliente mayorista frecuente en CDMX', '2026-11-09 08:00'),
   ('cli-floreria-puebla', 'Florería Los Ángeles Puebla', '2223456789', 'pos-puebla', 'Mercado Puebla', 15000.00, 0.00, TRUE, 'Entrega semanal Puebla', '2026-11-09 08:00')
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- 12. Cargas de Camioneta, Gastos de Viaje y Prorrateo entre Dueños
 CREATE TABLE IF NOT EXISTS truck_loads (
@@ -4554,7 +4541,7 @@ VALUES
   ('sup-nitrato-calcio', 'Nitrato de Calcio Soluble', 'invernadero', 'Fertilizante', 'Aporta calcio asimilable y nitrógeno nítrico para fortalecer tallos largos, evitar cuello doblado y mejorar vida de florero.', 'Ca(NO3)2 15.5-0-0 + 26% CaO', '2 kg por 1,000L de solución', 'Kg', 125.00, 50.00, 32.00, 'Fertilizantes Florícolas MX', TRUE, '2026-11-01 08:00'),
   ('sup-capuchones', 'Capuchones Kraft / Celofán x25', 'empaque', 'Material de Empaque', 'Protección y presentación comercial para ramos de 25 tallos listos para embarque y venta.', '', '1 pieza por paquete', 'Pza', 1800.00, 500.00, 2.80, 'Empaques Florales SA', TRUE, '2026-11-01 08:00'),
   ('sup-despensa', 'Despensa Semanal Cuadrilla', 'comida_trabajadores', 'Comida Trabajadores', 'Insumos de alimentación, tortillas, agua purificada y despensa para el personal en invernadero.', '', 'Según semana operativa', 'Lote', 4.00, 1.00, 1250.00, 'Abarrotes La Central', TRUE, '2026-11-01 08:00')
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- 16. Compras de Insumos
 CREATE TABLE IF NOT EXISTS supply_purchases (
@@ -4638,7 +4625,7 @@ VALUES
   ('prov-empaques-cdmx', 'Empaques Florales CDMX', 'Lic. Mariana Ortiz', '55 5694 3312', 'pedidos@empaquesflorales.mx', 'empaques', 'Banorte CLABE 072180009912345678', 7, 25000.00, TRUE, '2026-11-01 09:15'),
   ('prov-fertilizantes-hidro', 'Fertilizantes HidroAgrícolas', 'Ing. Luis Morales', '722 318 4409', 'contacto@hidroagricolas.mx', 'fertilizantes', 'Santander CLABE 014180005566778899', 30, 60000.00, TRUE, '2026-11-01 09:30'),
   ('prov-abarrotes-regional', 'Abarrotes Regional', 'Don Martín Flores', '722 509 1122', '', 'otros', 'Efectivo / Transferencia', 0, 10000.00, TRUE, '2026-11-01 09:45')
-ON CONFLICT (name) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- 19. Incidencias de Empleados (Descuentos por Faltas, Otros Descuentos, Bonos Productividad, Comisiones y Pagos Adicionales)
 CREATE TABLE IF NOT EXISTS employee_adjustments (
@@ -4690,7 +4677,7 @@ VALUES
   ('sup-tocat-240', 'Tocat 240', 'invernadero', 'Fungicida / Acaricida', 'Control de cenicilla y peronospora en cultivo de rosa.', 'Formulación 240 SC', '100 ml por 200L', 'L', 'liquido', 3.00, 1.00, 1650.00, 'Agroquímicos del Valle', TRUE, '2026-11-01 08:10'),
   ('sup-tocat-cln', 'Tocat CLN', 'invernadero', 'Fungicida Polvo', 'Control preventivo de peronospora y tizón foliar.', 'Polvo humectable', '250 g por 200L', 'kg', 'polvo', 5.00, 2.00, 480.00, 'Agroquímicos del Valle', TRUE, '2026-11-01 08:15'),
   ('sup-adherente', 'Adherente', 'invernadero', 'Coadyuvante / Adherente', 'Mejora dispersión, adherencia y penetración de la mezcla foliar.', 'Surfactante no iónico', '100 ml por 200L', 'L', 'liquido', 10.00, 3.00, 220.00, 'Agroquímicos del Valle', TRUE, '2026-11-01 08:20')
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS foliar_general_applications (
     id TEXT PRIMARY KEY,
@@ -4776,7 +4763,26 @@ CREATE TABLE IF NOT EXISTS monitoring_pins (
 
 CREATE INDEX IF NOT EXISTS idx_monitoring_pins_date ON monitoring_pins (monitoring_date DESC, unit_id, status);
 
--- 24. Habilitar RLS y políticas de acceso para las 23 tablas activas de Aroma Flower
+-- 24. Normalización segura de ortografía "Tlapizaco" en registros históricos
+UPDATE bitacora_entries
+SET module_name = REPLACE(REPLACE(module_name, 'Tlapisaco', 'Tlapizaco'), 'Lapisaco', 'Tlapizaco')
+WHERE module_name ILIKE '%lapisaco%';
+
+UPDATE foliar_parchoneos
+SET module_name = REPLACE(REPLACE(module_name, 'Tlapisaco', 'Tlapizaco'), 'Lapisaco', 'Tlapizaco')
+WHERE module_name ILIKE '%lapisaco%';
+
+UPDATE irrigation_applications
+SET module_name = REPLACE(REPLACE(module_name, 'Tlapisaco', 'Tlapizaco'), 'Lapisaco', 'Tlapizaco')
+WHERE module_name ILIKE '%lapisaco%';
+
+UPDATE greenhouse_applications
+SET unit_name = REPLACE(REPLACE(unit_name, 'Tlapisaco', 'Tlapizaco'), 'Lapisaco', 'Tlapizaco'),
+    module_name = REPLACE(REPLACE(module_name, 'Tlapisaco', 'Tlapizaco'), 'Lapisaco', 'Tlapizaco'),
+    greenhouse_name = REPLACE(REPLACE(greenhouse_name, 'Tlapisaco', 'Tlapizaco'), 'Lapisaco', 'Tlapizaco')
+WHERE unit_name ILIKE '%lapisaco%' OR module_name ILIKE '%lapisaco%' OR greenhouse_name ILIKE '%lapisaco%';
+
+-- 25. Habilitar RLS y políticas de acceso para las 23 tablas activas de Aroma Flower
 DO $$
 DECLARE
   t TEXT;
