@@ -1158,5 +1158,63 @@ export interface IrrigationApplication {
   updatedAt?: string;
 }
 
+// ==================== CROQUIS INTERACTIVO Y MONITOREO DE CAMPO ====================
+
+export type CroquisUnitId = 'santa_cruz' | 'saul' | 'tlapizaco';
+
+export type MonitoringSeverity = 'baja' | 'media' | 'alta';
+
+export type MonitoringStatus = 'activo' | 'controlado';
+
+export const MONITORING_FINDING_SUGGESTIONS = [
+  'Araña roja (Tetranychus)',
+  'Trips (Frankliniella)',
+  'Cenicilla (Oídio)',
+  'Peronospora (Mildiú velloso)',
+  'Botrytis (Moho gris)',
+  'Mosca blanca',
+  'Pulgón',
+  'Roya',
+  'Minador de hoja',
+  'Deficiencia nutricional',
+  'Estrés hídrico / Falla de riego',
+  'Daño mecánico / Clima',
+] as const;
+
+export const MONITORING_ACTION_SUGGESTIONS = [
+  'Parchoneo localizado',
+  'Aplicación general foliar',
+  'Control en riego (Drench)',
+  'Poda sanitaria / Deshoje',
+  'Monitoreo preventivo (seguimiento)',
+  'Ajuste de ventilación / cortinas',
+  'Revisión de goteros / manguera',
+] as const;
+
+export interface MonitoringPin {
+  id: string;
+  monitoringDate: string; // YYYY-MM-DD
+  unitId: CroquisUnitId;
+  unitName: string; // Santa Cruz | Saúl | Tlapizaco
+  moduleNumber: number; // 1 | 2 | 3
+  moduleName: string; // ej. "Santa Cruz Módulo 1"
+  section: 'A' | 'B';
+  aisleNumber: number; // Pasillo / cama exacto del croquis
+  variety: string; // Variedad asignada a ese pasillo
+  positionPercent: number; // 0-100 a lo largo del pasillo (0=izquierda, 100=derecha)
+  positionMeters?: number; // Metro aproximado a lo largo del pasillo
+  pestOrFinding: string; // Plaga, enfermedad o hallazgo
+  severity: MonitoringSeverity;
+  incidencePercent: number; // 0-100 % de incidencia observada
+  recommendedAction?: string; // Acción sugerida (Parchoneo, Aplicación general, etc.)
+  status: MonitoringStatus; // activo | controlado
+  inspectorName?: string; // Responsable del monitoreo
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+
 
 

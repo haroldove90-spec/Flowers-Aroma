@@ -6,6 +6,7 @@ import { CulturalLaborTable } from './CulturalLaborTable';
 import { BitacoraTabPlaceholder } from './BitacoraTabPlaceholder';
 import { FoliarApplicationsView } from '../foliar/FoliarApplicationsView';
 import { RiegoApplicationsView } from './RiegoApplicationsView';
+import { MonitoringCroquisView } from './MonitoringCroquisView';
 
 export const BitacoraView: React.FC = () => {
   const [activeTabId, setActiveTabId] = useState<BitacoraCategory>('labores_culturales');
@@ -21,6 +22,8 @@ export const BitacoraView: React.FC = () => {
         return <FoliarApplicationsView embedded />;
       case 'riego':
         return <RiegoApplicationsView />;
+      case 'monitoreo':
+        return <MonitoringCroquisView />;
       default:
         return (
           <BitacoraTabPlaceholder

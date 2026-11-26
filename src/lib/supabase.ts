@@ -40,6 +40,7 @@ import {
   FoliarGeneralApplication,
   FoliarParchoneoEntry,
   IrrigationApplication,
+  MonitoringPin,
 } from '../types/greenhouse';
 
 export const DEFAULT_SUPABASE_URL =
@@ -129,6 +130,7 @@ export async function testSupabaseConnection(
       client.from('foliar_general_applications').select('id').limit(1),
       client.from('foliar_parchoneos').select('id').limit(1),
       client.from('irrigation_applications').select('id').limit(1),
+      client.from('monitoring_pins').select('id').limit(1),
     ]);
     const error = checks.find((c) => c.error)?.error;
     if (!error) {
@@ -1589,6 +1591,56 @@ export const mapIrrigationApplicationFromDb = (r: any): IrrigationApplication =>
   updatedAt: r.updated_at || undefined,
 });
 
+export const mapMonitoringPinToDb = (p: MonitoringPin) => ({
+  id: p.id,
+  monitoring_date: p.monitoringDate,
+  unit_id: p.unitId,
+  unit_name: p.unitName,
+  module_number: Number(p.moduleNumber || 1),
+  module_name: p.moduleName,
+  section: p.section || 'A',
+  aisle_number: Number(p.aisleNumber || 1),
+  variety: p.variety || '',
+  position_percent: Number(p.positionPercent ?? 50),
+  position_meters: p.positionMeters != null ? Number(p.positionMeters) : null,
+  pest_or_finding: p.pestOrFinding || '',
+  severity: p.severity || 'media',
+  incidence_percent: Number(p.incidencePercent || 0),
+  recommended_action: p.recommendedAction || '',
+  status: p.status || 'activo',
+  inspector_name: p.inspectorName || '',
+  notes: p.notes || '',
+  created_by: p.createdBy || '',
+  created_at: p.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapMonitoringPinFromDb = (r: any): MonitoringPin => ({
+  id: String(r.id),
+  monitoringDate: r.monitoring_date || '',
+  unitId:
+    r.unit_id === 'saul' || r.unit_id === 'tlapizaco' ? r.unit_id : 'santa_cruz',
+  unitName: r.unit_name || 'Santa Cruz',
+  moduleNumber: Number(r.module_number || 1),
+  moduleName: r.module_name || 'Santa Cruz Módulo 1',
+  section: r.section === 'B' ? 'B' : 'A',
+  aisleNumber: Number(r.aisle_number || 1),
+  variety: r.variety || '',
+  positionPercent: Number(r.position_percent ?? 50),
+  positionMeters: r.position_meters != null ? Number(r.position_meters) : undefined,
+  pestOrFinding: r.pest_or_finding || '',
+  severity:
+    r.severity === 'baja' || r.severity === 'alta' ? r.severity : 'media',
+  incidencePercent: Number(r.incidence_percent || 0),
+  recommendedAction: r.recommended_action || undefined,
+  status: r.status === 'controlado' ? 'controlado' : 'activo',
+  inspectorName: r.inspector_name || undefined,
+  notes: r.notes || undefined,
+  createdBy: r.created_by || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
 // ---------- Sync Helpers ----------
 
 export async function upsertRowsToSupabase(
@@ -1788,6 +1840,7 @@ export interface RemoteSnapshot {
   foliarGeneralApplications?: FoliarGeneralApplication[];
   foliarParchoneos?: FoliarParchoneoEntry[];
   irrigationApplications?: IrrigationApplication[];
+  monitoringPins?: MonitoringPin[];
   modules?: GreenhouseModule[];
   tasks?: CulturalTask[];
   irrigation?: IrrigationLog[];
@@ -1832,6 +1885,7 @@ export async function fetchAllFromSupabase(
     foliarGenRes,
     foliarParRes,
     irrigAppRes,
+    monPinRes,
   ] = await Promise.all([
     client.from('app_users').select('*'),
     client.from('app_products').select('*').order('sort_order', { ascending: true }),
@@ -1868,6 +1922,10 @@ export async function fetchAllFromSupabase(
       .from('irrigation_applications')
       .select('*')
       .order('application_date', { ascending: false }),
+    client
+      .from('monitoring_pins')
+      .select('*')
+      .order('monitoring_date', { ascending: false }),
   ]);
 
   const isMissingTable = (err: any) =>
@@ -1899,6 +1957,7 @@ export async function fetchAllFromSupabase(
     foliarGenRes,
     foliarParRes,
     irrigAppRes,
+    monPinRes,
   ];
 
   const mappedBase = {
@@ -1932,6 +1991,10 @@ export async function fetchAllFromSupabase(
     irrigationApplications:
       !irrigAppRes.error && irrigAppRes.data
         ? irrigAppRes.data.map(mapIrrigationApplicationFromDb)
+        : undefined,
+    monitoringPins:
+      !monPinRes.error && monPinRes.data
+        ? monPinRes.data.map(mapMonitoringPinFromDb)
         : undefined,
   };
 
@@ -2035,6 +2098,7 @@ export interface LocalStateSnapshot {
   foliarGeneralApplications: FoliarGeneralApplication[];
   foliarParchoneos: FoliarParchoneoEntry[];
   irrigationApplications: IrrigationApplication[];
+  monitoringPins: MonitoringPin[];
   modules: GreenhouseModule[];
   tasks: CulturalTask[];
   irrigation: IrrigationLog[];
@@ -2080,6 +2144,7 @@ export async function pushAllLocalToSupabase(
     { table: 'foliar_general_applications', rows: state.foliarGeneralApplications.map(mapFoliarGeneralToDb) },
     { table: 'foliar_parchoneos', rows: state.foliarParchoneos.map(mapFoliarParchoneoToDb) },
     { table: 'irrigation_applications', rows: state.irrigationApplications.map(mapIrrigationApplicationToDb) },
+    { table: 'monitoring_pins', rows: state.monitoringPins.map(mapMonitoringPinToDb) },
   ];
 
   const batches = onlyAromaFlowers

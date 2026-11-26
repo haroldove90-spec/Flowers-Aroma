@@ -39,6 +39,7 @@ import {
   FoliarGeneralApplication,
   FoliarParchoneoEntry,
   IrrigationApplication,
+  MonitoringPin,
   AppModuleId,
   APP_MODULES_CONFIG,
   DEFAULT_PRODUCTION_MODULES,
@@ -118,6 +119,8 @@ import {
   mapFoliarParchoneoToDb,
   mapIrrigationApplicationFromDb,
   mapIrrigationApplicationToDb,
+  mapMonitoringPinFromDb,
+  mapMonitoringPinToDb,
   mapHarvestToDb,
   mapInventoryToDb,
   mapIrrigationToDb,
@@ -411,6 +414,14 @@ interface GreenhouseContextType {
     existingId?: string
   ) => Promise<{ ok: boolean; entry?: IrrigationApplication; cloudSynced?: boolean; cloudError?: string }>;
   deleteIrrigationApplication: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  // Monitoreo Visual en Croquis (Marcadores por Unidad / Módulo / Sección / Pasillo)
+  monitoringPins: MonitoringPin[];
+  saveMonitoringPin: (
+    input: Omit<MonitoringPin, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; entry?: MonitoringPin; cloudSynced?: boolean; cloudError?: string }>;
+  deleteMonitoringPin: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
 
   refreshFromSupabase: () => Promise<boolean>;
 
@@ -813,6 +824,20 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return [];
   });
 
+  // Monitoreo Visual en Croquis (Marcadores por Unidad / Módulo / Sección / Pasillo)
+  const [monitoringPins, setMonitoringPins] = useState<MonitoringPin[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}monitoring_pins`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+
   // Inventario General Único (Consolidado Producción - Cargas de Camioneta - Remisiones Directas)
   const generalInventory = useMemo<GeneralInventoryRow[]>(() => {
     const map = new Map<string, GeneralInventoryRow>();
@@ -1018,6 +1043,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'foliar_general_applications',
       'foliar_parchoneos',
       'irrigation_applications',
+      'monitoring_pins',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -1076,6 +1102,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'foliar_general_applications',
       'foliar_parchoneos',
       'irrigation_applications',
+      'monitoring_pins',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -1226,6 +1253,13 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     ) {
       setIrrigationApplications(snap.irrigationApplications);
       saveState('irrigation_applications', snap.irrigationApplications);
+    }
+    if (
+      snap.monitoringPins !== undefined &&
+      !pendingTables.has('monitoring_pins')
+    ) {
+      setMonitoringPins(snap.monitoringPins);
+      saveState('monitoring_pins', snap.monitoringPins);
     }
     if (snap.modules) {
       setModules(snap.modules);
@@ -3780,6 +3814,89 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { ok: true, cloudSynced: res.ok };
   };
 
+  // ---------- Monitoreo Visual en Croquis ----------
+  const saveMonitoringPin = async (
+    input: Omit<MonitoringPin, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{
+    ok: boolean;
+    entry?: MonitoringPin;
+    cloudSynced?: boolean;
+    cloudError?: string;
+  }> => {
+    const now = new Date().toISOString();
+    const existing = existingId
+      ? monitoringPins.find((p) => p.id === existingId)
+      : undefined;
+
+    const entry: MonitoringPin = {
+      id: existing?.id || `monpin-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      monitoringDate: input.monitoringDate || new Date().toISOString().slice(0, 10),
+      unitId: input.unitId || 'santa_cruz',
+      unitName: input.unitName || 'Santa Cruz',
+      moduleNumber: Math.max(1, Number(input.moduleNumber || 1)),
+      moduleName: input.moduleName || 'Santa Cruz Módulo 1',
+      section: input.section === 'B' ? 'B' : 'A',
+      aisleNumber: Math.max(1, Math.round(Number(input.aisleNumber || 1))),
+      variety: input.variety || 'Sin variedad',
+      positionPercent: Math.max(0, Math.min(100, Number(input.positionPercent ?? 50))),
+      positionMeters:
+        input.positionMeters !== undefined && input.positionMeters !== null
+          ? Math.max(0, Number(input.positionMeters))
+          : undefined,
+      pestOrFinding: (input.pestOrFinding || '').trim(),
+      severity: input.severity || 'media',
+      incidencePercent: Math.max(0, Math.min(100, Math.round(Number(input.incidencePercent ?? 0)))),
+      recommendedAction: input.recommendedAction?.trim() || undefined,
+      status: input.status === 'controlado' ? 'controlado' : 'activo',
+      inspectorName: input.inspectorName?.trim() || existing?.inspectorName || currentUser?.fullName || undefined,
+      notes: input.notes?.trim() || undefined,
+      createdBy: input.createdBy || existing?.createdBy || currentUser?.fullName || '',
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setMonitoringPins((prev) => {
+      const exists = prev.some((p) => p.id === entry.id);
+      const updated = exists
+        ? prev.map((p) => (p.id === entry.id ? entry : p))
+        : [entry, ...prev];
+      saveState('monitoring_pins', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase(
+      'monitoring_pins',
+      mapMonitoringPinToDb(entry)
+    );
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapMonitoringPinFromDb(cloudRes.savedRow);
+      setMonitoringPins((prev) => {
+        const updated = prev.map((p) => (p.id === entry.id ? synced : p));
+        saveState('monitoring_pins', updated);
+        return updated;
+      });
+    }
+    addAuditLog(
+      'Monitoreo en Croquis',
+      `${entry.moduleName} • Sec. ${entry.section} • Pasillo ${entry.aisleNumber} (${entry.variety}) • ${entry.pestOrFinding} (${entry.incidencePercent}% · ${entry.severity})`
+    );
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteMonitoringPin = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setMonitoringPins((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      saveState('monitoring_pins', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('monitoring_pins', id);
+    addAuditLog('Monitoreo en Croquis', `Marcador de monitoreo eliminado (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
   // Demo data wipe function (as requested in the prompt)
   const clearAllDemoData = () => {
     setModules([]);
@@ -3813,6 +3930,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setFoliarGeneralApplications([]);
     setFoliarParchoneos([]);
     setIrrigationApplications([]);
+    setMonitoringPins([]);
 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}demo_cleared`, 'true');
     localStorage.setItem(`${STORAGE_KEY_PREFIX}never_show_demo`, 'true');
@@ -3852,6 +3970,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'foliar_general_applications',
       'foliar_parchoneos',
       'irrigation_applications',
+      'monitoring_pins',
     ];
     keys.forEach((k) => localStorage.removeItem(`${STORAGE_KEY_PREFIX}${k}`));
 
@@ -3965,6 +4084,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           foliarGeneralApplications,
           foliarParchoneos,
           irrigationApplications,
+          monitoringPins,
           modules,
           tasks,
           irrigation,
@@ -4629,7 +4749,34 @@ CREATE TABLE IF NOT EXISTS irrigation_applications (
 
 CREATE INDEX IF NOT EXISTS idx_irrigation_apps_date ON irrigation_applications (application_date DESC, module_name);
 
--- 23. Habilitar RLS y políticas de acceso para las 22 tablas activas de Aroma Flower
+-- 23. Monitoreo Visual en Croquis (Ubicación exacta: Unidad, Módulo, Sección, Pasillo, Variedad e Incidencia %)
+CREATE TABLE IF NOT EXISTS monitoring_pins (
+    id TEXT PRIMARY KEY,
+    monitoring_date TEXT NOT NULL,
+    unit_id TEXT NOT NULL CHECK (unit_id IN ('santa_cruz', 'saul', 'tlapizaco')),
+    unit_name TEXT NOT NULL DEFAULT 'Santa Cruz',
+    module_number INT NOT NULL DEFAULT 1,
+    module_name TEXT NOT NULL DEFAULT 'Santa Cruz Módulo 1',
+    section TEXT NOT NULL DEFAULT 'A' CHECK (section IN ('A', 'B')),
+    aisle_number INT NOT NULL DEFAULT 1,
+    variety TEXT NOT NULL DEFAULT '',
+    position_percent NUMERIC(5, 2) NOT NULL DEFAULT 50,
+    position_meters NUMERIC(6, 2),
+    pest_or_finding TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'media' CHECK (severity IN ('baja', 'media', 'alta')),
+    incidence_percent NUMERIC(5, 2) NOT NULL DEFAULT 0,
+    recommended_action TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'activo' CHECK (status IN ('activo', 'controlado')),
+    inspector_name TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    created_by TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_monitoring_pins_date ON monitoring_pins (monitoring_date DESC, unit_id, status);
+
+-- 24. Habilitar RLS y políticas de acceso para las 23 tablas activas de Aroma Flower
 DO $$
 DECLARE
   t TEXT;
@@ -4655,7 +4802,8 @@ DECLARE
     'bitacora_entries',
     'foliar_general_applications',
     'foliar_parchoneos',
-    'irrigation_applications'
+    'irrigation_applications',
+    'monitoring_pins'
   ];
 BEGIN
   FOREACH t IN ARRAY tbls LOOP
@@ -5004,12 +5152,13 @@ TRUNCATE TABLE
   bitacora_entries,
   foliar_general_applications,
   foliar_parchoneos,
-  irrigation_applications
+  irrigation_applications,
+  monitoring_pins
 CASCADE;
 UPDATE payroll_employees SET loan_balance = 0;
 UPDATE sales_clients SET balance = 0;
 COMMIT;
--- Las 22 tablas activas permanecen listas para operación real.
+-- Las 23 tablas activas permanecen listas para operación real.
 `;
     }
 
@@ -5081,6 +5230,7 @@ COMMIT;
       foliarGeneralApplications,
       foliarParchoneos,
       irrigationApplications,
+      monitoringPins,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -5124,6 +5274,7 @@ COMMIT;
       if (data.foliarGeneralApplications) setFoliarGeneralApplications(data.foliarGeneralApplications);
       if (data.foliarParchoneos) setFoliarParchoneos(data.foliarParchoneos);
       if (data.irrigationApplications) setIrrigationApplications(data.irrigationApplications);
+      if (data.monitoringPins) setMonitoringPins(data.monitoringPins);
 
       setDemoDataCleared(false);
       addAuditLog('Restauración de Respaldo', 'Base de datos restaurada desde archivo JSON');
@@ -5245,6 +5396,9 @@ COMMIT;
         irrigationApplications,
         saveIrrigationApplication,
         deleteIrrigationApplication,
+        monitoringPins,
+        saveMonitoringPin,
+        deleteMonitoringPin,
         refreshFromSupabase,
         addModule,
         updateModule,

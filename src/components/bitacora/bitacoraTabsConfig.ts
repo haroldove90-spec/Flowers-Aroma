@@ -58,9 +58,8 @@ export const BITACORA_TABS: BitacoraTabDefinition[] = [
     label: 'Monitoreo',
     shortLabel: 'Monitoreo',
     description:
-      'Plantilla preparada para seguimiento diario de plagas, enfermedades, incidencia y observaciones de campo.',
+      'Croquis interactivo de Santa Cruz, Saúl y Tlapizaco para ubicar focos por unidad, módulo, sección, pasillo y variedad con porcentaje de incidencia y acción recomendada.',
     icon: SearchCheck,
-    ready: false,
-    plannedColumns: ['Fecha', 'Módulo', 'Plaga / Enfermedad', 'Nivel / Incidencia', 'Acción', 'Status'],
+    ready: true,
   },
 ];
