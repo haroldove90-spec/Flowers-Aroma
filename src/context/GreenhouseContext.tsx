@@ -87,9 +87,11 @@ import {
   DEFAULT_SUPABASE_URL,
   SupabaseSyncStatus,
   SupabaseTestResult,
+  clearTablesInSupabase,
   deleteRowFromSupabase,
   fetchAllFromSupabase,
   getSupabaseClient,
+  resetCatalogBalancesInSupabase,
   mapAccountToDb,
   mapAppUserFromDb,
   mapAppUserToDb,
@@ -458,7 +460,15 @@ interface GreenhouseContextType {
 
   // Demo Data Management & Supabase
   demoDataCleared: boolean;
-  clearAllDemoData: () => void;
+  clearAllDemoData: (options?: {
+    includeCatalogs?: boolean;
+    includeProducts?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    clearedSupabase: boolean;
+    clearedTablesCount: number;
+    message: string;
+  }>;
   restoreDemoData: () => void;
   neverShowDemoAgain: boolean;
   setNeverShowDemoAgain: (val: boolean) => void;
@@ -488,35 +498,27 @@ const STORAGE_KEY_PREFIX = 'aroma_flowers_';
 const GreenhouseContext = createContext<GreenhouseContextType | undefined>(undefined);
 
 export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Check if demo data was previously wiped by user
-  const storedDemoCleared = localStorage.getItem(`${STORAGE_KEY_PREFIX}demo_cleared`) === 'true';
-  const storedNeverShow = localStorage.getItem(`${STORAGE_KEY_PREFIX}never_show_demo`) === 'true';
+  // Never auto-load sample/demo records in browser; Supabase is the single source of truth
+  const storedDemoCleared = localStorage.getItem(`${STORAGE_KEY_PREFIX}demo_cleared`) !== 'false';
+  const storedNeverShow = localStorage.getItem(`${STORAGE_KEY_PREFIX}never_show_demo`) !== 'false';
 
   const [demoDataCleared, setDemoDataCleared] = useState<boolean>(storedDemoCleared || storedNeverShow);
   const [neverShowDemoAgain, setNeverShowDemoAgainState] = useState<boolean>(storedNeverShow);
 
-  // Users & Session State (always keeps seeded credentials available even if demo data cleared)
+  // Users & Session State (respects deletions; only falls back to INITIAL_APP_USERS if storage is empty)
   const [appUsers, setAppUsers] = useState<AppUser[]>(() => {
     const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}app_users`);
-    let list: AppUser[] = INITIAL_APP_USERS;
     if (local) {
       try {
         const parsed = JSON.parse(local);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          list = parsed;
+          return parsed;
         }
       } catch {
-        list = INITIAL_APP_USERS;
+        return INITIAL_APP_USERS;
       }
     }
-    // Ensure seeded credentials exist if missing
-    const merged = [...list];
-    INITIAL_APP_USERS.forEach((seedUser) => {
-      if (!merged.some((u) => u.username.toLowerCase() === seedUser.username.toLowerCase())) {
-        merged.push(seedUser);
-      }
-    });
-    return merged;
+    return INITIAL_APP_USERS;
   });
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(() => {
@@ -574,198 +576,134 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [supabaseMessage, setSupabaseMessage] = useState<string>('');
   const [isSyncingSupabase, setIsSyncingSupabase] = useState<boolean>(false);
 
-  // Data Collections helper to initialize from storage or seed
-  const loadInitial = <T,>(key: string, seed: T[]): T[] => {
-    if (storedDemoCleared || storedNeverShow) return [];
+  // Data Collections helper: NEVER re-seed sample/mock data in the browser.
+  // Reads saved local cache (if any) and synchronizes from Supabase as single source of truth.
+  const loadInitial = <T,>(key: string, _seed?: T[]): T[] => {
     const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}${key}`);
     if (local) {
       try {
-        return JSON.parse(local);
-      } catch (e) {
-        return seed;
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
       }
     }
-    return seed;
+    return [];
   };
 
-  const [modules, setModules] = useState<GreenhouseModule[]>(() => loadInitial('modules', INITIAL_MODULES));
-  const [tasks, setTasks] = useState<CulturalTask[]>(() => loadInitial('tasks', INITIAL_TASKS));
-  const [irrigation, setIrrigation] = useState<IrrigationLog[]>(() => loadInitial('irrigation', INITIAL_IRRIGATION));
-  const [pestMonitoring, setPestMonitoring] = useState<PestMonitoring[]>(() => loadInitial('pest_monitoring', INITIAL_PEST_MONITORING));
-  const [applications, setApplications] = useState<PhytosanitaryApplication[]>(() => loadInitial('applications', INITIAL_APPLICATIONS));
-  const [harvest, setHarvest] = useState<HarvestRecord[]>(() => loadInitial('harvest', INITIAL_HARVEST));
-  const [inventory, setInventory] = useState<InventoryItem[]>(() => loadInitial('inventory', INITIAL_INVENTORY));
-  const [equipment, setEquipment] = useState<EquipmentAsset[]>(() => loadInitial('equipment', INITIAL_EQUIPMENT));
-  const [workers, setWorkers] = useState<Worker[]>(() => loadInitial('workers', INITIAL_WORKERS));
-  const [customers, setCustomers] = useState<Customer[]>(() => loadInitial('customers', INITIAL_CUSTOMERS));
-  const [orders, setOrders] = useState<SalesOrder[]>(() => loadInitial('orders', INITIAL_ORDERS));
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>(() => loadInitial('bank_accounts', INITIAL_ACCOUNTS));
-  const [movements, setMovements] = useState<FinancialMovement[]>(() => loadInitial('movements', INITIAL_MOVEMENTS));
-  const [loans, setLoans] = useState<ActiveLoan[]>(() => loadInitial('loans', INITIAL_LOANS));
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => loadInitial('audit_logs', INITIAL_AUDIT_LOGS));
-  const [aromaSheets, setAromaSheets] = useState<AromaFlowerSheetEntry[]>(() => loadInitial('aroma_sheets', INITIAL_AROMA_FLOWER_SHEETS));
+  const [modules, setModules] = useState<GreenhouseModule[]>(() => loadInitial('modules'));
+  const [tasks, setTasks] = useState<CulturalTask[]>(() => loadInitial('tasks'));
+  const [irrigation, setIrrigation] = useState<IrrigationLog[]>(() => loadInitial('irrigation'));
+  const [pestMonitoring, setPestMonitoring] = useState<PestMonitoring[]>(() => loadInitial('pest_monitoring'));
+  const [applications, setApplications] = useState<PhytosanitaryApplication[]>(() => loadInitial('applications'));
+  const [harvest, setHarvest] = useState<HarvestRecord[]>(() => loadInitial('harvest'));
+  const [inventory, setInventory] = useState<InventoryItem[]>(() => loadInitial('inventory'));
+  const [equipment, setEquipment] = useState<EquipmentAsset[]>(() => loadInitial('equipment'));
+  const [workers, setWorkers] = useState<Worker[]>(() => loadInitial('workers'));
+  const [customers, setCustomers] = useState<Customer[]>(() => loadInitial('customers'));
+  const [orders, setOrders] = useState<SalesOrder[]>(() => loadInitial('orders'));
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>(() => loadInitial('bank_accounts'));
+  const [movements, setMovements] = useState<FinancialMovement[]>(() => loadInitial('movements'));
+  const [loans, setLoans] = useState<ActiveLoan[]>(() => loadInitial('loans'));
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => loadInitial('audit_logs'));
+  const [aromaSheets, setAromaSheets] = useState<AromaFlowerSheetEntry[]>(() => loadInitial('aroma_sheets'));
 
-  // Normalizer to fix BOUEVARD -> BOULEVARD and ensure MUNDIAL is available
+  // Normalizer to fix spelling BOUEVARD -> BOULEVARD without resurrecting deleted products
   const normalizeAromaProducts = (items: AromaProduct[]): AromaProduct[] => {
-    const fixed = items.map((p) => {
-      if (p.id === 'prod-bouevard' || p.name.trim().toUpperCase() === 'BOUEVARD') {
-        return { ...p, name: 'BOULEVARD' };
-      }
-      return p;
-    });
-    const hasMundial = fixed.some((p) => p.name.trim().toUpperCase() === 'MUNDIAL');
-    if (!hasMundial) {
-      fixed.push({
-        id: 'prod-mundial',
-        name: 'MUNDIAL',
-        captureMode: 'lar_med_chi',
-        sortOrder: 3,
-        active: true,
-        createdAt: '2026-11-26 08:00',
-      });
-    }
-    return [...fixed].sort((a, b) => a.sortOrder - b.sortOrder);
+    return items
+      .map((p) => {
+        if (p.id === 'prod-bouevard' || p.name.trim().toUpperCase() === 'BOUEVARD') {
+          return { ...p, name: 'BOULEVARD' };
+        }
+        return p;
+      })
+      .sort((a, b) => a.sortOrder - b.sortOrder);
   };
 
-  // Catalog of Products (always stays populated unless Admin modifies it)
+  // Catalog of Products (respects empty array if Admin deletes all products; Supabase is source of truth)
   const [aromaProducts, setAromaProducts] = useState<AromaProduct[]>(() => {
     const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}app_products`);
-    if (local) {
+    if (local !== null) {
       try {
         const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return normalizeAromaProducts(parsed);
         }
       } catch {
-        return INITIAL_AROMA_PRODUCTS;
+        return [];
       }
     }
-    return INITIAL_AROMA_PRODUCTS;
+    return [];
   });
 
   // Daily Production Entries by employee and date
   const [dailyProductions, setDailyProductions] = useState<DailyProductionEntry[]>(() =>
-    loadInitial('daily_productions', INITIAL_DAILY_PRODUCTIONS)
+    loadInitial('daily_productions')
   );
 
   // Daily Sales Entries (Resumen de Ventas CEDA CDMX)
   const [dailySales, setDailySales] = useState<DailySalesEntry[]>(() =>
-    loadInitial('daily_sales', INITIAL_DAILY_SALES)
+    loadInitial('daily_sales')
   );
 
-  // Empleados de Nómina & Directorio (keeps 13 seeded workers unless cleared/modified)
-  const [payrollEmployees, setPayrollEmployees] = useState<PayrollEmployee[]>(() => {
-    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}payroll_employees`);
-    if (local) {
-      try {
-        const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {
-        return INITIAL_PAYROLL_EMPLOYEES;
-      }
-    }
-    return INITIAL_PAYROLL_EMPLOYEES;
-  });
+  // Empleados de Nómina & Directorio (sin recargar muestra en navegador)
+  const [payrollEmployees, setPayrollEmployees] = useState<PayrollEmployee[]>(() =>
+    loadInitial('payroll_employees')
+  );
 
   // Nóminas Semanales (Módulo Pagos)
   const [payrollWeeks, setPayrollWeeks] = useState<PayrollWeekEntry[]>(() =>
-    loadInitial('payroll_weeks', INITIAL_PAYROLL_WEEKS)
+    loadInitial('payroll_weeks')
   );
 
   // Préstamos y Descuentos de Empleados
   const [employeeLoans, setEmployeeLoans] = useState<EmployeeLoanMovement[]>(() =>
-    loadInitial('employee_loans', INITIAL_EMPLOYEE_LOANS)
+    loadInitial('employee_loans')
   );
 
   // Incidencias de Nómina: Descuentos por Faltas, Otros Descuentos, Bonos de Productividad y Comisiones
   const [employeeAdjustments, setEmployeeAdjustments] = useState<EmployeeAdjustment[]>(() =>
-    loadInitial('employee_adjustments', INITIAL_EMPLOYEE_ADJUSTMENTS)
+    loadInitial('employee_adjustments')
   );
 
-  // Catálogo Formal de Proveedores
-  const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
-    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}suppliers`);
-    if (local) {
-      try {
-        const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {
-        return INITIAL_SUPPLIERS;
-      }
-    }
-    return INITIAL_SUPPLIERS;
-  });
+  // Catálogo Formal de Proveedores (sin recargar muestra en navegador)
+  const [suppliers, setSuppliers] = useState<Supplier[]>(() => loadInitial('suppliers'));
 
   // Pagos a Proveedores y Otros Gastos
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>(() =>
-    loadInitial('supplier_payments', INITIAL_SUPPLIER_PAYMENTS)
+    loadInitial('supplier_payments')
   );
 
-  // Puntos de Venta (siempre disponibles salvo borrado manual)
-  const [salesPoints, setSalesPoints] = useState<SalesPoint[]>(() => {
-    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}sales_points`);
-    if (local) {
-      try {
-        const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {
-        return INITIAL_SALES_POINTS;
-      }
-    }
-    return INITIAL_SALES_POINTS;
-  });
+  // Puntos de Venta (sin recargar muestra en navegador)
+  const [salesPoints, setSalesPoints] = useState<SalesPoint[]>(() => loadInitial('sales_points'));
 
-  // Clientes Comerciales y Cuentas por Cobrar
-  const [salesClients, setSalesClients] = useState<SalesClient[]>(() => {
-    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}sales_clients`);
-    if (local) {
-      try {
-        const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {
-        return INITIAL_SALES_CLIENTS;
-      }
-    }
-    return INITIAL_SALES_CLIENTS;
-  });
+  // Clientes Comerciales y Cuentas por Cobrar (sin recargar muestra en navegador)
+  const [salesClients, setSalesClients] = useState<SalesClient[]>(() => loadInitial('sales_clients'));
 
   // Cargas de Camioneta y Gastos de Viaje (Prorrateo)
-  const [truckLoads, setTruckLoads] = useState<TruckLoad[]>(() =>
-    loadInitial('truck_loads', INITIAL_TRUCK_LOADS)
-  );
+  const [truckLoads, setTruckLoads] = useState<TruckLoad[]>(() => loadInitial('truck_loads'));
 
   // Notas de Remisión (Tablet / Vendedor / Contado-Crédito-Depósito)
   const [remissionNotes, setRemissionNotes] = useState<RemissionNote[]>(() =>
-    loadInitial('remission_notes', INITIAL_REMISSION_NOTES)
+    loadInitial('remission_notes')
   );
 
   // Abonos y Pagos a Cuenta de Clientes
   const [clientPayments, setClientPayments] = useState<ClientPayment[]>(() =>
-    loadInitial('client_payments', INITIAL_CLIENT_PAYMENTS)
+    loadInitial('client_payments')
   );
 
-  // Catálogo de Insumos por Área (Invernadero, Empaque, Comida, Otros)
-  const [supplyItems, setSupplyItems] = useState<SupplyItem[]>(() => {
-    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}supply_items`);
-    if (local) {
-      try {
-        const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch {
-        return INITIAL_SUPPLY_ITEMS;
-      }
-    }
-    return INITIAL_SUPPLY_ITEMS;
-  });
+  // Catálogo de Insumos por Área (sin recargar muestra en navegador)
+  const [supplyItems, setSupplyItems] = useState<SupplyItem[]>(() => loadInitial('supply_items'));
 
   // Compras de Insumos
   const [supplyPurchases, setSupplyPurchases] = useState<SupplyPurchase[]>(() =>
-    loadInitial('supply_purchases', INITIAL_SUPPLY_PURCHASES)
+    loadInitial('supply_purchases')
   );
 
   // Aplicaciones Foliares y Fertilización en Invernaderos
   const [greenhouseApplications, setGreenhouseApplications] = useState<GreenhouseApplication[]>(() =>
-    loadInitial('greenhouse_applications', INITIAL_GREENHOUSE_APPLICATIONS)
+    loadInitial('greenhouse_applications')
   );
 
   // Bitácora diaria de operaciones agrícolas (Labores culturales, Aplicaciones foliares, Riego, Monitoreo)
@@ -1152,21 +1090,15 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     const pendingTables = getPendingTables();
 
-    if (snap.aromaSheets) {
+    if (snap.aromaSheets !== undefined) {
       setAromaSheets(snap.aromaSheets);
       saveState('aroma_sheets', snap.aromaSheets);
     }
-    if (snap.appUsers && !pendingTables.has('app_users')) {
-      setAppUsers((prev) => {
-        const byId = new Map<string, AppUser>();
-        prev.forEach((u) => byId.set(u.id, u));
-        snap.appUsers?.forEach((u) => byId.set(u.id, u));
-        const merged = Array.from(byId.values());
-        saveState('app_users', merged);
-        return merged;
-      });
+    if (snap.appUsers && snap.appUsers.length > 0 && !pendingTables.has('app_users')) {
+      setAppUsers(snap.appUsers);
+      saveState('app_users', snap.appUsers);
     }
-    if (snap.aromaProducts && snap.aromaProducts.length > 0 && !pendingTables.has('app_products')) {
+    if (snap.aromaProducts !== undefined && !pendingTables.has('app_products')) {
       const sorted = normalizeAromaProducts(snap.aromaProducts);
       setAromaProducts(sorted);
       saveState('app_products', sorted);
@@ -1179,7 +1111,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setDailySales(snap.dailySales);
       saveState('daily_sales', snap.dailySales);
     }
-    if (snap.payrollEmployees && snap.payrollEmployees.length > 0 && !pendingTables.has('payroll_employees')) {
+    if (snap.payrollEmployees !== undefined && !pendingTables.has('payroll_employees')) {
       setPayrollEmployees(snap.payrollEmployees);
       saveState('payroll_employees', snap.payrollEmployees);
     }
@@ -1195,7 +1127,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setEmployeeAdjustments(snap.employeeAdjustments);
       saveState('employee_adjustments', snap.employeeAdjustments);
     }
-    if (snap.suppliers && snap.suppliers.length > 0 && !pendingTables.has('suppliers')) {
+    if (snap.suppliers !== undefined && !pendingTables.has('suppliers')) {
       setSuppliers(snap.suppliers);
       saveState('suppliers', snap.suppliers);
     }
@@ -1203,11 +1135,11 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setSupplierPayments(snap.supplierPayments);
       saveState('supplier_payments', snap.supplierPayments);
     }
-    if (snap.salesPoints && snap.salesPoints.length > 0 && !pendingTables.has('sales_points')) {
+    if (snap.salesPoints !== undefined && !pendingTables.has('sales_points')) {
       setSalesPoints(snap.salesPoints);
       saveState('sales_points', snap.salesPoints);
     }
-    if (snap.salesClients && snap.salesClients.length > 0 && !pendingTables.has('sales_clients')) {
+    if (snap.salesClients !== undefined && !pendingTables.has('sales_clients')) {
       setSalesClients(snap.salesClients);
       saveState('sales_clients', snap.salesClients);
     }
@@ -1223,7 +1155,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setClientPayments(snap.clientPayments);
       saveState('client_payments', snap.clientPayments);
     }
-    if (snap.supplyItems && snap.supplyItems.length > 0 && !pendingTables.has('supply_items')) {
+    if (snap.supplyItems !== undefined && !pendingTables.has('supply_items')) {
       setSupplyItems(snap.supplyItems);
       saveState('supply_items', snap.supplyItems);
     }
@@ -3935,7 +3867,23 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // Demo data wipe function (as requested in the prompt)
-  const clearAllDemoData = () => {
+  const clearAllDemoData = async (options?: {
+    includeCatalogs?: boolean;
+    includeProducts?: boolean;
+  }): Promise<{
+    ok: boolean;
+    clearedSupabase: boolean;
+    clearedTablesCount: number;
+    message: string;
+  }> => {
+    const includeCatalogs = options?.includeCatalogs ?? true;
+    const includeProducts = options?.includeProducts ?? false;
+
+    // 1. Clear pending offline queue first so deleted sample rows can never re-upload
+    setOfflineQueue([]);
+    localStorage.removeItem(`${STORAGE_KEY_PREFIX}offline_queue`);
+
+    // 2. Clear all operational & legacy collections in React state
     setModules([]);
     setTasks([]);
     setIrrigation([]);
@@ -3969,13 +3917,36 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setIrrigationApplications([]);
     setMonitoringPins([]);
 
+    if (includeCatalogs) {
+      setPayrollEmployees([]);
+      setSuppliers([]);
+      setSalesPoints([]);
+      setSalesClients([]);
+      setSupplyItems([]);
+    } else {
+      setPayrollEmployees((prev) => {
+        const zeroed = prev.map((e) => ({ ...e, loanBalance: 0 }));
+        saveState('payroll_employees', zeroed);
+        return zeroed;
+      });
+      setSalesClients((prev) => {
+        const zeroed = prev.map((c) => ({ ...c, balance: 0 }));
+        saveState('sales_clients', zeroed);
+        return zeroed;
+      });
+    }
+
+    if (includeProducts) {
+      setAromaProducts([]);
+    }
+
+    // 3. Persist empty arrays & flags in localStorage so browser reloads stay 100% clean
     localStorage.setItem(`${STORAGE_KEY_PREFIX}demo_cleared`, 'true');
     localStorage.setItem(`${STORAGE_KEY_PREFIX}never_show_demo`, 'true');
     setDemoDataCleared(true);
     setNeverShowDemoAgainState(true);
 
-    // Clean stored keys
-    const keys = [
+    const operationalKeys = [
       'modules',
       'tasks',
       'irrigation',
@@ -4009,9 +3980,97 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'irrigation_applications',
       'monitoring_pins',
     ];
-    keys.forEach((k) => localStorage.removeItem(`${STORAGE_KEY_PREFIX}${k}`));
+    operationalKeys.forEach((k) => saveState(k, []));
 
-    addAuditLog('Sistema', 'Datos de muestra eliminados completamente del sistema');
+    if (includeCatalogs) {
+      ['payroll_employees', 'suppliers', 'sales_points', 'sales_clients', 'supply_items'].forEach(
+        (k) => saveState(k, [])
+      );
+    }
+    if (includeProducts) {
+      saveState('app_products', []);
+    }
+
+    // 4. Delete permanently from Supabase so polling/reloads on ANY browser never bring them back
+    const supabaseTablesToClear: string[] = [
+      'daily_productions',
+      'daily_sales',
+      'payroll_weeks',
+      'employee_loans',
+      'employee_adjustments',
+      'supplier_payments',
+      'truck_loads',
+      'remission_notes',
+      'client_payments',
+      'supply_purchases',
+      'greenhouse_applications',
+      'bitacora_entries',
+      'foliar_general_applications',
+      'foliar_parchoneos',
+      'irrigation_applications',
+      'monitoring_pins',
+      'aroma_flower_sheets',
+      'audit_logs',
+      'active_loans',
+      'financial_movements',
+      'bank_accounts',
+      'sales_orders',
+      'customers',
+      'workers',
+      'equipment_assets',
+      'inventory_items',
+      'harvest_records',
+      'phytosanitary_applications',
+      'pest_monitoring',
+      'irrigation_logs',
+      'cultural_tasks',
+      'modules',
+    ];
+
+    if (includeCatalogs) {
+      supabaseTablesToClear.push(
+        'payroll_employees',
+        'suppliers',
+        'sales_points',
+        'sales_clients',
+        'supply_items'
+      );
+    }
+    if (includeProducts) {
+      supabaseTablesToClear.push('app_products');
+    }
+
+    if (supabaseConfig.isConnected && isOnline) {
+      const client = getSupabaseClient(supabaseConfig.url, supabaseConfig.anonKey);
+      if (client) {
+        const res = await clearTablesInSupabase(client, supabaseTablesToClear);
+        if (!includeCatalogs) {
+          await resetCatalogBalancesInSupabase(client);
+        }
+        if (res.ok) {
+          return {
+            ok: true,
+            clearedSupabase: true,
+            clearedTablesCount: res.clearedTables.length,
+            message: `Registros de muestra eliminados permanentemente del navegador y de ${res.clearedTables.length} tablas en Supabase.`,
+          };
+        }
+        return {
+          ok: false,
+          clearedSupabase: false,
+          clearedTablesCount: res.clearedTables.length,
+          message: `Limpiado localmente, pero algunas tablas en Supabase reportaron error: ${res.errors.slice(0, 2).join('; ')}`,
+        };
+      }
+    }
+
+    return {
+      ok: true,
+      clearedSupabase: false,
+      clearedTablesCount: 0,
+      message:
+        'Registros eliminados del navegador. Conecta a internet/Supabase para borrarlos también en la nube.',
+    };
   };
 
   const restoreDemoData = () => {
@@ -5183,62 +5242,36 @@ END $$;
   };
 
   const generateSupabaseCleanupSql = (): string => {
-    if (onlyAromaFlowers) {
-      return `-- ================================================================
--- SCRIPT DE LIMPIEZA DE REGISTROS OPERATIVOS SUPABASE
--- Invernadero Aroma Flower (Mantiene usuarios, catálogo, puntos de venta, clientes, insumos y empleados)
--- ================================================================
-BEGIN;
-TRUNCATE TABLE
-  daily_productions,
-  daily_sales,
-  payroll_weeks,
-  employee_loans,
-  employee_adjustments,
-  supplier_payments,
-  truck_loads,
-  remission_notes,
-  client_payments,
-  supply_purchases,
-  greenhouse_applications,
-  bitacora_entries,
-  foliar_general_applications,
-  foliar_parchoneos,
-  irrigation_applications,
-  monitoring_pins
-CASCADE;
-UPDATE payroll_employees SET loan_balance = 0;
-UPDATE sales_clients SET balance = 0;
-COMMIT;
--- Las 23 tablas activas permanecen listas para operación real.
-`;
-    }
-
     return `-- ================================================================
--- SCRIPT DE LIMPIEZA DE DATOS SUPABASE (BORRADO TOTAL DE PRUEBA)
--- Invernadero Aroma Flower
+-- SCRIPT DE LIMPIEZA TOTAL DE REGISTROS DE MUESTRA EN SUPABASE
+-- Invernadero Aroma Flower (Conserva usuarios Admin y catálogo de rosas)
 -- ================================================================
 BEGIN;
-TRUNCATE TABLE
-  aroma_flower_sheets,
-  audit_logs,
-  active_loans,
-  financial_movements,
-  bank_accounts,
-  sales_orders,
-  customers,
-  workers,
-  equipment_assets,
-  inventory_items,
-  harvest_records,
-  phytosanitary_applications,
-  pest_monitoring,
-  irrigation_logs,
-  cultural_tasks,
-  modules
-CASCADE;
+DELETE FROM daily_productions;
+DELETE FROM daily_sales;
+DELETE FROM payroll_weeks;
+DELETE FROM employee_loans;
+DELETE FROM employee_adjustments;
+DELETE FROM supplier_payments;
+DELETE FROM truck_loads;
+DELETE FROM remission_notes;
+DELETE FROM client_payments;
+DELETE FROM supply_purchases;
+DELETE FROM greenhouse_applications;
+DELETE FROM bitacora_entries;
+DELETE FROM foliar_general_applications;
+DELETE FROM foliar_parchoneos;
+DELETE FROM irrigation_applications;
+DELETE FROM monitoring_pins;
+DELETE FROM payroll_employees;
+DELETE FROM suppliers;
+DELETE FROM sales_points;
+DELETE FROM sales_clients;
+DELETE FROM supply_items;
 COMMIT;
--- Los esquemas y políticas RLS se mantienen intactos listos para producción real.
+-- Si también deseas borrar las variedades de rosa (Catálogo POS), ejecuta:
+-- DELETE FROM app_products;
+-- Las cuentas de acceso (app_users) y todas las tablas permanecen intactas.
 `;
   };
 

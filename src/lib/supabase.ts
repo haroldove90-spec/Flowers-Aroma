@@ -1823,6 +1823,45 @@ export async function deleteRowFromSupabase(
   return { ok: false, error: error.message };
 }
 
+export async function clearTablesInSupabase(
+  client: SupabaseClient,
+  tables: string[]
+): Promise<{ ok: boolean; clearedTables: string[]; errors: string[] }> {
+  const clearedTables: string[] = [];
+  const errors: string[] = [];
+
+  for (const table of tables) {
+    const { error } = await client.from(table).delete().neq('id', '__never_match_row__');
+    if (!error) {
+      clearedTables.push(table);
+    } else if (
+      error.code === 'PGRST205' ||
+      error.code === '42P01' ||
+      error.message?.toLowerCase().includes('could not find the table')
+    ) {
+      // Optional/legacy table not created in this project — ignore cleanly
+      continue;
+    } else {
+      errors.push(`${table}: ${error.message}`);
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    clearedTables,
+    errors,
+  };
+}
+
+export async function resetCatalogBalancesInSupabase(
+  client: SupabaseClient
+): Promise<void> {
+  await Promise.all([
+    client.from('payroll_employees').update({ loan_balance: 0 }).neq('id', '__never_match_row__'),
+    client.from('sales_clients').update({ balance: 0 }).neq('id', '__never_match_row__'),
+  ]);
+}
+
 export interface RemoteSnapshot {
   status: SupabaseSyncStatus;
   aromaSheets?: AromaFlowerSheetEntry[];
@@ -1970,21 +2009,21 @@ export async function fetchAllFromSupabase(
 
   const mappedBase = {
     appUsers: !usersRes.error && usersRes.data?.length ? usersRes.data.map(mapAppUserFromDb) : undefined,
-    aromaProducts: !productsRes.error && productsRes.data?.length ? productsRes.data.map(mapAromaProductFromDb) : undefined,
+    aromaProducts: !productsRes.error && productsRes.data ? productsRes.data.map(mapAromaProductFromDb) : undefined,
     dailyProductions: !prodRes.error && prodRes.data ? prodRes.data.map(mapDailyProductionFromDb) : undefined,
     dailySales: !salesRes.error && salesRes.data ? salesRes.data.map(mapDailySaleFromDb) : undefined,
-    payrollEmployees: !empRes.error && empRes.data?.length ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
+    payrollEmployees: !empRes.error && empRes.data ? empRes.data.map(mapPayrollEmployeeFromDb) : undefined,
     payrollWeeks: !weekRes.error && weekRes.data ? weekRes.data.map(mapPayrollWeekFromDb) : undefined,
     employeeLoans: !loanRes.error && loanRes.data ? loanRes.data.map(mapEmployeeLoanFromDb) : undefined,
     employeeAdjustments: !adjRes.error && adjRes.data ? adjRes.data.map(mapEmployeeAdjustmentFromDb) : undefined,
-    suppliers: !suppliersRes.error && suppliersRes.data?.length ? suppliersRes.data.map(mapSupplierFromDb) : undefined,
+    suppliers: !suppliersRes.error && suppliersRes.data ? suppliersRes.data.map(mapSupplierFromDb) : undefined,
     supplierPayments: !supRes.error && supRes.data ? supRes.data.map(mapSupplierPaymentFromDb) : undefined,
-    salesPoints: !spRes.error && spRes.data?.length ? spRes.data.map(mapSalesPointFromDb) : undefined,
-    salesClients: !cliRes.error && cliRes.data?.length ? cliRes.data.map(mapSalesClientFromDb) : undefined,
+    salesPoints: !spRes.error && spRes.data ? spRes.data.map(mapSalesPointFromDb) : undefined,
+    salesClients: !cliRes.error && cliRes.data ? cliRes.data.map(mapSalesClientFromDb) : undefined,
     truckLoads: !loadRes.error && loadRes.data ? loadRes.data.map(mapTruckLoadFromDb) : undefined,
     remissionNotes: !remRes.error && remRes.data ? remRes.data.map(mapRemissionNoteFromDb) : undefined,
     clientPayments: !cpayRes.error && cpayRes.data ? cpayRes.data.map(mapClientPaymentFromDb) : undefined,
-    supplyItems: !sitemRes.error && sitemRes.data?.length ? sitemRes.data.map(mapSupplyItemFromDb) : undefined,
+    supplyItems: !sitemRes.error && sitemRes.data ? sitemRes.data.map(mapSupplyItemFromDb) : undefined,
     supplyPurchases: !spurRes.error && spurRes.data ? spurRes.data.map(mapSupplyPurchaseFromDb) : undefined,
     greenhouseApplications: !gappRes.error && gappRes.data ? gappRes.data.map(mapGreenhouseAppFromDb) : undefined,
     bitacoraEntries: !bitacoraRes.error && bitacoraRes.data ? bitacoraRes.data.map(mapBitacoraEntryFromDb) : undefined,
@@ -2062,23 +2101,23 @@ export async function fetchAllFromSupabase(
 
   return {
     status: 'connected',
-    aromaSheets: check.data?.length ? check.data.map(mapAromaSheetFromDb) : undefined,
+    aromaSheets: !check.error && check.data ? check.data.map(mapAromaSheetFromDb) : undefined,
     ...mappedBase,
-    modules: modulesRes.data?.length ? modulesRes.data.map(mapModuleFromDb) : undefined,
-    tasks: tasksRes.data?.length ? tasksRes.data.map(mapTaskFromDb) : undefined,
-    irrigation: irrigationRes.data?.length ? irrigationRes.data.map(mapIrrigationFromDb) : undefined,
-    pestMonitoring: pestRes.data?.length ? pestRes.data.map(mapPestFromDb) : undefined,
-    applications: appsRes.data?.length ? appsRes.data.map(mapApplicationFromDb) : undefined,
-    harvest: harvestRes.data?.length ? harvestRes.data.map(mapHarvestFromDb) : undefined,
-    inventory: inventoryRes.data?.length ? inventoryRes.data.map(mapInventoryFromDb) : undefined,
-    equipment: equipmentRes.data?.length ? equipmentRes.data.map(mapEquipmentFromDb) : undefined,
-    workers: workersRes.data?.length ? workersRes.data.map(mapWorkerFromDb) : undefined,
-    customers: customersRes.data?.length ? customersRes.data.map(mapCustomerFromDb) : undefined,
-    orders: ordersRes.data?.length ? ordersRes.data.map(mapOrderFromDb) : undefined,
-    bankAccounts: accountsRes.data?.length ? accountsRes.data.map(mapAccountFromDb) : undefined,
-    movements: movementsRes.data?.length ? movementsRes.data.map(mapMovementFromDb) : undefined,
-    loans: loansRes.data?.length ? loansRes.data.map(mapLoanFromDb) : undefined,
-    auditLogs: auditRes.data?.length ? auditRes.data.map(mapAuditFromDb) : undefined,
+    modules: !modulesRes.error && modulesRes.data ? modulesRes.data.map(mapModuleFromDb) : undefined,
+    tasks: !tasksRes.error && tasksRes.data ? tasksRes.data.map(mapTaskFromDb) : undefined,
+    irrigation: !irrigationRes.error && irrigationRes.data ? irrigationRes.data.map(mapIrrigationFromDb) : undefined,
+    pestMonitoring: !pestRes.error && pestRes.data ? pestRes.data.map(mapPestFromDb) : undefined,
+    applications: !appsRes.error && appsRes.data ? appsRes.data.map(mapApplicationFromDb) : undefined,
+    harvest: !harvestRes.error && harvestRes.data ? harvestRes.data.map(mapHarvestFromDb) : undefined,
+    inventory: !inventoryRes.error && inventoryRes.data ? inventoryRes.data.map(mapInventoryFromDb) : undefined,
+    equipment: !equipmentRes.error && equipmentRes.data ? equipmentRes.data.map(mapEquipmentFromDb) : undefined,
+    workers: !workersRes.error && workersRes.data ? workersRes.data.map(mapWorkerFromDb) : undefined,
+    customers: !customersRes.error && customersRes.data ? customersRes.data.map(mapCustomerFromDb) : undefined,
+    orders: !ordersRes.error && ordersRes.data ? ordersRes.data.map(mapOrderFromDb) : undefined,
+    bankAccounts: !accountsRes.error && accountsRes.data ? accountsRes.data.map(mapAccountFromDb) : undefined,
+    movements: !movementsRes.error && movementsRes.data ? movementsRes.data.map(mapMovementFromDb) : undefined,
+    loans: !loansRes.error && loansRes.data ? loansRes.data.map(mapLoanFromDb) : undefined,
+    auditLogs: !auditRes.error && auditRes.data ? auditRes.data.map(mapAuditFromDb) : undefined,
   };
 }
 

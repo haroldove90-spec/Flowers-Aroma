@@ -23,11 +23,7 @@ interface ModalProps {
 
 export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   const {
-    demoDataCleared,
     clearAllDemoData,
-    restoreDemoData,
-    neverShowDemoAgain,
-    setNeverShowDemoAgain,
     supabaseConfig,
     supabaseStatus,
     supabaseMessage,
@@ -39,6 +35,28 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
     generateSupabaseCleanupSql,
     exportDataJson,
     importDataJson,
+    dailyProductions,
+    dailySales,
+    payrollWeeks,
+    employeeLoans,
+    employeeAdjustments,
+    supplierPayments,
+    truckLoads,
+    remissionNotes,
+    clientPayments,
+    supplyPurchases,
+    greenhouseApplications,
+    bitacoraEntries,
+    foliarGeneralApplications,
+    foliarParchoneos,
+    irrigationApplications,
+    monitoringPins,
+    payrollEmployees,
+    suppliers,
+    salesPoints,
+    salesClients,
+    supplyItems,
+    aromaProducts,
   } = useGreenhouse();
 
   const [activeTab, setActiveTab] = useState<'demo' | 'supabase' | 'backup'>('demo');
@@ -48,7 +66,35 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
+  const [includeCatalogs, setIncludeCatalogs] = useState(true);
+  const [includeProducts, setIncludeProducts] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+
+  const operationalRecordsCount =
+    dailyProductions.length +
+    dailySales.length +
+    payrollWeeks.length +
+    employeeLoans.length +
+    employeeAdjustments.length +
+    supplierPayments.length +
+    truckLoads.length +
+    remissionNotes.length +
+    clientPayments.length +
+    supplyPurchases.length +
+    greenhouseApplications.length +
+    bitacoraEntries.length +
+    foliarGeneralApplications.length +
+    foliarParchoneos.length +
+    irrigationApplications.length +
+    monitoringPins.length;
+
+  const catalogRecordsCount =
+    payrollEmployees.length +
+    suppliers.length +
+    salesPoints.length +
+    salesClients.length +
+    supplyItems.length;
 
   useEffect(() => {
     setSupabaseUrl(supabaseConfig.url || '');
@@ -63,17 +109,23 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
     setTimeout(() => setCopiedType(null), 2500);
   };
 
-  const handleConfirmClear = () => {
-    clearAllDemoData();
+  const handleConfirmClear = async () => {
+    setErrorMessage(null);
+    setActionMessage(null);
+    setIsClearing(true);
+    const res = await clearAllDemoData({
+      includeCatalogs,
+      includeProducts,
+    });
+    setIsClearing(false);
     setShowConfirmClear(false);
-    setActionMessage('¡Todos los datos de muestra han sido eliminados de Aroma Flower!');
-    setTimeout(() => setActionMessage(null), 3000);
-  };
-
-  const handleRestore = () => {
-    restoreDemoData();
-    setActionMessage('Datos de demostración restaurados correctamente.');
-    setTimeout(() => setActionMessage(null), 3000);
+    if (res.ok) {
+      setActionMessage(res.message);
+      setTimeout(() => setActionMessage(null), 6000);
+    } else {
+      setErrorMessage(res.message);
+      setTimeout(() => setErrorMessage(null), 7000);
+    }
   };
 
   const handleSaveSupabase = async (e: React.FormEvent) => {
@@ -165,7 +217,7 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
             <Database className="w-5 h-5 text-[#C3A25D]" />
             <div>
               <h3 className="font-bold text-base sm:text-lg">Gestión de Datos &bull; Aroma Flower</h3>
-              <p className="text-xs text-[#d6be83]">Control de base de datos, modo offline y respaldos</p>
+              <p className="text-xs text-[#d6be83]">Limpieza permanente en Supabase, conexión y respaldos</p>
             </div>
           </div>
           <button
@@ -179,33 +231,40 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
         {/* Feedback alert */}
         {actionMessage && (
           <div className="bg-[#f7f8f2] border-b border-[#dce4bf] px-6 py-2.5 flex items-center gap-2 text-xs sm:text-sm font-semibold text-[#535B28] animate-fadeIn">
-            <Check className="w-4 h-4 text-[#535B28]" />
-            {actionMessage}
+            <Check className="w-4 h-4 text-[#535B28] shrink-0" />
+            <span>{actionMessage}</span>
           </div>
         )}
 
         {/* Error alert */}
         {errorMessage && (
           <div className="bg-[#fbf2f4] border-b border-[#ebccd4] px-6 py-2.5 flex items-center gap-2 text-xs sm:text-sm font-semibold text-[#5C1125] animate-fadeIn">
-            <AlertTriangle className="w-4 h-4 text-[#5C1125]" />
-            {errorMessage}
+            <AlertTriangle className="w-4 h-4 text-[#5C1125] shrink-0" />
+            <span>{errorMessage}</span>
           </div>
         )}
 
-        {/* Confirmation Banner for Clear Demo */}
+        {/* Confirmation Banner for Permanent Wipe */}
         {showConfirmClear && (
           <div className="bg-[#fbf2f4] border-b border-[#ebccd4] p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm text-[#5C1125]">
-            <span>¿Confirmas vaciar todos los registros demo para comenzar en blanco con datos reales?</span>
-            <div className="flex items-center gap-2">
+            <span className="font-semibold">
+              ¿Confirmas borrar permanentemente los registros seleccionados tanto del navegador como de Supabase? Esta acción no vuelve a cargar datos de muestra.
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
               <button
+                type="button"
                 onClick={handleConfirmClear}
-                className="px-3 py-1.5 rounded-lg bg-[#5C1125] text-white font-bold text-xs hover:bg-[#430c1b]"
+                disabled={isClearing}
+                className="px-3.5 py-2 rounded-lg bg-[#5C1125] text-white font-bold text-xs hover:bg-[#430c1b] disabled:opacity-60 cursor-pointer flex items-center gap-1.5"
               >
-                Confirmar Borrado
+                {isClearing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isClearing ? 'Borrando...' : 'Sí, Borrar Todo'}</span>
               </button>
               <button
+                type="button"
                 onClick={() => setShowConfirmClear(false)}
-                className="px-3 py-1.5 rounded-lg bg-stone-200 text-stone-700 font-semibold text-xs hover:bg-stone-300"
+                disabled={isClearing}
+                className="px-3 py-2 rounded-lg bg-stone-200 text-stone-700 font-semibold text-xs hover:bg-stone-300 cursor-pointer"
               >
                 Cancelar
               </button>
@@ -223,7 +282,7 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
                 : 'border-transparent text-stone-500 hover:text-stone-800'
             }`}
           >
-            Datos de Muestra
+            Limpiar Muestra
           </button>
           <button
             onClick={() => setActiveTab('supabase')}
@@ -250,66 +309,115 @@ export const DataManagementModal: React.FC<ModalProps> = ({ isOpen, onClose }) =
         {/* Tab Content */}
         <div className="p-6 space-y-5 text-sm text-slate-700 max-h-[70vh] overflow-y-auto">
           {activeTab === 'demo' && (
-            <div className="space-y-5">
+            <div className="space-y-4">
+              {/* Live record counts */}
+              <div className="grid grid-cols-3 gap-2.5">
+                <div className="p-3 rounded-xl bg-[#FAF8F5] border border-stone-200">
+                  <span className="block text-[10px] font-extrabold uppercase text-stone-500">
+                    Registros Operativos
+                  </span>
+                  <span className="text-xl font-black text-[#5C1125] tabular-nums">
+                    {operationalRecordsCount}
+                  </span>
+                  <span className="block text-[10px] text-stone-500">
+                    Prod., ventas, POS, nómina, bitácora
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-[#FAF8F5] border border-stone-200">
+                  <span className="block text-[10px] font-extrabold uppercase text-stone-500">
+                    Catálogos Base
+                  </span>
+                  <span className="text-xl font-black text-[#000000] tabular-nums">
+                    {catalogRecordsCount}
+                  </span>
+                  <span className="block text-[10px] text-stone-500">
+                    Empleados, prov., clientes, insumos
+                  </span>
+                </div>
+                <div className="p-3 rounded-xl bg-[#FAF8F5] border border-stone-200">
+                  <span className="block text-[10px] font-extrabold uppercase text-stone-500">
+                    Variedades de Rosa
+                  </span>
+                  <span className="text-xl font-black text-[#535B28] tabular-nums">
+                    {aromaProducts.length}
+                  </span>
+                  <span className="block text-[10px] text-stone-500">
+                    Catálogo POS y Producción
+                  </span>
+                </div>
+              </div>
+
               <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/70 space-y-3">
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-bold text-rose-900">Borrar datos de muestra del todo el sistema</h4>
-                    <p className="text-xs text-rose-700 mt-1">
-                      Esta acción vacía todos los registros de prueba (invernaderos, lotes, registros de riego, monitoreos, cosechas, clientes, ventas y contabilidad) para dejar la plataforma en blanco lista para ingresar los datos reales de tu invernadero.
+                    <h4 className="font-bold text-rose-900">
+                      Borrar registros de muestra del navegador y de Supabase
+                    </h4>
+                    <p className="text-xs text-rose-800 mt-1">
+                      Elimina permanentemente todos los registros de prueba tanto en este dispositivo como en la base de datos en la nube (Supabase). Al recargar el navegador o entrar desde otro equipo, <strong>no se volverán a cargar datos de muestra</strong>.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-rose-200/60">
-                  <div className="flex items-center gap-2">
+                <div className="space-y-2 pt-2 border-t border-rose-200/60">
+                  <label className="flex items-start gap-2 text-xs font-semibold text-stone-800 cursor-pointer">
                     <input
                       type="checkbox"
-                      id="neverShowToggle"
-                      checked={neverShowDemoAgain}
-                      onChange={(e) => setNeverShowDemoAgain(e.target.checked)}
-                      className="rounded border-stone-300 text-[#5C1125] focus:ring-[#5C1125] h-4 w-4"
+                      checked={includeCatalogs}
+                      onChange={(e) => setIncludeCatalogs(e.target.checked)}
+                      className="mt-0.5 rounded border-stone-300 text-[#5C1125] focus:ring-[#5C1125] h-4 w-4"
                     />
-                    <label htmlFor="neverShowToggle" className="text-xs font-medium text-stone-700">
-                      No volver a cargar datos de muestra al reiniciar el navegador
-                    </label>
-                  </div>
+                    <span>
+                      Borrar también catálogos de muestra (Empleados, Proveedores, Puntos de Venta, Clientes e Insumos)
+                    </span>
+                  </label>
 
+                  <label className="flex items-start gap-2 text-xs font-semibold text-stone-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeProducts}
+                      onChange={(e) => setIncludeProducts(e.target.checked)}
+                      className="mt-0.5 rounded border-stone-300 text-[#5C1125] focus:ring-[#5C1125] h-4 w-4"
+                    />
+                    <span>
+                      Borrar también el catálogo de variedades de rosa ({aromaProducts.length} productos)
+                    </span>
+                  </label>
+
+                  <p className="text-[11px] text-stone-600 pt-1">
+                    Las cuentas de acceso (<strong>Usuarios Admin</strong>) se conservan siempre para no perder el ingreso al sistema. Puedes eliminar usuarios individuales desde <strong>Panel Admin &rarr; Usuarios</strong>.
+                  </p>
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-rose-200/60">
                   <button
+                    type="button"
                     onClick={() => setShowConfirmClear(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#5C1125] text-white rounded-lg text-xs sm:text-sm font-semibold hover:bg-[#430c1b] active:scale-95 transition shadow-xs cursor-pointer"
+                    disabled={isClearing}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-[#5C1125] text-white rounded-lg text-xs sm:text-sm font-bold hover:bg-[#430c1b] active:scale-95 transition shadow-xs cursor-pointer disabled:opacity-60"
                   >
                     <Trash2 className="w-4 h-4 text-[#C3A25D]" />
-                    Borrar Datos de Muestra
+                    <span>Borrar Registros de Muestra (Navegador + Supabase)</span>
                   </button>
                 </div>
               </div>
 
-              {demoDataCleared && (
-                <div className="p-4 rounded-xl border border-[#dce4bf] bg-[#f7f8f2] flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5 text-[#535B28]" />
-                    <span className="text-xs font-semibold text-[#535B28]">
-                      El sistema se encuentra en blanco (modo producción sin datos demo).
-                    </span>
-                  </div>
-                  <button
-                    onClick={handleRestore}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#5C1125] bg-white border border-[#C3A25D]/60 rounded-lg hover:bg-[#FAF8F5] transition cursor-pointer"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    Restaurar Demo
-                  </button>
+              {operationalRecordsCount === 0 && catalogRecordsCount === 0 && (
+                <div className="p-4 rounded-xl border border-[#dce4bf] bg-[#f7f8f2] flex items-center gap-2.5">
+                  <ShieldCheck className="w-5 h-5 text-[#535B28] shrink-0" />
+                  <span className="text-xs font-bold text-[#535B28]">
+                    Sistema 100% limpio y listo para operar con registros reales (0 registros de muestra en navegador y Supabase).
+                  </span>
                 </div>
               )}
 
-              <div className="bg-[#FAF8F5] p-4 rounded-xl border border-stone-200 space-y-2">
+              <div className="bg-[#FAF8F5] p-4 rounded-xl border border-stone-200 space-y-1.5">
                 <h5 className="font-semibold text-xs uppercase tracking-wider text-[#535B28]">
-                  Estado Actual de Almacenamiento &bull; Aroma Flower
+                  Garantía de Operación Real &bull; Aroma Flower
                 </h5>
                 <p className="text-xs text-stone-600">
-                  La información capturada se almacena localmente de forma persistente y continuará funcionando aún sin conexión a internet (modo offline). Al configurar Supabase, podrás sincronizar en tiempo real a la nube.
+                  El sistema ya no recarga datos de muestra al abrir o actualizar el navegador. Todos los registros que elimines individualmente o mediante este botón se borran también en Supabase de forma definitiva.
                 </p>
               </div>
             </div>
