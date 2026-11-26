@@ -30,6 +30,7 @@ import {
   getMinimumUnitCost,
   getTodayLocalISO,
   inferPresentation,
+  normalizeTlapizacoName,
   resolveEffectivePurchaseCost,
   round2,
 } from '../../utils/foliarCalculations';
@@ -125,7 +126,7 @@ export const RiegoApplicationsView: React.FC = () => {
   const filteredHistory = useMemo(() => {
     return irrigationApplications.filter((entry) => {
       if (filterDate && entry.applicationDate !== filterDate) return false;
-      if (filterModule && entry.moduleName !== filterModule) return false;
+      if (filterModule && normalizeTlapizacoName(entry.moduleName) !== filterModule) return false;
       if (filterMethod && entry.applicationMethod !== filterMethod) return false;
       return true;
     });
@@ -227,7 +228,7 @@ export const RiegoApplicationsView: React.FC = () => {
   const handleLoadForEdit = (rec: IrrigationApplication) => {
     setEditingRecordId(rec.id);
     setApplicationDate(rec.applicationDate);
-    setModuleName(rec.moduleName);
+    setModuleName(normalizeTlapizacoName(rec.moduleName));
     setApplicationMethod(rec.applicationMethod);
     setWaterLiters(rec.waterLiters > 0 ? String(rec.waterLiters) : '');
     setRows(rec.rows.length > 0 ? rec.rows : [createEmptyRow()]);
@@ -269,7 +270,7 @@ export const RiegoApplicationsView: React.FC = () => {
                 {editingRecordId ? 'Editar Aplicación de Riego' : 'Registro de Riego y Fertirrigación'}
               </h2>
               <p className="text-xs text-stone-600 mt-0.5">
-                Selecciona el tipo de aplicación (Aspersión, Regadera o Pasillo), los productos, su objetivo y calcula el costo exacto de la dosis.
+                Selecciona el modo de riego (Aspersión, Regadera o Pasillo), los productos, su objetivo y calcula el costo exacto de la dosis.
               </p>
             </div>
           </div>
@@ -376,10 +377,10 @@ export const RiegoApplicationsView: React.FC = () => {
             </div>
           </div>
 
-          {/* Row 2: Tipo de aplicación (Aspersión / Regadera / Pasillo) */}
+          {/* Row 2: Modo de riego (Aspersión / Regadera / Pasillo) */}
           <div className="space-y-2">
             <label className="block text-xs font-bold text-stone-700">
-              Tipo de aplicación realizada *
+              Modo de riego a realizar (Aspersión / Regadera / Pasillo) *
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {IRRIGATION_APPLICATION_METHODS.map((method) => {

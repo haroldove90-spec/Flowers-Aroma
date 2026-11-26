@@ -23,6 +23,7 @@ import {
   getMinimumUnitCost,
   getTodayLocalISO,
   inferPresentation,
+  normalizeTlapizacoName,
   resolveEffectivePurchaseCost,
   round2,
 } from '../../utils/foliarCalculations';
@@ -155,7 +156,7 @@ export const ParchoneoCalculatorView: React.FC = () => {
   const filteredHistory = useMemo(() => {
     return foliarParchoneos.filter((entry) => {
       if (filterDate && entry.applicationDate !== filterDate) return false;
-      if (filterModule !== 'TODOS' && entry.moduleName !== filterModule) return false;
+      if (filterModule !== 'TODOS' && normalizeTlapizacoName(entry.moduleName) !== filterModule) return false;
       return true;
     });
   }, [foliarParchoneos, filterDate, filterModule]);

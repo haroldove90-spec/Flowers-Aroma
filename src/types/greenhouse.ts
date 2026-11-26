@@ -183,10 +183,11 @@ export const ROLES: RoleConfig[] = [
   },
 ];
 
-// Aroma Flowers Standardized Catalog (22 Varieties/Products from Aaron, David & CEDA CDMX sheets)
+// Aroma Flowers Standardized Catalog (23 Varieties/Products)
 export const AROMA_FLOWER_VARIETIES = [
   'FREEDOM',
   'MONDIAL',
+  'MUNDIAL',
   'PROUD',
   'HERMOSA',
   'TOPAZ',
@@ -195,7 +196,7 @@ export const AROMA_FLOWER_VARIETIES = [
   'DEEP PURPLE',
   'COOL WATER',
   'NOVIA',
-  'BOUEVARD',
+  'BOULEVARD',
   'SAMURAY',
   'SALMA',
   'BLANCARICIA',
@@ -771,6 +772,7 @@ export interface IrrigationLog {
   tankARecipe: string;
   tankBRecipe: string;
   operator: string;
+  applicationMethod?: IrrigationApplicationMethod;
   notes?: string;
 }
 
@@ -967,24 +969,31 @@ export const BITACORA_MODULES = [
   'Santa Cruz Módulo 2',
   'Saúl Módulo 1',
   'Saúl Módulo 2',
-  'Lapisaco Módulo 1',
-  'Lapisaco Módulo 2',
-  'Lapisaco Módulo 3',
+  'Tlapizaco Módulo 1',
+  'Tlapizaco Módulo 2',
+  'Tlapizaco Módulo 3',
 ] as const;
 
 export type BitacoraModuleName = (typeof BITACORA_MODULES)[number];
 
 export const BITACORA_ACTIVITY_SUGGESTIONS = [
-  'Corte',
-  'Deshierbe',
-  'Poda',
-  'Tutoreo',
-  'Desbotonado',
-  'Desahije',
-  'Toque de hoja',
-  'Limpieza de camas',
+  'Deshojar',
+  'Tutorear',
+  'Dar toque de hoja',
+  'Desmalezar (a mano)',
+  'Desmalezar (con azadón)',
+  'Retirar vástagos y palos secos',
+  'Limpieza de la planta, podas y pinch',
+  'Limpieza general',
+  'Aplicaciones foliares',
+  'Fertilizaciones granuladas',
+  'Picar el suelo para descompactar',
   'Manejo de cortinas',
-  'Acomodo de mallas',
+  'Subir tierra (con motocultor)',
+  'Subir tierra (con pala)',
+  'Chapeo o aplicación de herbicidas en exteriores',
+  'Mantenimiento y lavado de los sistemas de riego',
+  'Mantenimiento de los anillos de cortinas y tensores',
 ] as const;
 
 export type BitacoraStatus = 'pendiente' | 'en_proceso' | 'terminado';
@@ -1016,7 +1025,7 @@ export const FOLIAR_DOSE_UNITS: FoliarDoseUnit[] = ['ml', 'g', 'kg', 'L'];
 export const FOLIAR_PRODUCTION_UNITS = [
   { id: 'santa_cruz', name: 'Unidad de Producción Santa Cruz', shortName: 'Santa Cruz', defaultWaterLiters: 1000 },
   { id: 'saul', name: 'Unidad de Producción Saúl', shortName: 'Saúl', defaultWaterLiters: 400 },
-  { id: 'tlapisaco', name: 'Unidad de Producción Tlapisaco', shortName: 'Tlapisaco', defaultWaterLiters: 400 },
+  { id: 'tlapizaco', name: 'Unidad de Producción Tlapizaco', shortName: 'Tlapizaco', defaultWaterLiters: 400 },
 ] as const;
 
 export const FOLIAR_PARCHONEO_MODULES = [
@@ -1024,9 +1033,9 @@ export const FOLIAR_PARCHONEO_MODULES = [
   'Santa Cruz Módulo 2',
   'Saúl Módulo 1',
   'Saúl Módulo 2',
-  'Tlapisaco Módulo 1',
-  'Tlapisaco Módulo 2',
-  'Tlapisaco Módulo 3',
+  'Tlapizaco Módulo 1',
+  'Tlapizaco Módulo 2',
+  'Tlapizaco Módulo 3',
 ] as const;
 
 export const FOLIAR_OBJECTIVE_SUGGESTIONS = [
@@ -1050,6 +1059,11 @@ export interface FoliarGeneralProductRow {
   dose: number;
   unit: FoliarDoseUnit;
   calculatedCost: number;
+  /** Conversión automática según dosis recomendada y volumen de agua de la unidad */
+  autoCalc?: boolean;
+  recommendedDose?: number;
+  recommendedDoseUnit?: FoliarDoseUnit;
+  recommendedWaterLiters?: number;
 }
 
 export interface FoliarGeneralUnitBlock {

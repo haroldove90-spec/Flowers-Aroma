@@ -23,10 +23,13 @@ import {
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import {
   calculateDoseCost,
+  calculateGeneralAutoDose,
   formatMoneyMXN,
   getMinimumUnitCost,
   getTodayLocalISO,
   inferPresentation,
+  normalizeTlapizacoName,
+  parseRecommendedDoseFromText,
   resolveEffectivePurchaseCost,
   round2,
 } from '../../utils/foliarCalculations';
@@ -39,6 +42,10 @@ const createEmptyRow = (): FoliarGeneralProductRow => ({
   dose: 0,
   unit: 'ml',
   calculatedCost: 0,
+  autoCalc: true,
+  recommendedDose: 0,
+  recommendedDoseUnit: 'ml',
+  recommendedWaterLiters: 200,
 });
 
 const createDefaultUnits = (): FoliarGeneralUnitBlock[] =>
@@ -82,22 +89,46 @@ export const GeneralApplicationView: React.FC = () => {
   const [feedback, setFeedback] = useState<{ text: string; tone: 'ok' | 'warn' } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // Recalculate all costs live from current Compras/Inventario prices
+  // Recalculate auto-converted doses & costs live from unit water volume and Compras/Inventario prices
   const computedUnits = useMemo(() => {
     return units.map((u) => {
       const nextRows = u.rows.map((row) => {
         const prod = row.productId ? productById.get(row.productId) : undefined;
+        const isAuto = row.autoCalc === true;
+        const recUnit: FoliarDoseUnit = row.recommendedDoseUnit || row.unit || 'ml';
+        const recDose = Math.max(0, Number(row.recommendedDose || 0));
+        const recBaseWater = Math.max(0, Number(row.recommendedWaterLiters || 0));
+
+        let effectiveDose = Math.max(0, Number(row.dose || 0));
+        let effectiveUnit: FoliarDoseUnit = row.unit;
+        let autoEquivalent: string | undefined;
+
+        if (isAuto) {
+          const autoRes = calculateGeneralAutoDose({
+            recommendedDose: recDose,
+            recommendedWaterLiters: recBaseWater,
+            targetWaterLiters: u.waterLiters,
+            unit: recUnit,
+          });
+          effectiveDose = autoRes.calculatedDose;
+          effectiveUnit = recUnit;
+          autoEquivalent = autoRes.equivalentLabel;
+        }
+
         const { cost, conversionNote } = calculateDoseCost(
-          row.dose,
-          row.unit,
+          effectiveDose,
+          effectiveUnit,
           prod,
           supplyPurchases
         );
         return {
           ...row,
           productName: prod ? prod.name : row.productName,
+          dose: effectiveDose,
+          unit: effectiveUnit,
           calculatedCost: cost,
           conversionNote,
+          autoEquivalent,
         };
       });
       const unitTotalCost = round2(
@@ -181,11 +212,31 @@ export const GeneralApplicationView: React.FC = () => {
     }
     const pres = inferPresentation(prod);
     const defaultDoseUnit: FoliarDoseUnit = pres === 'polvo' ? 'g' : 'ml';
-    handleUpdateRow(unitId, rowId, {
-      productId: prod.id,
-      productName: prod.name,
-      unit: defaultDoseUnit,
-    });
+    const parsedRec = parseRecommendedDoseFromText(prod.recommendedDose);
+
+    setUnits((prev) =>
+      prev.map((u) => {
+        if (u.unitId !== unitId) return u;
+        return {
+          ...u,
+          rows: u.rows.map((r) => {
+            if (r.id !== rowId) return r;
+            const nextUnit = parsedRec?.unit || defaultDoseUnit;
+            return {
+              ...r,
+              productId: prod.id,
+              productName: prod.name,
+              unit: nextUnit,
+              recommendedDoseUnit: nextUnit,
+              recommendedDose: parsedRec ? parsedRec.amount : r.recommendedDose || 0,
+              recommendedWaterLiters: parsedRec ? parsedRec.waterLiters : r.recommendedWaterLiters || 200,
+              autoCalc: r.autoCalc !== false,
+              objective: r.objective.trim() ? r.objective : prod.purpose || '',
+            };
+          }),
+        };
+      })
+    );
   };
 
   const handleResetForm = () => {
@@ -203,11 +254,11 @@ export const GeneralApplicationView: React.FC = () => {
 
     const sanitizedUnits: FoliarGeneralUnitBlock[] = computedUnits.map((u) => ({
       unitId: u.unitId,
-      unitName: u.unitName,
+      unitName: normalizeTlapizacoName(u.unitName),
       waterLiters: Math.max(0, Number(u.waterLiters || 0)),
       rows: u.rows
         .filter((r) => r.productId || r.productName || r.dose > 0 || r.objective.trim())
-        .map(({ conversionNote: _ignore, ...cleanRow }) => cleanRow),
+        .map(({ conversionNote: _ignore, autoEquivalent: _eq, ...cleanRow }) => cleanRow),
       unitTotalCost: u.unitTotalCost,
     }));
 
@@ -242,13 +293,23 @@ export const GeneralApplicationView: React.FC = () => {
     setApplicationDate(rec.applicationDate);
     setNotes(rec.notes || '');
     const mergedUnits: FoliarGeneralUnitBlock[] = FOLIAR_PRODUCTION_UNITS.map((def) => {
-      const savedUnit = rec.units.find((u) => u.unitId === def.id || u.unitName === def.name);
+      const savedUnit = rec.units.find(
+        (u) =>
+          u.unitId === def.id ||
+          (def.id === 'tlapizaco' && u.unitId === 'tlapisaco') ||
+          normalizeTlapizacoName(u.unitName) === def.name
+      );
       if (savedUnit) {
         return {
           ...savedUnit,
+          unitId: def.id,
+          unitName: def.name,
           rows:
             savedUnit.rows && savedUnit.rows.length > 0
-              ? savedUnit.rows
+              ? savedUnit.rows.map((r) => ({
+                  ...r,
+                  autoCalc: r.autoCalc === true,
+                }))
               : [createEmptyRow()],
         };
       }
@@ -381,7 +442,7 @@ export const GeneralApplicationView: React.FC = () => {
                   {unit.unitName}
                 </h2>
                 <p className="text-xs text-stone-500 mt-0.5">
-                  Captura los productos de la mezcla (incluyendo adherente al final)
+                  Ingresa la dosis recomendada y el agua base (ej. 50 ml / 200 L): el sistema calcula automáticamente la cantidad exacta para {unit.waterLiters.toLocaleString('es-MX')} L.
                 </p>
               </div>
 
@@ -423,241 +484,487 @@ export const GeneralApplicationView: React.FC = () => {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-stone-200 text-xs font-bold text-stone-600 bg-white">
-                    <th className="py-3 pl-6 pr-3 w-[260px]">Producto</th>
-                    <th className="py-3 px-3 min-w-[200px]">Objetivo (función del producto)</th>
-                    <th className="py-3 px-3 w-[120px] text-right">Dosis</th>
-                    <th className="py-3 px-3 w-[100px]">Unidad</th>
-                    <th className="py-3 px-3 w-[175px] text-right">Costo de la dosis</th>
-                    <th className="py-3 pl-3 pr-6 w-[76px] text-right">Acción</th>
+                    <th className="py-3 pl-6 pr-2 w-[230px]">Producto</th>
+                    <th className="py-3 px-2 min-w-[165px]">Objetivo</th>
+                    <th className="py-3 px-2 w-[275px]">Dosis recomendada (por agua base)</th>
+                    <th className="py-3 px-2 w-[165px] text-right">Cantidad a utilizar</th>
+                    <th className="py-3 px-2 w-[140px] text-right">Costo dosis</th>
+                    <th className="py-3 pl-2 pr-6 w-[60px] text-right">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {unit.rows.map((row) => (
-                    <tr key={row.id} className="hover:bg-[#FAF8F5]/60 transition-colors">
-                      {/* 1. Producto */}
-                      <td className="py-2.5 pl-6 pr-3">
-                        <select
-                          aria-label="Producto agroquímico"
-                          value={row.productId}
-                          onChange={(e) =>
-                            handleSelectProduct(unit.unitId, row.id, e.target.value)
-                          }
-                          className="w-full h-10 px-2.5 rounded-lg border border-stone-200 bg-white text-sm font-medium text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
-                        >
-                          <option value="">Seleccionar producto...</option>
-                          {agrochemicals.map((item) => {
-                            const eff = resolveEffectivePurchaseCost(item, supplyPurchases);
-                            const min = getMinimumUnitCost(
-                              eff.unitCost,
-                              eff.unit,
-                              inferPresentation(item)
-                            );
-                            return (
-                              <option key={item.id} value={item.id}>
-                                {item.name} ({formatMoneyMXN(min.costPerMinUnit)}/{min.minUnit})
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </td>
+                  {unit.rows.map((row) => {
+                    const isAuto = row.autoCalc === true;
+                    const recUnit = row.recommendedDoseUnit || row.unit || 'ml';
+                    return (
+                      <tr key={row.id} className="hover:bg-[#FAF8F5]/60 transition-colors align-middle">
+                        {/* 1. Producto */}
+                        <td className="py-2.5 pl-6 pr-2">
+                          <select
+                            aria-label="Producto agroquímico"
+                            value={row.productId}
+                            onChange={(e) =>
+                              handleSelectProduct(unit.unitId, row.id, e.target.value)
+                            }
+                            className="w-full h-10 px-2.5 rounded-lg border border-stone-200 bg-white text-sm font-medium text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
+                          >
+                            <option value="">Seleccionar producto...</option>
+                            {agrochemicals.map((item) => {
+                              const eff = resolveEffectivePurchaseCost(item, supplyPurchases);
+                              const min = getMinimumUnitCost(
+                                eff.unitCost,
+                                eff.unit,
+                                inferPresentation(item)
+                              );
+                              return (
+                                <option key={item.id} value={item.id}>
+                                  {item.name} ({formatMoneyMXN(min.costPerMinUnit)}/{min.minUnit})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </td>
 
-                      {/* 2. Objetivo */}
-                      <td className="py-2.5 px-3">
-                        <input
-                          type="text"
-                          list="foliar-objective-suggestions"
-                          aria-label="Objetivo o plaga a tratar"
-                          placeholder="Ej. Cenicilla, Peronospora..."
-                          value={row.objective}
-                          onChange={(e) =>
-                            handleUpdateRow(unit.unitId, row.id, {
-                              objective: e.target.value,
-                            })
-                          }
-                          className="w-full h-10 px-3 rounded-lg border border-stone-200 bg-white text-sm text-[#000000] placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
-                        />
-                      </td>
+                        {/* 2. Objetivo */}
+                        <td className="py-2.5 px-2">
+                          <input
+                            type="text"
+                            list="foliar-objective-suggestions"
+                            aria-label="Objetivo o plaga a tratar"
+                            placeholder="Ej. Cenicilla, Peronospora..."
+                            value={row.objective}
+                            onChange={(e) =>
+                              handleUpdateRow(unit.unitId, row.id, {
+                                objective: e.target.value,
+                              })
+                            }
+                            className="w-full h-10 px-2.5 rounded-lg border border-stone-200 bg-white text-sm text-[#000000] placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
+                          />
+                        </td>
 
-                      {/* 3. Dosis */}
-                      <td className="py-2.5 px-3">
-                        <input
-                          type="number"
-                          min={0}
-                          step="any"
-                          inputMode="decimal"
-                          aria-label="Dosis"
-                          placeholder="0"
-                          value={row.dose === 0 ? '' : row.dose}
-                          onChange={(e) =>
-                            handleUpdateRow(unit.unitId, row.id, {
-                              dose: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value) || 0),
-                            })
-                          }
-                          className="w-full h-10 px-3 rounded-lg border border-stone-200 bg-white text-sm font-bold text-[#000000] text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                      </td>
-
-                      {/* 4. Unidad */}
-                      <td className="py-2.5 px-3">
-                        <select
-                          aria-label="Unidad de dosis"
-                          value={row.unit}
-                          onChange={(e) =>
-                            handleUpdateRow(unit.unitId, row.id, {
-                              unit: e.target.value as FoliarDoseUnit,
-                            })
-                          }
-                          className="w-full h-10 px-2.5 rounded-lg border border-stone-200 bg-white text-sm font-semibold text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
-                        >
-                          {FOLIAR_DOSE_UNITS.map((u) => (
-                            <option key={u} value={u}>
-                              {u}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-
-                      {/* 5. Costo calculado (read-only) */}
-                      <td className="py-2.5 px-3 text-right">
-                        <div className="h-10 px-3 rounded-lg bg-[#FAF8F5] border border-stone-200/80 flex flex-col justify-center items-end">
-                          <span className="text-sm font-extrabold text-[#000000] tabular-nums leading-tight">
-                            {formatMoneyMXN(row.calculatedCost)}
-                          </span>
-                          {row.conversionNote && (
-                            <span className="text-[10px] text-stone-500 tabular-nums leading-tight">
-                              = {row.conversionNote}
-                            </span>
+                        {/* 3. Dosis recomendada + agua base + toggle Auto/Manual */}
+                        <td className="py-2.5 px-2">
+                          {isAuto ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="any"
+                                  inputMode="decimal"
+                                  aria-label="Dosis recomendada"
+                                  placeholder="Dosis"
+                                  value={!row.recommendedDose ? '' : row.recommendedDose}
+                                  onChange={(e) =>
+                                    handleUpdateRow(unit.unitId, row.id, {
+                                      recommendedDose:
+                                        e.target.value === ''
+                                          ? 0
+                                          : Math.max(0, Number(e.target.value) || 0),
+                                    })
+                                  }
+                                  className="w-20 h-9 px-2 rounded-lg border border-stone-200 bg-white text-xs font-bold text-[#000000] text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                                <select
+                                  aria-label="Unidad de dosis recomendada"
+                                  value={recUnit}
+                                  onChange={(e) => {
+                                    const nextU = e.target.value as FoliarDoseUnit;
+                                    handleUpdateRow(unit.unitId, row.id, {
+                                      recommendedDoseUnit: nextU,
+                                      unit: nextU,
+                                    });
+                                  }}
+                                  className="w-16 h-9 px-1.5 rounded-lg border border-stone-200 bg-white text-xs font-bold text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25"
+                                >
+                                  {FOLIAR_DOSE_UNITS.map((u) => (
+                                    <option key={u} value={u}>
+                                      {u}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="text-[11px] font-semibold text-stone-400 px-0.5">/</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="any"
+                                  inputMode="decimal"
+                                  aria-label="Litros base de la dosis recomendada"
+                                  placeholder="200"
+                                  value={!row.recommendedWaterLiters ? '' : row.recommendedWaterLiters}
+                                  onChange={(e) =>
+                                    handleUpdateRow(unit.unitId, row.id, {
+                                      recommendedWaterLiters:
+                                        e.target.value === ''
+                                          ? 0
+                                          : Math.max(0, Number(e.target.value) || 0),
+                                    })
+                                  }
+                                  className="w-16 h-9 px-2 rounded-lg border border-stone-200 bg-white text-xs font-bold text-[#000000] text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                                <span className="text-[11px] font-bold text-stone-500">L</span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="text-[#535B28] font-semibold">
+                                  Conversión automática ({unit.waterLiters} L)
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateRow(unit.unitId, row.id, {
+                                      autoCalc: false,
+                                      dose: row.dose,
+                                      unit: row.unit,
+                                    })
+                                  }
+                                  className="text-stone-400 hover:text-[#5C1125] underline cursor-pointer"
+                                >
+                                  Cambiar a manual
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between gap-2 px-2.5 h-10 rounded-lg bg-[#FAF8F5] border border-stone-200/80">
+                              <span className="text-xs text-stone-500 font-medium">
+                                Captura manual directa
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleUpdateRow(unit.unitId, row.id, {
+                                    autoCalc: true,
+                                    recommendedDoseUnit: row.unit,
+                                    recommendedWaterLiters: row.recommendedWaterLiters || 200,
+                                  })
+                                }
+                                className="text-[11px] font-bold text-[#535B28] hover:underline cursor-pointer whitespace-nowrap"
+                              >
+                                Usar auto
+                              </button>
+                            </div>
                           )}
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* 6. Acción */}
-                      <td className="py-2.5 pl-3 pr-6 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveProductRow(unit.unitId, row.id)}
-                          className="w-9 h-9 rounded-lg border border-transparent hover:border-rose-200 hover:bg-rose-50 text-stone-400 hover:text-[#5C1125] inline-flex items-center justify-center transition cursor-pointer"
-                          title="Eliminar renglón"
-                          aria-label="Eliminar renglón"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        {/* 4. Cantidad a utilizar (Calculada automáticamente o manual) */}
+                        <td className="py-2.5 px-2 text-right">
+                          {isAuto ? (
+                            <div className="min-h-10 px-3 py-1.5 rounded-lg bg-[#f7f8f2] border border-[#dce4bf] flex flex-col justify-center items-end">
+                              <span className="text-sm font-extrabold text-[#535B28] tabular-nums leading-tight">
+                                {row.dose.toLocaleString('es-MX')} {row.unit}
+                              </span>
+                              {row.autoEquivalent && (
+                                <span className="text-[10px] font-bold text-[#5C1125] tabular-nums leading-tight">
+                                  = {row.autoEquivalent}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min={0}
+                                step="any"
+                                inputMode="decimal"
+                                aria-label="Cantidad total de producto"
+                                placeholder="0"
+                                value={row.dose === 0 ? '' : row.dose}
+                                onChange={(e) =>
+                                  handleUpdateRow(unit.unitId, row.id, {
+                                    dose:
+                                      e.target.value === ''
+                                        ? 0
+                                        : Math.max(0, Number(e.target.value) || 0),
+                                  })
+                                }
+                                className="w-24 h-10 px-2.5 rounded-lg border border-stone-200 bg-white text-sm font-bold text-[#000000] text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                              <select
+                                aria-label="Unidad de dosis"
+                                value={row.unit}
+                                onChange={(e) =>
+                                  handleUpdateRow(unit.unitId, row.id, {
+                                    unit: e.target.value as FoliarDoseUnit,
+                                  })
+                                }
+                                className="w-16 h-10 px-1.5 rounded-lg border border-stone-200 bg-white text-xs font-bold text-[#000000]"
+                              >
+                                {FOLIAR_DOSE_UNITS.map((u) => (
+                                  <option key={u} value={u}>
+                                    {u}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 5. Costo calculado (read-only) */}
+                        <td className="py-2.5 px-2 text-right">
+                          <div className="h-10 px-3 rounded-lg bg-[#FAF8F5] border border-stone-200/80 flex flex-col justify-center items-end">
+                            <span className="text-sm font-extrabold text-[#000000] tabular-nums leading-tight">
+                              {formatMoneyMXN(row.calculatedCost)}
+                            </span>
+                            {row.conversionNote && (
+                              <span className="text-[10px] text-stone-500 tabular-nums leading-tight">
+                                = {row.conversionNote}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* 6. Acción */}
+                        <td className="py-2.5 pl-2 pr-6 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveProductRow(unit.unitId, row.id)}
+                            className="w-9 h-9 rounded-lg border border-transparent hover:border-rose-200 hover:bg-rose-50 text-stone-400 hover:text-[#5C1125] inline-flex items-center justify-center transition cursor-pointer"
+                            title="Eliminar renglón"
+                            aria-label="Eliminar renglón"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
             {/* MOBILE & TABLET STACKED CARDS (<lg) */}
             <div className="lg:hidden divide-y divide-stone-100">
-              {unit.rows.map((row, idx) => (
-                <div key={row.id} className="p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-stone-500">
-                      Producto #{idx + 1}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveProductRow(unit.unitId, row.id)}
-                      className="h-8 px-2.5 rounded-lg border border-stone-200 text-stone-500 hover:text-[#5C1125] inline-flex items-center gap-1 text-xs font-semibold cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Quitar</span>
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-stone-500 mb-1">
-                        Producto
-                      </label>
-                      <select
-                        value={row.productId}
-                        onChange={(e) =>
-                          handleSelectProduct(unit.unitId, row.id, e.target.value)
-                        }
-                        className="w-full h-11 px-3 rounded-xl border border-stone-200 bg-white text-sm font-medium text-[#000000]"
-                      >
-                        <option value="">Seleccionar producto...</option>
-                        {agrochemicals.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-stone-500 mb-1">
-                        Objetivo
-                      </label>
-                      <input
-                        type="text"
-                        list="foliar-objective-suggestions"
-                        placeholder="Ej. Cenicilla, Peronospora..."
-                        value={row.objective}
-                        onChange={(e) =>
-                          handleUpdateRow(unit.unitId, row.id, { objective: e.target.value })
-                        }
-                        className="w-full h-11 px-3 rounded-xl border border-stone-200 bg-white text-sm text-[#000000]"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2.5">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-stone-500 mb-1">
-                        Dosis
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        step="any"
-                        inputMode="decimal"
-                        placeholder="0"
-                        value={row.dose === 0 ? '' : row.dose}
-                        onChange={(e) =>
-                          handleUpdateRow(unit.unitId, row.id, {
-                            dose: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value) || 0),
-                          })
-                        }
-                        className="w-full h-11 px-3 rounded-xl border border-stone-200 bg-white text-sm font-bold text-[#000000] tabular-nums"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-stone-500 mb-1">
-                        Unidad
-                      </label>
-                      <select
-                        value={row.unit}
-                        onChange={(e) =>
-                          handleUpdateRow(unit.unitId, row.id, {
-                            unit: e.target.value as FoliarDoseUnit,
-                          })
-                        }
-                        className="w-full h-11 px-2.5 rounded-xl border border-stone-200 bg-white text-sm font-semibold text-[#000000]"
-                      >
-                        {FOLIAR_DOSE_UNITS.map((u) => (
-                          <option key={u} value={u}>
-                            {u}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-stone-500 mb-1">
-                        Costo de la dosis
-                      </label>
-                      <div className="h-11 px-2.5 rounded-xl bg-[#FAF8F5] border border-stone-200 flex items-center justify-end text-sm font-extrabold text-[#000000] tabular-nums">
-                        {formatMoneyMXN(row.calculatedCost)}
+              {unit.rows.map((row, idx) => {
+                const isAuto = row.autoCalc === true;
+                const recUnit = row.recommendedDoseUnit || row.unit || 'ml';
+                return (
+                  <div key={row.id} className="p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-stone-500">
+                        Producto #{idx + 1}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleUpdateRow(unit.unitId, row.id, {
+                              autoCalc: !isAuto,
+                              recommendedDoseUnit: row.unit,
+                              recommendedWaterLiters: row.recommendedWaterLiters || 200,
+                            })
+                          }
+                          className={`h-8 px-2.5 rounded-lg border text-[11px] font-bold cursor-pointer ${
+                            isAuto
+                              ? 'bg-[#f7f8f2] border-[#dce4bf] text-[#535B28]'
+                              : 'bg-[#FAF8F5] border-stone-200 text-stone-600'
+                          }`}
+                        >
+                          {isAuto ? 'Cálculo: Auto' : 'Cálculo: Manual'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveProductRow(unit.unitId, row.id)}
+                          className="h-8 px-2.5 rounded-lg border border-stone-200 text-stone-500 hover:text-[#5C1125] inline-flex items-center gap-1 text-xs font-semibold cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Quitar</span>
+                        </button>
                       </div>
                     </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-stone-500 mb-1">
+                          Producto
+                        </label>
+                        <select
+                          value={row.productId}
+                          onChange={(e) =>
+                            handleSelectProduct(unit.unitId, row.id, e.target.value)
+                          }
+                          className="w-full h-11 px-3 rounded-xl border border-stone-200 bg-white text-sm font-medium text-[#000000]"
+                        >
+                          <option value="">Seleccionar producto...</option>
+                          {agrochemicals.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-stone-500 mb-1">
+                          Objetivo
+                        </label>
+                        <input
+                          type="text"
+                          list="foliar-objective-suggestions"
+                          placeholder="Ej. Cenicilla, Peronospora..."
+                          value={row.objective}
+                          onChange={(e) =>
+                            handleUpdateRow(unit.unitId, row.id, { objective: e.target.value })
+                          }
+                          className="w-full h-11 px-3 rounded-xl border border-stone-200 bg-white text-sm text-[#000000]"
+                        />
+                      </div>
+                    </div>
+
+                    {isAuto ? (
+                      <>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-stone-500 mb-1">
+                              Dosis rec.
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              inputMode="decimal"
+                              placeholder="Ej. 50"
+                              value={!row.recommendedDose ? '' : row.recommendedDose}
+                              onChange={(e) =>
+                                handleUpdateRow(unit.unitId, row.id, {
+                                  recommendedDose:
+                                    e.target.value === ''
+                                      ? 0
+                                      : Math.max(0, Number(e.target.value) || 0),
+                                })
+                              }
+                              className="w-full h-11 px-2.5 rounded-xl border border-stone-200 bg-white text-sm font-bold text-[#000000] tabular-nums"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-stone-500 mb-1">
+                              Unidad
+                            </label>
+                            <select
+                              value={recUnit}
+                              onChange={(e) => {
+                                const nextU = e.target.value as FoliarDoseUnit;
+                                handleUpdateRow(unit.unitId, row.id, {
+                                  recommendedDoseUnit: nextU,
+                                  unit: nextU,
+                                });
+                              }}
+                              className="w-full h-11 px-2.5 rounded-xl border border-stone-200 bg-white text-sm font-semibold text-[#000000]"
+                            >
+                              {FOLIAR_DOSE_UNITS.map((u) => (
+                                <option key={u} value={u}>
+                                  {u}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-stone-500 mb-1">
+                              Por agua (L)
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              inputMode="decimal"
+                              placeholder="200"
+                              value={!row.recommendedWaterLiters ? '' : row.recommendedWaterLiters}
+                              onChange={(e) =>
+                                handleUpdateRow(unit.unitId, row.id, {
+                                  recommendedWaterLiters:
+                                    e.target.value === ''
+                                      ? 0
+                                      : Math.max(0, Number(e.target.value) || 0),
+                                })
+                              }
+                              className="w-full h-11 px-2.5 rounded-xl border border-stone-200 bg-white text-sm font-bold text-[#000000] tabular-nums"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-[#535B28] mb-1">
+                              Cantidad a utilizar ({unit.waterLiters} L)
+                            </label>
+                            <div className="h-11 px-3 rounded-xl bg-[#f7f8f2] border border-[#dce4bf] flex flex-col justify-center items-end">
+                              <span className="text-sm font-extrabold text-[#535B28] tabular-nums leading-tight">
+                                {row.dose.toLocaleString('es-MX')} {row.unit}
+                              </span>
+                              {row.autoEquivalent && (
+                                <span className="text-[10px] font-bold text-[#5C1125] tabular-nums leading-tight">
+                                  = {row.autoEquivalent}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-stone-500 mb-1">
+                              Costo de la dosis
+                            </label>
+                            <div className="h-11 px-3 rounded-xl bg-[#FAF8F5] border border-stone-200 flex items-center justify-end text-sm font-extrabold text-[#000000] tabular-nums">
+                              {formatMoneyMXN(row.calculatedCost)}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2.5">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-stone-500 mb-1">
+                            Cantidad
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            inputMode="decimal"
+                            placeholder="0"
+                            value={row.dose === 0 ? '' : row.dose}
+                            onChange={(e) =>
+                              handleUpdateRow(unit.unitId, row.id, {
+                                dose:
+                                  e.target.value === ''
+                                    ? 0
+                                    : Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            className="w-full h-11 px-3 rounded-xl border border-stone-200 bg-white text-sm font-bold text-[#000000] tabular-nums"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-stone-500 mb-1">
+                            Unidad
+                          </label>
+                          <select
+                            value={row.unit}
+                            onChange={(e) =>
+                              handleUpdateRow(unit.unitId, row.id, {
+                                unit: e.target.value as FoliarDoseUnit,
+                              })
+                            }
+                            className="w-full h-11 px-2.5 rounded-xl border border-stone-200 bg-white text-sm font-semibold text-[#000000]"
+                          >
+                            {FOLIAR_DOSE_UNITS.map((u) => (
+                              <option key={u} value={u}>
+                                {u}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-stone-500 mb-1">
+                            Costo de la dosis
+                          </label>
+                          <div className="h-11 px-2.5 rounded-xl bg-[#FAF8F5] border border-stone-200 flex items-center justify-end text-sm font-extrabold text-[#000000] tabular-nums">
+                            {formatMoneyMXN(row.calculatedCost)}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Unit Footer: Mezcla Total */}
@@ -767,7 +1074,7 @@ export const GeneralApplicationView: React.FC = () => {
                           <div key={u.unitId} className="bg-[#FAF8F5] rounded-lg px-2.5 py-1.5 border border-stone-100">
                             <div className="flex items-center justify-between gap-2">
                               <strong className="text-stone-800">
-                                {u.unitName.replace('Unidad de Producción ', '')} ({u.waterLiters} L)
+                                {normalizeTlapizacoName(u.unitName).replace('Unidad de Producción ', '')} ({u.waterLiters} L)
                               </strong>
                               <span className="font-bold text-[#5C1125] tabular-nums">
                                 {formatMoneyMXN(u.unitTotalCost)}
@@ -782,7 +1089,11 @@ export const GeneralApplicationView: React.FC = () => {
                                   >
                                     <span>
                                       <span className="font-semibold text-stone-800">{r.productName || 'Producto'}</span>
-                                      {' '}({r.dose} {r.unit})
+                                      {' '}({r.dose} {r.unit}
+                                      {r.autoCalc && r.recommendedDose && r.recommendedWaterLiters
+                                        ? ` · rec. ${r.recommendedDose} ${r.recommendedDoseUnit || r.unit}/${r.recommendedWaterLiters} L`
+                                        : ''}
+                                      )
                                       {r.objective ? ` · Obj: ${r.objective}` : ''}
                                     </span>
                                     <span className="font-bold text-[#535B28] tabular-nums">

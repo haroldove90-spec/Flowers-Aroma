@@ -13,7 +13,14 @@ import {
   Calendar,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
-import { CulturalTask, IrrigationLog, PestMonitoring, PhytosanitaryApplication } from '../../types/greenhouse';
+import {
+  CulturalTask,
+  IRRIGATION_APPLICATION_METHODS,
+  IrrigationApplicationMethod,
+  IrrigationLog,
+  PestMonitoring,
+  PhytosanitaryApplication,
+} from '../../types/greenhouse';
 
 export const AgronomyView: React.FC = () => {
   const {
@@ -45,6 +52,7 @@ export const AgronomyView: React.FC = () => {
 
   // Irrigation form
   const [irgModule, setIrgModule] = useState(modules[0]?.code || 'M-01');
+  const [irgMethod, setIrgMethod] = useState<IrrigationApplicationMethod>('aspersion');
   const [irgVolume, setIrgVolume] = useState('14.0');
   const [irgDuration, setIrgDuration] = useState('45');
   const [irgPhIn, setIrgPhIn] = useState('5.8');
@@ -109,6 +117,7 @@ export const AgronomyView: React.FC = () => {
       tankARecipe: irgTankA,
       tankBRecipe: irgTankB,
       operator: 'Mateo Rangel',
+      applicationMethod: irgMethod,
     };
     addIrrigation(newLog);
     setShowIrrigationModal(false);
@@ -337,11 +346,16 @@ export const AgronomyView: React.FC = () => {
                 className="p-4 sm:p-5 rounded-xl border border-slate-200 bg-white shadow-xs space-y-3"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-black text-xs text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
                       {irg.moduleCode}
                     </span>
                     <span className="font-bold text-sm text-slate-900">{irg.sector}</span>
+                    {irg.applicationMethod && (
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded border bg-[#fbf2f4] text-[#5C1125] border-[#ebccd4]">
+                        Modo: {IRRIGATION_APPLICATION_METHODS.find((m) => m.id === irg.applicationMethod)?.label || irg.applicationMethod}
+                      </span>
+                    )}
                     <span className="text-xs text-slate-400">({irg.date} a las {irg.time})</span>
                   </div>
                   <div className="text-xs font-bold text-slate-700">
@@ -568,6 +582,30 @@ export const AgronomyView: React.FC = () => {
               Registrar Evento de Fertirrigación
             </h3>
             <form onSubmit={handleCreateIrrigation} className="mt-4 space-y-3">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Modo de riego *
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {IRRIGATION_APPLICATION_METHODS.map((method) => {
+                    const active = irgMethod === method.id;
+                    return (
+                      <button
+                        key={method.id}
+                        type="button"
+                        onClick={() => setIrgMethod(method.id)}
+                        className={`px-2.5 py-2 rounded-lg border text-xs font-bold transition cursor-pointer ${
+                          active
+                            ? 'bg-[#5C1125] text-white border-[#5C1125]'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-[#C3A25D]'
+                        }`}
+                      >
+                        {method.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Módulo</label>

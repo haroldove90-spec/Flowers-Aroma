@@ -220,3 +220,80 @@ export function calculateReferenceDoseCost(
   };
 }
 
+/**
+ * Extrae dosis recomendada y litros de agua base desde el texto del catálogo
+ * (ej. "50 ml / 200 L", "250 g por 200L", "1.5 ml / L").
+ */
+export function parseRecommendedDoseFromText(
+  raw?: string
+): { amount: number; unit: FoliarDoseUnit; waterLiters: number } | null {
+  const text = (raw || '').trim();
+  if (!text) return null;
+  const doseMatch = text.match(/(\d+(?:[.,]\d+)?)\s*(ml|l|lt|lts|g|gr|grs|kg|kgs)\b/i);
+  if (!doseMatch) return null;
+  const amount = parseFloat(doseMatch[1].replace(',', '.'));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const unit = normalizeFoliarUnit(doseMatch[2]);
+
+  // Buscar volumen base (ej. "/ 200 L", "por 200L", "en 100 litros", "/ L")
+  const afterDose = text.slice((doseMatch.index || 0) + doseMatch[0].length);
+  const waterNumMatch = afterDose.match(/(?:\/|por|en|cada)\s*(\d+(?:[.,]\d+)?)\s*(?:l|lt|lts|litro|litros)\b/i);
+  let waterLiters = 200;
+  if (waterNumMatch) {
+    const parsedWater = parseFloat(waterNumMatch[1].replace(',', '.'));
+    if (Number.isFinite(parsedWater) && parsedWater > 0) {
+      waterLiters = parsedWater;
+    }
+  } else if (/(?:\/|por|en|cada)\s*(?:l|lt|litro)\b/i.test(afterDose)) {
+    waterLiters = 1;
+  }
+
+  return { amount, unit, waterLiters };
+}
+
+/**
+ * Calcula la cantidad exacta de producto a utilizar en Aplicación General
+ * a partir de la dosis recomendada, el agua base y el volumen total de la unidad,
+ * devolviendo también una equivalencia amigable (ej. 1,250 ml = 1.25 L).
+ */
+export function calculateGeneralAutoDose(params: {
+  recommendedDose: number;
+  recommendedWaterLiters: number;
+  targetWaterLiters: number;
+  unit: FoliarDoseUnit;
+}): { calculatedDose: number; equivalentLabel?: string } {
+  const rec = Math.max(0, Number(params.recommendedDose || 0));
+  const baseWater = Math.max(0, Number(params.recommendedWaterLiters || 0));
+  const targetWater = Math.max(0, Number(params.targetWaterLiters || 0));
+
+  if (rec <= 0 || baseWater <= 0 || targetWater <= 0) {
+    return { calculatedDose: 0 };
+  }
+
+  const calculatedDose = round2((rec * targetWater) / baseWater);
+  let equivalentLabel: string | undefined;
+
+  if (params.unit === 'ml' && calculatedDose >= 1000) {
+    equivalentLabel = `${round2(calculatedDose / 1000)} L`;
+  } else if (params.unit === 'g' && calculatedDose >= 1000) {
+    equivalentLabel = `${round2(calculatedDose / 1000)} kg`;
+  } else if (params.unit === 'L' && calculatedDose > 0 && calculatedDose < 1) {
+    equivalentLabel = `${Math.round(calculatedDose * 1000).toLocaleString('es-MX')} ml`;
+  } else if (params.unit === 'kg' && calculatedDose > 0 && calculatedDose < 1) {
+    equivalentLabel = `${Math.round(calculatedDose * 1000).toLocaleString('es-MX')} g`;
+  }
+
+  return { calculatedDose, equivalentLabel };
+}
+
+/**
+ * Normaliza nombres históricos mal escritos ("Lapisaco" / "Tlapisaco") a "Tlapizaco".
+ */
+export function normalizeTlapizacoName(raw: string): string {
+  if (!raw) return raw;
+  return raw
+    .replace(/\bTlapisaco\b/gi, 'Tlapizaco')
+    .replace(/\bLapisaco\b/gi, 'Tlapizaco');
+}
+
+

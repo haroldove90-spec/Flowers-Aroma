@@ -108,7 +108,7 @@ export const FoliarApplicationsView: React.FC<FoliarApplicationsViewProps> = ({
                   subView === 'general' ? 'text-[#e5d2a4]' : 'text-stone-500'
                 }`}
               >
-                Mezclas por Unidad de Producción (Santa Cruz, Saúl, Tlapisaco), objetivo y costo de la dosis.
+                Mezclas por Unidad de Producción (Santa Cruz, Saúl, Tlapizaco), dosis automática, objetivo y costo.
               </p>
             </div>
           </button>

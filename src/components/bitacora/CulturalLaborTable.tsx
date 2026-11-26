@@ -19,6 +19,10 @@ import {
   BitacoraStatus,
 } from '../../types/greenhouse';
 import { useGreenhouse } from '../../context/GreenhouseContext';
+import { normalizeTlapizacoName } from '../../utils/foliarCalculations';
+
+const CUSTOM_ACTIVITIES_STORAGE_KEY = 'aroma_flower_custom_bitacora_activities_v1';
+const ADD_NEW_ACTIVITY_SENTINEL = '__ADD_NEW_ACTIVITY__';
 
 const getTodayLocalISO = (): string => {
   const now = new Date();
@@ -70,14 +74,33 @@ export const CulturalLaborTable: React.FC = () => {
 
   // Inline UI helpers
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [activeSuggestionRowId, setActiveSuggestionRowId] = useState<string | null>(null);
+  const [customActivityRowId, setCustomActivityRowId] = useState<string | null>(null);
+  const [customActivityText, setCustomActivityText] = useState<string>('');
+  const [showManageActivityModal, setShowManageActivityModal] = useState<boolean>(false);
+  const [newCatalogActivityText, setNewCatalogActivityText] = useState<string>('');
   const [feedback, setFeedback] = useState<{ text: string; tone: 'ok' | 'warn' } | null>(null);
   const [newlyAddedId, setNewlyAddedId] = useState<string | null>(null);
+
+  // Persistent custom activities added by the user
+  const [customActivities, setCustomActivities] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(CUSTOM_ACTIVITIES_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return [];
+  });
 
   // Local draft overrides for smooth typing without lag, synced debounced to context/Supabase
   const [drafts, setDrafts] = useState<Record<string, Partial<BitacoraEntry>>>({});
   const debounceTimersRef = useRef<Record<string, number>>({});
-  const activityInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const activitySelectRefs = useRef<Record<string, HTMLSelectElement | null>>({});
 
   useEffect(() => {
     return () => {
@@ -87,12 +110,12 @@ export const CulturalLaborTable: React.FC = () => {
     };
   }, []);
 
-  // Auto-focus activity input when a new row is added
+  // Auto-focus activity selector when a new row is added
   useEffect(() => {
     if (!newlyAddedId) return;
-    const targetInput = activityInputRefs.current[newlyAddedId];
-    if (targetInput) {
-      targetInput.focus();
+    const targetSelect = activitySelectRefs.current[newlyAddedId];
+    if (targetSelect) {
+      targetSelect.focus();
     }
     const clear = window.setTimeout(() => setNewlyAddedId(null), 500);
     return () => window.clearTimeout(clear);
@@ -105,17 +128,40 @@ export const CulturalLaborTable: React.FC = () => {
     }, 3200);
   };
 
+  const registerCustomActivity = (rawName: string): string => {
+    const cleaned = rawName.trim();
+    if (!cleaned) return '';
+    const existsInDefaults = BITACORA_ACTIVITY_SUGGESTIONS.some(
+      (a) => a.toLowerCase() === cleaned.toLowerCase()
+    );
+    const existsInCustom = customActivities.some(
+      (a) => a.toLowerCase() === cleaned.toLowerCase()
+    );
+    if (!existsInDefaults && !existsInCustom) {
+      const updated = [...customActivities, cleaned];
+      setCustomActivities(updated);
+      try {
+        localStorage.setItem(CUSTOM_ACTIVITIES_STORAGE_KEY, JSON.stringify(updated));
+      } catch {
+        // ignore storage errors
+      }
+    }
+    return cleaned;
+  };
+
   // All cultural labor rows merged with any active local typing draft
   const culturalEntries = useMemo(() => {
     return bitacoraEntries
       .filter((entry) => entry.category === 'labores_culturales')
       .map((entry) => {
         const draft = drafts[entry.id];
-        return draft ? { ...entry, ...draft } : entry;
+        const merged = draft ? { ...entry, ...draft } : entry;
+        return {
+          ...merged,
+          moduleName: normalizeTlapizacoName(merged.moduleName),
+        };
       })
       .sort((a, b) => {
-        // Primary sort by date ascending when browsing all dates? Keep chronological or newest date first,
-        // and within the same day strictly ascending by sortOrder so new rows append downward!
         if (a.entryDate !== b.entryDate) {
           return b.entryDate.localeCompare(a.entryDate);
         }
@@ -123,13 +169,32 @@ export const CulturalLaborTable: React.FC = () => {
       });
   }, [bitacoraEntries, drafts]);
 
+  // Complete list of activities: 17 client base options + custom saved + any historical activity
+  const allActivityOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const list: string[] = [];
+    const pushUnique = (val: string) => {
+      const trimmed = val.trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push(trimmed);
+      }
+    };
+    BITACORA_ACTIVITY_SUGGESTIONS.forEach(pushUnique);
+    customActivities.forEach(pushUnique);
+    culturalEntries.forEach((e) => pushUnique(e.activity));
+    return list;
+  }, [customActivities, culturalEntries]);
+
   // Filtered rows according to active date & module filters
   const filteredEntries = useMemo(() => {
     return culturalEntries.filter((entry) => {
       if (!showAllDates && selectedDate && entry.entryDate !== selectedDate) {
         return false;
       }
-      if (selectedModule !== 'TODOS' && entry.moduleName !== selectedModule) {
+      if (selectedModule !== 'TODOS' && normalizeTlapizacoName(entry.moduleName) !== selectedModule) {
         return false;
       }
       return true;
@@ -312,12 +377,59 @@ export const CulturalLaborTable: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      {/* Shared datalist for native browser autocomplete on Actividad */}
-      <datalist id="bitacora-cultural-suggestions">
-        {BITACORA_ACTIVITY_SUGGESTIONS.map((item) => (
-          <option key={item} value={item} />
-        ))}
-      </datalist>
+      {/* Inline quick-add new activity option panel (when opened from toolbar) */}
+      {showManageActivityModal && (
+        <div className="bg-[#FAF8F5] rounded-2xl border border-[#C3A25D]/60 p-4 sm:p-5 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-extrabold text-[#000000]">
+                Agregar nueva actividad al catálogo de Labores Culturales
+              </h3>
+              <p className="text-xs text-stone-600">
+                La actividad quedará guardada como opción seleccionable en todas las filas.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowManageActivityModal(false);
+                setNewCatalogActivityText('');
+              }}
+              className="text-xs font-semibold text-stone-500 hover:text-[#5C1125] cursor-pointer"
+            >
+              Cerrar
+            </button>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const added = registerCustomActivity(newCatalogActivityText);
+              if (added) {
+                setNewCatalogActivityText('');
+                setShowManageActivityModal(false);
+                showToast(`Actividad "${added}" agregada a la lista de opciones.`);
+              }
+            }}
+            className="flex flex-col sm:flex-row gap-2"
+          >
+            <input
+              type="text"
+              value={newCatalogActivityText}
+              onChange={(e) => setNewCatalogActivityText(e.target.value)}
+              placeholder="Escribe el nombre de la nueva labor cultural..."
+              className="flex-1 h-10 px-3 rounded-xl border border-stone-300 bg-white text-sm text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
+              autoFocus
+            />
+            <button
+              type="submit"
+              disabled={!newCatalogActivityText.trim()}
+              className="h-10 px-4 rounded-xl bg-[#535B28] hover:bg-[#3f461d] disabled:opacity-50 text-white text-xs sm:text-sm font-bold transition cursor-pointer whitespace-nowrap"
+            >
+              Guardar nueva opción
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Dynamic Summary Strip (3 KPI Cards) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -470,8 +582,8 @@ export const CulturalLaborTable: React.FC = () => {
             )}
           </div>
 
-          {/* Primary CTA: + Agregar actividad */}
-          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+          {/* Primary CTA: + Nueva opción & + Agregar actividad */}
+          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5 shrink-0">
             {feedback && (
               <span
                 className={`text-xs font-medium ${
@@ -481,6 +593,15 @@ export const CulturalLaborTable: React.FC = () => {
                 {feedback.text}
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => setShowManageActivityModal((prev) => !prev)}
+              className="h-10 px-3 rounded-xl border border-stone-300 bg-white hover:bg-[#FAF8F5] text-stone-700 hover:text-[#5C1125] text-xs font-bold inline-flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap shrink-0"
+              title="Agregar una nueva opción al menú desplegable de actividades"
+            >
+              <Plus className="w-3.5 h-3.5 text-[#535B28]" />
+              <span>Nueva opción de labor</span>
+            </button>
             <button
               type="button"
               onClick={handleAddActivity}
@@ -613,50 +734,88 @@ export const CulturalLaborTable: React.FC = () => {
                           </select>
                         </td>
 
-                        {/* 3. Actividad (free text + autocomplete + quick suggestions on focus) */}
+                        {/* 3. Actividad (Menú con las 17 labores + opción de agregar nueva) */}
                         <td className="py-3 px-3">
-                          <div className="relative">
-                            <input
+                          {customActivityRowId === row.id ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                autoFocus
+                                placeholder="Escribe la nueva actividad..."
+                                value={customActivityText}
+                                onChange={(e) => setCustomActivityText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const added = registerCustomActivity(customActivityText);
+                                    if (added) {
+                                      commitRowUpdate(row, { activity: added }, true);
+                                      setCustomActivityRowId(null);
+                                      setCustomActivityText('');
+                                      showToast(`Actividad "${added}" guardada y asignada.`);
+                                    }
+                                  } else if (e.key === 'Escape') {
+                                    setCustomActivityRowId(null);
+                                    setCustomActivityText('');
+                                  }
+                                }}
+                                className="flex-1 h-10 px-2.5 rounded-lg border border-[#5C1125] bg-white text-sm text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const added = registerCustomActivity(customActivityText);
+                                  if (added) {
+                                    commitRowUpdate(row, { activity: added }, true);
+                                    setCustomActivityRowId(null);
+                                    setCustomActivityText('');
+                                    showToast(`Actividad "${added}" guardada y asignada.`);
+                                  }
+                                }}
+                                className="h-10 px-2.5 rounded-lg bg-[#535B28] text-white text-xs font-bold hover:bg-[#3f461d] cursor-pointer shrink-0"
+                              >
+                                Guardar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCustomActivityRowId(null);
+                                  setCustomActivityText('');
+                                }}
+                                className="h-10 px-2 rounded-lg border border-stone-200 text-stone-500 text-xs font-semibold hover:bg-stone-100 cursor-pointer shrink-0"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <select
                               ref={(el) => {
-                                activityInputRefs.current[row.id] = el;
+                                activitySelectRefs.current[row.id] = el;
                               }}
-                              type="text"
-                              list="bitacora-cultural-suggestions"
                               aria-label="Actividad realizada"
-                              placeholder="Ej. Corte, Deshierbe, Poda..."
                               value={row.activity}
-                              onFocus={() => setActiveSuggestionRowId(row.id)}
-                              onBlur={() => {
-                                window.setTimeout(() => {
-                                  setActiveSuggestionRowId((cur) =>
-                                    cur === row.id ? null : cur
-                                  );
-                                }, 180);
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === ADD_NEW_ACTIVITY_SENTINEL) {
+                                  setCustomActivityRowId(row.id);
+                                  setCustomActivityText('');
+                                  return;
+                                }
+                                commitRowUpdate(row, { activity: val }, true);
                               }}
-                              onChange={(e) =>
-                                commitRowUpdate(row, { activity: e.target.value }, false)
-                              }
-                              className="w-full h-10 px-3 rounded-lg border border-stone-200 bg-white text-sm text-[#000000] placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
-                            />
-                            {activeSuggestionRowId === row.id && (
-                              <div className="mt-1.5 flex flex-wrap gap-1">
-                                {BITACORA_ACTIVITY_SUGGESTIONS.slice(0, 6).map((sug) => (
-                                  <button
-                                    key={sug}
-                                    type="button"
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      commitRowUpdate(row, { activity: sug }, true);
-                                      setActiveSuggestionRowId(null);
-                                    }}
-                                    className="px-2 py-1 rounded-md text-[11px] font-medium bg-[#FAF8F5] hover:bg-[#5C1125] hover:text-white text-stone-700 border border-stone-200 transition cursor-pointer"
-                                  >
-                                    {sug}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                              className="w-full h-10 px-2.5 rounded-lg border border-stone-200 bg-white text-sm text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
+                            >
+                              <option value="">Seleccionar actividad...</option>
+                              {allActivityOptions.map((opt) => (
+                                <option key={opt} value={opt}>
+                                  {opt}
+                                </option>
+                              ))}
+                              <option value={ADD_NEW_ACTIVITY_SENTINEL}>
+                                + Agregar nueva actividad...
+                              </option>
+                            </select>
+                          )}
                         </td>
 
                         {/* 4. Personal */}
@@ -911,37 +1070,74 @@ export const CulturalLaborTable: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Actividad + quick suggestions */}
+                    {/* Actividad (Menú completo + agregar nueva) */}
                     <div>
                       <label className="block text-[11px] font-semibold text-stone-500 mb-1">
                         Actividad
                       </label>
-                      <input
-                        type="text"
-                        list="bitacora-cultural-suggestions"
-                        placeholder="Ej. Corte, Deshierbe, Poda..."
-                        value={row.activity}
-                        onChange={(e) =>
-                          commitRowUpdate(row, { activity: e.target.value }, false)
-                        }
-                        className="w-full h-11 px-3 rounded-xl border border-stone-200 bg-white text-sm text-[#000000] placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
-                      />
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {BITACORA_ACTIVITY_SUGGESTIONS.slice(0, 5).map((sug) => (
-                          <button
-                            key={sug}
-                            type="button"
-                            onClick={() => commitRowUpdate(row, { activity: sug }, true)}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer ${
-                              row.activity === sug
-                                ? 'bg-[#5C1125] text-white border-[#5C1125]'
-                                : 'bg-[#FAF8F5] text-stone-700 border-stone-200'
-                            }`}
-                          >
-                            {sug}
-                          </button>
-                        ))}
-                      </div>
+                      {customActivityRowId === row.id ? (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            autoFocus
+                            placeholder="Escribe la nueva actividad..."
+                            value={customActivityText}
+                            onChange={(e) => setCustomActivityText(e.target.value)}
+                            className="w-full h-11 px-3 rounded-xl border border-[#5C1125] bg-white text-sm text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const added = registerCustomActivity(customActivityText);
+                                if (added) {
+                                  commitRowUpdate(row, { activity: added }, true);
+                                  setCustomActivityRowId(null);
+                                  setCustomActivityText('');
+                                  showToast(`Actividad "${added}" guardada y asignada.`);
+                                }
+                              }}
+                              className="flex-1 h-9 rounded-lg bg-[#535B28] text-white text-xs font-bold cursor-pointer"
+                            >
+                              Guardar y seleccionar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCustomActivityRowId(null);
+                                setCustomActivityText('');
+                              }}
+                              className="h-9 px-3 rounded-lg border border-stone-200 text-stone-600 text-xs font-semibold cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <select
+                          value={row.activity}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === ADD_NEW_ACTIVITY_SENTINEL) {
+                              setCustomActivityRowId(row.id);
+                              setCustomActivityText('');
+                              return;
+                            }
+                            commitRowUpdate(row, { activity: val }, true);
+                          }}
+                          className="w-full h-11 px-3 rounded-xl border border-stone-200 bg-white text-sm text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]/25 focus:border-[#5C1125]"
+                        >
+                          <option value="">Seleccionar actividad...</option>
+                          {allActivityOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                          <option value={ADD_NEW_ACTIVITY_SENTINEL}>
+                            + Agregar nueva actividad...
+                          </option>
+                        </select>
+                      )}
                     </div>
 
                     {/* Personal + Status */}

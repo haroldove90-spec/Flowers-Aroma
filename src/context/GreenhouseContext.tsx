@@ -593,13 +593,37 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => loadInitial('audit_logs', INITIAL_AUDIT_LOGS));
   const [aromaSheets, setAromaSheets] = useState<AromaFlowerSheetEntry[]>(() => loadInitial('aroma_sheets', INITIAL_AROMA_FLOWER_SHEETS));
 
+  // Normalizer to fix BOUEVARD -> BOULEVARD and ensure MUNDIAL is available
+  const normalizeAromaProducts = (items: AromaProduct[]): AromaProduct[] => {
+    const fixed = items.map((p) => {
+      if (p.id === 'prod-bouevard' || p.name.trim().toUpperCase() === 'BOUEVARD') {
+        return { ...p, name: 'BOULEVARD' };
+      }
+      return p;
+    });
+    const hasMundial = fixed.some((p) => p.name.trim().toUpperCase() === 'MUNDIAL');
+    if (!hasMundial) {
+      fixed.push({
+        id: 'prod-mundial',
+        name: 'MUNDIAL',
+        captureMode: 'lar_med_chi',
+        sortOrder: 3,
+        active: true,
+        createdAt: '2026-11-26 08:00',
+      });
+    }
+    return [...fixed].sort((a, b) => a.sortOrder - b.sortOrder);
+  };
+
   // Catalog of Products (always stays populated unless Admin modifies it)
   const [aromaProducts, setAromaProducts] = useState<AromaProduct[]>(() => {
     const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}app_products`);
     if (local) {
       try {
         const parsed = JSON.parse(local);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return normalizeAromaProducts(parsed);
+        }
       } catch {
         return INITIAL_AROMA_PRODUCTS;
       }
@@ -1113,7 +1137,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
     }
     if (snap.aromaProducts && snap.aromaProducts.length > 0 && !pendingTables.has('app_products')) {
-      const sorted = [...snap.aromaProducts].sort((a, b) => a.sortOrder - b.sortOrder);
+      const sorted = normalizeAromaProducts(snap.aromaProducts);
       setAromaProducts(sorted);
       saveState('app_products', sorted);
     }
@@ -4050,27 +4074,30 @@ INSERT INTO app_products (id, name, capture_mode, sort_order, active, created_at
 VALUES
   ('prod-freedom', 'FREEDOM', 'lar_med_chi', 1, TRUE, '2026-11-09 08:00'),
   ('prod-mondial', 'MONDIAL', 'lar_med_chi', 2, TRUE, '2026-11-09 08:00'),
-  ('prod-proud', 'PROUD', 'lar_med_chi', 3, TRUE, '2026-11-09 08:00'),
-  ('prod-hermosa', 'HERMOSA', 'lar_med_chi', 4, TRUE, '2026-11-09 08:00'),
-  ('prod-topaz', 'TOPAZ', 'lar_med_chi', 5, TRUE, '2026-11-09 08:00'),
-  ('prod-caricia', 'CARICIA', 'lar_med_chi', 6, TRUE, '2026-11-09 08:00'),
-  ('prod-homer', 'HOMER', 'lar_med_chi', 7, TRUE, '2026-11-09 08:00'),
-  ('prod-deep-purple', 'DEEP PURPLE', 'lar_med_chi', 8, TRUE, '2026-11-09 08:00'),
-  ('prod-cool-water', 'COOL WATER', 'lar_med_chi', 9, TRUE, '2026-11-09 08:00'),
-  ('prod-novia', 'NOVIA', 'lar_med_chi', 10, TRUE, '2026-11-09 08:00'),
-  ('prod-bouevard', 'BOUEVARD', 'lar_med_chi', 11, TRUE, '2026-11-09 08:00'),
-  ('prod-samuray', 'SAMURAY', 'lar_med_chi', 12, TRUE, '2026-11-09 08:00'),
-  ('prod-salma', 'SALMA', 'lar_med_chi', 13, TRUE, '2026-11-09 08:00'),
-  ('prod-blancaricia', 'BLANCARICIA', 'lar_med_chi', 14, TRUE, '2026-11-09 08:00'),
-  ('prod-shimer', 'SHIMER', 'lar_med_chi', 15, TRUE, '2026-11-09 08:00'),
-  ('prod-mandala', 'MANDALA', 'lar_med_chi', 16, TRUE, '2026-11-09 08:00'),
-  ('prod-bee-sweet', 'BEE SWEET', 'lar_med_chi', 17, TRUE, '2026-11-09 08:00'),
-  ('prod-ocean-sun', 'OCEAN SUN', 'lar_med_chi', 18, TRUE, '2026-11-09 08:00'),
-  ('prod-gotcha', 'GOTCHA', 'lar_med_chi', 19, TRUE, '2026-11-09 08:00'),
-  ('prod-inglesa', 'INGLESA', 'lar_med_chi', 20, TRUE, '2026-11-09 08:00'),
-  ('prod-combinados', 'COMBINADOS', 'lar_med_chi', 21, TRUE, '2026-11-09 08:00'),
-  ('prod-std-y-mol', 'STD Y MOL', 'direct_total', 22, TRUE, '2026-11-09 08:00')
+  ('prod-mundial', 'MUNDIAL', 'lar_med_chi', 3, TRUE, '2026-11-26 08:00'),
+  ('prod-proud', 'PROUD', 'lar_med_chi', 4, TRUE, '2026-11-09 08:00'),
+  ('prod-hermosa', 'HERMOSA', 'lar_med_chi', 5, TRUE, '2026-11-09 08:00'),
+  ('prod-topaz', 'TOPAZ', 'lar_med_chi', 6, TRUE, '2026-11-09 08:00'),
+  ('prod-caricia', 'CARICIA', 'lar_med_chi', 7, TRUE, '2026-11-09 08:00'),
+  ('prod-homer', 'HOMER', 'lar_med_chi', 8, TRUE, '2026-11-09 08:00'),
+  ('prod-deep-purple', 'DEEP PURPLE', 'lar_med_chi', 9, TRUE, '2026-11-09 08:00'),
+  ('prod-cool-water', 'COOL WATER', 'lar_med_chi', 10, TRUE, '2026-11-09 08:00'),
+  ('prod-novia', 'NOVIA', 'lar_med_chi', 11, TRUE, '2026-11-09 08:00'),
+  ('prod-bouevard', 'BOULEVARD', 'lar_med_chi', 12, TRUE, '2026-11-09 08:00'),
+  ('prod-samuray', 'SAMURAY', 'lar_med_chi', 13, TRUE, '2026-11-09 08:00'),
+  ('prod-salma', 'SALMA', 'lar_med_chi', 14, TRUE, '2026-11-09 08:00'),
+  ('prod-blancaricia', 'BLANCARICIA', 'lar_med_chi', 15, TRUE, '2026-11-09 08:00'),
+  ('prod-shimer', 'SHIMER', 'lar_med_chi', 16, TRUE, '2026-11-09 08:00'),
+  ('prod-mandala', 'MANDALA', 'lar_med_chi', 17, TRUE, '2026-11-09 08:00'),
+  ('prod-bee-sweet', 'BEE SWEET', 'lar_med_chi', 18, TRUE, '2026-11-09 08:00'),
+  ('prod-ocean-sun', 'OCEAN SUN', 'lar_med_chi', 19, TRUE, '2026-11-09 08:00'),
+  ('prod-gotcha', 'GOTCHA', 'lar_med_chi', 20, TRUE, '2026-11-09 08:00'),
+  ('prod-inglesa', 'INGLESA', 'lar_med_chi', 21, TRUE, '2026-11-09 08:00'),
+  ('prod-combinados', 'COMBINADOS', 'lar_med_chi', 22, TRUE, '2026-11-09 08:00'),
+  ('prod-std-y-mol', 'STD Y MOL', 'direct_total', 23, TRUE, '2026-11-09 08:00')
 ON CONFLICT (name) DO NOTHING;
+
+UPDATE app_products SET name = 'BOULEVARD' WHERE UPPER(name) = 'BOUEVARD';
 
 -- 4. Producción del Día (Alimenta el Inventario General Único)
 CREATE TABLE IF NOT EXISTS daily_productions (
