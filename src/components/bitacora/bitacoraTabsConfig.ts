@@ -49,10 +49,9 @@ export const BITACORA_TABS: BitacoraTabDefinition[] = [
     label: 'Riego',
     shortLabel: 'Riego',
     description:
-      'Plantilla preparada para controlar turnos de riego, lámina/volumen, pH, CE y drenaje diario.',
+      'Registro de aplicaciones por Aspersión, Regadera o Pasillo con objetivo del producto y costo automático de la dosis.',
     icon: Droplets,
-    ready: false,
-    plannedColumns: ['Fecha', 'Módulo', 'Turno / Duración', 'pH / CE', 'Volumen', 'Status'],
+    ready: true,
   },
   {
     id: 'monitoreo',

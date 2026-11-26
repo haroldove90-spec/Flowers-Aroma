@@ -55,8 +55,12 @@ export const Sidebar: React.FC = () => {
     activeView,
     setActiveView,
     canAccessRole,
+    canAccessModule,
+    hasFullAccess,
     logout,
   } = useGreenhouse();
+
+  const isFullAdmin = hasFullAccess(currentUser);
 
   const [collapsed, setCollapsed] = useState(false);
 
@@ -74,26 +78,32 @@ export const Sidebar: React.FC = () => {
     }
   };
 
-  // Return all comprehensive modules for the active role
+  // Return all comprehensive modules for the active role, strictly filtered by user permissions
   const getRoleSpecificMenuItems = () => {
+    const allMainModules = [
+      { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
+      { id: 'produccion_dia', label: 'Producción e Inventario', icon: Layers },
+      { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
+      { id: 'aplicaciones_foliares', label: 'Aplicaciones Foliares', icon: SprayCan },
+      { id: 'ventas_operacion', label: 'Ventas, Remisiones y Cobranza', icon: Truck },
+      { id: 'admin_insumos', label: 'Insumos y Aplicaciones', icon: Sprout },
+      { id: 'admin_costos', label: 'Control de Costos y Utilidad', icon: Calculator },
+      { id: 'admin_pagos', label: 'Nómina y Pagos', icon: Wallet },
+      { id: 'admin_incidencias', label: 'Préstamos, Desc. y Comis.', icon: CreditCard },
+      { id: 'admin_proveedores', label: 'Proveedores y Ctas. x Pagar', icon: Building2 },
+      { id: 'admin_empleados', label: 'Empleados', icon: Users },
+      { id: 'admin_productos', label: 'Catálogo de Productos', icon: Boxes },
+      { id: 'resumen_ventas', label: 'Resumen Diario (Histórico)', icon: TrendingUp },
+      { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
+    ];
+
+    if (!isFullAdmin) {
+      return allMainModules.filter((item) => canAccessModule(item.id));
+    }
+
     switch (activeRole) {
       case 'admin':
-        return [
-          { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
-          { id: 'produccion_dia', label: 'Producción e Inventario', icon: Layers },
-          { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
-          { id: 'aplicaciones_foliares', label: 'Aplicaciones Foliares', icon: SprayCan },
-          { id: 'ventas_operacion', label: 'Ventas, Remisiones y Cobranza', icon: Truck },
-          { id: 'admin_insumos', label: 'Insumos y Aplicaciones', icon: Sprout },
-          { id: 'admin_costos', label: 'Control de Costos y Utilidad', icon: Calculator },
-          { id: 'admin_pagos', label: 'Nómina y Pagos', icon: Wallet },
-          { id: 'admin_incidencias', label: 'Préstamos, Desc. y Comis.', icon: CreditCard },
-          { id: 'admin_proveedores', label: 'Proveedores y Ctas. x Pagar', icon: Building2 },
-          { id: 'admin_empleados', label: 'Empleados', icon: Users },
-          { id: 'admin_productos', label: 'Catálogo de Productos', icon: Boxes },
-          { id: 'resumen_ventas', label: 'Resumen Diario (Histórico)', icon: TrendingUp },
-          { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
-        ];
+        return allMainModules;
       case 'produccion':
         return [
           { id: 'produccion_dia', label: 'Producción e Inventario', icon: PackageCheck },
@@ -101,7 +111,7 @@ export const Sidebar: React.FC = () => {
           { id: 'aplicaciones_foliares', label: 'Aplicaciones Foliares', icon: SprayCan },
           { id: 'ventas_operacion', label: 'Ventas y Remisiones (Tablet)', icon: Truck },
           { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
-        ];
+        ].filter((item) => canAccessModule(item.id));
       case 'aroma_flowers':
         return AROMA_MODULE_ITEMS;
       case 'director':
@@ -163,7 +173,11 @@ export const Sidebar: React.FC = () => {
       <div className="h-16 flex items-center justify-between px-4 border-b border-stone-800">
         {!collapsed && (
           <span className="text-xs font-bold uppercase tracking-wider text-[#C3A25D]">
-            {activeRole === 'admin' ? 'Rol Admin' : 'Rol Producción'}
+            {isFullAdmin
+              ? activeRole === 'admin'
+                ? 'Rol Admin'
+                : 'Rol Producción'
+              : 'Módulos Asignados'}
           </span>
         )}
         <button
@@ -201,8 +215,8 @@ export const Sidebar: React.FC = () => {
           );
         })}
 
-        {/* Quick Role Switch Section for Admin accounts */}
-        {currentUser?.role === 'admin' && (
+        {/* Quick Role Switch Section for Full Admin accounts only */}
+        {isFullAdmin && (
           <div className="pt-4 border-t border-stone-800 mt-4 space-y-1.5">
             <div className="text-[10px] font-bold uppercase tracking-wider text-[#535B28] px-3 py-1">
               {!collapsed && 'Cambio Rápido de Rol'}
@@ -235,17 +249,19 @@ export const Sidebar: React.FC = () => {
         )}
       </div>
 
-      {/* Sidebar Footer: Switch Role & Logout buttons */}
+      {/* Sidebar Footer: Switch Role (Full Admin only) & Logout buttons */}
       <div className="p-3 border-t border-stone-800 bg-[#000000] space-y-2">
-        <button
-          type="button"
-          onClick={() => setActiveRole(null)}
-          className="w-full flex items-center justify-center sm:justify-start gap-3 px-3 py-2 rounded-xl text-xs font-bold text-[#C3A25D] hover:bg-stone-900 hover:text-white transition border border-stone-800 cursor-pointer"
-          title="Volver al selector de roles"
-        >
-          <ArrowLeftRight className="w-4 h-4 shrink-0" />
-          {!collapsed && <span>Cambiar de Rol</span>}
-        </button>
+        {isFullAdmin && (
+          <button
+            type="button"
+            onClick={() => setActiveRole(null)}
+            className="w-full flex items-center justify-center sm:justify-start gap-3 px-3 py-2 rounded-xl text-xs font-bold text-[#C3A25D] hover:bg-stone-900 hover:text-white transition border border-stone-800 cursor-pointer"
+            title="Volver al selector de roles"
+          >
+            <ArrowLeftRight className="w-4 h-4 shrink-0" />
+            {!collapsed && <span>Cambiar de Rol</span>}
+          </button>
+        )}
 
         <button
           type="button"

@@ -28,7 +28,13 @@ import {
   SprayCan,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
-import { AppUser, AppUserRole } from '../../types/greenhouse';
+import {
+  APP_MODULES_CONFIG,
+  AppModuleId,
+  AppUser,
+  AppUserRole,
+  DEFAULT_PRODUCTION_MODULES,
+} from '../../types/greenhouse';
 import { AromaFlowersLogo } from '../common/AromaFlowersLogo';
 import {
   exportAllAdminRecordsExcel,
@@ -58,6 +64,10 @@ export const AdminRoleView: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<AppUserRole>('produccion');
+  const [accessMode, setAccessMode] = useState<
+    'full' | 'only_bitacora' | 'only_ventas' | 'only_produccion' | 'custom'
+  >('only_bitacora');
+  const [selectedModules, setSelectedModules] = useState<AppModuleId[]>(['bitacora']);
   const [jobTitle, setJobTitle] = useState('');
   const [department, setDepartment] = useState('');
   const [active, setActive] = useState(true);
@@ -100,12 +110,46 @@ export const AdminRoleView: React.FC = () => {
     };
   }, [dailyProductions, aromaProducts, appUsers, payrollEmployees, payrollWeeks, employeeAdjustments, suppliers, supplierPayments, today]);
 
+  const applyAccessPreset = (
+    preset: 'full' | 'only_bitacora' | 'only_ventas' | 'only_produccion' | 'custom'
+  ) => {
+    setAccessMode(preset);
+    if (preset === 'full') {
+      setRole('admin');
+      setSelectedModules([]);
+    } else if (preset === 'only_bitacora') {
+      setRole('produccion');
+      setSelectedModules(['bitacora']);
+    } else if (preset === 'only_ventas') {
+      setRole('produccion');
+      setSelectedModules(['ventas_operacion']);
+    } else if (preset === 'only_produccion') {
+      setRole('produccion');
+      setSelectedModules(['produccion_dia']);
+    } else {
+      setRole('produccion');
+      if (selectedModules.length === 0) {
+        setSelectedModules([...DEFAULT_PRODUCTION_MODULES]);
+      }
+    }
+  };
+
+  const toggleModulePermission = (modId: AppModuleId) => {
+    setAccessMode('custom');
+    setRole('produccion');
+    setSelectedModules((prev) =>
+      prev.includes(modId) ? prev.filter((id) => id !== modId) : [...prev, modId]
+    );
+  };
+
   const resetForm = () => {
     setEditingUserId(null);
     setFullName('');
     setUsername('');
     setPassword('');
     setRole('produccion');
+    setAccessMode('only_bitacora');
+    setSelectedModules(['bitacora']);
     setJobTitle('');
     setDepartment('');
     setActive(true);
@@ -117,6 +161,23 @@ export const AdminRoleView: React.FC = () => {
     setUsername(u.username);
     setPassword(u.password);
     setRole(u.role);
+    const mods = Array.isArray(u.allowedModules) ? u.allowedModules : [];
+    if (u.role === 'admin' && mods.length === 0) {
+      setAccessMode('full');
+      setSelectedModules([]);
+    } else if (mods.length === 1 && mods[0] === 'bitacora') {
+      setAccessMode('only_bitacora');
+      setSelectedModules(['bitacora']);
+    } else if (mods.length === 1 && mods[0] === 'ventas_operacion') {
+      setAccessMode('only_ventas');
+      setSelectedModules(['ventas_operacion']);
+    } else if (mods.length === 1 && mods[0] === 'produccion_dia') {
+      setAccessMode('only_produccion');
+      setSelectedModules(['produccion_dia']);
+    } else {
+      setAccessMode('custom');
+      setSelectedModules(mods.length > 0 ? mods : [...DEFAULT_PRODUCTION_MODULES]);
+    }
     setJobTitle(u.jobTitle || '');
     setDepartment(u.department || '');
     setActive(u.active !== false);
@@ -130,13 +191,23 @@ export const AdminRoleView: React.FC = () => {
     setErrorMsg(null);
     setFeedback(null);
 
+    if (accessMode !== 'full' && selectedModules.length === 0) {
+      setErrorMsg('Selecciona al menos un módulo permitido para este usuario.');
+      return;
+    }
+
+    const effectiveRole: AppUserRole = accessMode === 'full' ? 'admin' : 'produccion';
+    const effectiveAllowedModules: AppModuleId[] | undefined =
+      accessMode === 'full' ? undefined : selectedModules;
+
     setIsSavingUser(true);
     const res = await saveAppUser(
       {
         fullName,
         username,
         password,
-        role,
+        role: effectiveRole,
+        allowedModules: effectiveAllowedModules,
         jobTitle,
         department,
         active,
@@ -153,8 +224,8 @@ export const AdminRoleView: React.FC = () => {
     if (res.cloudSynced) {
       setFeedback(
         editingUserId
-          ? `Usuario "${username}" actualizado y guardado en Supabase.`
-          : `Usuario "${username}" creado (${role.toUpperCase()}) y guardado en Supabase.`
+          ? `Usuario "${username}" y sus permisos actualizados en Supabase.`
+          : `Usuario "${username}" creado con sus permisos y guardado en Supabase.`
       );
     } else {
       setErrorMsg(
@@ -522,16 +593,68 @@ export const AdminRoleView: React.FC = () => {
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-stone-700 mb-1">Rol Asignado</label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as AppUserRole)}
-              className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs sm:text-sm font-bold text-[#000000] bg-white focus:ring-2 focus:ring-[#5C1125]"
-            >
-              <option value="admin">Admin (Acceso a Admin + Producción + Perfil)</option>
-              <option value="produccion">Producción (Acceso a Producción + Perfil)</option>
-            </select>
+          {/* Permisos y Restricción de Acceso por Módulo */}
+          <div className="space-y-2.5 pt-1">
+            <label className="block text-xs font-bold text-stone-700">
+              Nivel de Acceso y Módulos Permitidos
+            </label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(
+                [
+                  { id: 'full', label: 'Acceso Total (Todos)' },
+                  { id: 'only_bitacora', label: 'Solo Bitácora' },
+                  { id: 'only_ventas', label: 'Solo Ventas / PdV' },
+                  { id: 'only_produccion', label: 'Solo Producción' },
+                  { id: 'custom', label: 'Personalizado' },
+                ] as const
+              ).map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => applyAccessPreset(preset.id)}
+                  className={`px-2.5 py-2 rounded-xl text-[11px] font-bold border text-left transition cursor-pointer ${
+                    accessMode === preset.id
+                      ? 'bg-[#5C1125] text-white border-[#5C1125]'
+                      : 'bg-[#FAF8F5] text-stone-700 border-stone-200 hover:border-[#C3A25D]'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            {accessMode === 'full' ? (
+              <p className="text-[11px] text-[#535B28] bg-[#f7f8f2] border border-[#dce4bf] rounded-xl px-3 py-2 font-medium">
+                Este usuario tendrá <strong>acceso completo</strong> a todos los módulos del sistema (Admin y Producción).
+              </p>
+            ) : (
+              <div className="p-3 rounded-xl bg-[#FAF8F5] border border-stone-200 space-y-2">
+                <p className="text-[11px] font-bold text-stone-600">
+                  Módulos autorizados ({selectedModules.length}):
+                </p>
+                <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                  {APP_MODULES_CONFIG.map((mod) => {
+                    const checked = selectedModules.includes(mod.id);
+                    return (
+                      <label
+                        key={mod.id}
+                        className="flex items-start gap-2 text-xs text-stone-700 cursor-pointer hover:text-[#000000]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleModulePermission(mod.id)}
+                          className="mt-0.5 rounded border-stone-300 text-[#5C1125] focus:ring-[#5C1125]"
+                        />
+                        <span className={checked ? 'font-bold text-[#000000]' : ''}>
+                          {mod.label}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -630,15 +753,15 @@ export const AdminRoleView: React.FC = () => {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-extrabold text-[#000000]">{u.fullName}</span>
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                            u.role === 'admin'
-                              ? 'bg-[#5C1125] text-white'
-                              : 'bg-[#535B28] text-white'
-                          }`}
-                        >
-                          {u.role === 'admin' ? 'Admin' : 'Producción'}
-                        </span>
+                        {u.role === 'admin' && (!u.allowedModules || u.allowedModules.length === 0) ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-[#5C1125] text-white">
+                            Acceso Total
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-[#535B28] text-white">
+                            Acceso Restringido
+                          </span>
+                        )}
                         {u.active === false && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-200 text-stone-600">
                             Inactivo
@@ -654,6 +777,24 @@ export const AdminRoleView: React.FC = () => {
                         Usuario: <strong className="text-stone-700">{u.username}</strong>
                         {u.jobTitle ? ` • ${u.jobTitle}` : ''}
                       </p>
+                      {!(u.role === 'admin' && (!u.allowedModules || u.allowedModules.length === 0)) && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {(u.allowedModules && u.allowedModules.length > 0
+                            ? u.allowedModules
+                            : DEFAULT_PRODUCTION_MODULES
+                          ).map((modId) => {
+                            const cfg = APP_MODULES_CONFIG.find((m) => m.id === modId);
+                            return (
+                              <span
+                                key={modId}
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[#FAF8F5] text-stone-700 border border-stone-200"
+                              >
+                                {cfg?.shortLabel || modId}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
 

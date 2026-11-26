@@ -48,53 +48,9 @@ export const RoleSelector: React.FC = () => {
     }
   };
 
-  const userInitials = (currentUser?.fullName || 'AF')
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0].toUpperCase())
-    .join('');
-
   return (
     <div className="min-h-screen w-full bg-[#FAF8F5] flex flex-col items-center justify-center p-4 sm:p-6 lg:p-10 select-none">
       <div className="w-full max-w-5xl flex flex-col items-center">
-        {/* Top authenticated user session bar */}
-        {currentUser && (
-          <div className="w-full max-w-3xl mb-5 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-2xl bg-white border border-stone-200 shadow-xs">
-            <div className="flex items-center gap-3 min-w-0">
-              {currentUser.avatarUrl ? (
-                <img
-                  src={currentUser.avatarUrl}
-                  alt={currentUser.fullName}
-                  className="w-10 h-10 rounded-full object-cover border border-[#C3A25D]"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-[#5C1125] text-[#C3A25D] flex items-center justify-center font-extrabold text-sm border border-[#C3A25D]/60 shrink-0">
-                  {userInitials}
-                </div>
-              )}
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-[#000000] truncate">{currentUser.fullName}</p>
-                <div className="flex items-center gap-2 text-[11px] text-stone-500">
-                  <span className="font-semibold text-[#535B28]">@{currentUser.username}</span>
-                  <span>&bull;</span>
-                  <span className="px-2 py-0.5 rounded bg-[#fbf2f4] text-[#5C1125] font-bold uppercase text-[10px]">
-                    {currentUser.role === 'admin' ? 'Administrador (Acceso Total)' : 'Producción'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={logout}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-[#5C1125] bg-[#FAF8F5] hover:bg-[#fbf2f4] border border-stone-200 hover:border-[#ebccd4] transition cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Cerrar Sesión</span>
-            </button>
-          </div>
-        )}
 
         {/*
           LOGO OFICIAL AROMA FLOWER EN EL HOME ARRIBA DE LOS ROLES.
@@ -179,9 +135,21 @@ export const RoleSelector: React.FC = () => {
         </div>
 
         {/* Security & footer notice */}
-        <div className="mt-8 text-center text-[11px] text-stone-500 flex items-center justify-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-[#535B28]" />
-          <span>Aroma Flower &bull; Control de acceso por roles y sincronización en la nube</span>
+        <div className="mt-8 text-center text-[11px] text-stone-500 flex flex-wrap items-center justify-center gap-3">
+          <span className="inline-flex items-center gap-1.5">
+            <ShieldCheck className="w-4 h-4 text-[#535B28]" />
+            <span>Aroma Flower &bull; Control de acceso por roles y sincronización en la nube</span>
+          </span>
+          {currentUser && (
+            <button
+              type="button"
+              onClick={logout}
+              className="inline-flex items-center gap-1 text-[11px] font-bold text-[#5C1125] hover:underline cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Cerrar Sesión</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

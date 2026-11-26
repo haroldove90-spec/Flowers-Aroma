@@ -16,6 +16,7 @@ import {
 } from '../../types/greenhouse';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import {
+  calculateReferenceDoseCost,
   formatMoneyMXN,
   getMinimumUnitCost,
   inferPresentation,
@@ -32,7 +33,7 @@ export const AgrochemicalsCatalogPanel: React.FC<AgrochemicalsCatalogPanelProps>
   isOpen,
   onClose,
 }) => {
-  const { supplyItems, supplyPurchases, saveSupplyItem, activeRole, setActiveView } =
+  const { supplyItems, supplyPurchases, saveSupplyItem, canAccessModule, setActiveView } =
     useGreenhouse();
 
   const [search, setSearch] = useState('');
@@ -173,7 +174,7 @@ export const AgrochemicalsCatalogPanel: React.FC<AgrochemicalsCatalogPanelProps>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {activeRole === 'admin' && (
+            {canAccessModule('admin_insumos') && (
               <button
                 type="button"
                 onClick={() => {
@@ -364,10 +365,10 @@ export const AgrochemicalsCatalogPanel: React.FC<AgrochemicalsCatalogPanelProps>
                   <thead>
                     <tr className="bg-[#FAF8F5] border-b border-stone-200 text-xs font-bold text-stone-600">
                       <th className="py-2.5 px-4">Producto</th>
+                      <th className="py-2.5 px-3 min-w-[180px]">Objetivo</th>
                       <th className="py-2.5 px-3">Presentación</th>
-                      <th className="py-2.5 px-3">Unidad base</th>
                       <th className="py-2.5 px-3 text-right">Costo presentación</th>
-                      <th className="py-2.5 px-3 text-right">Costo unidad mínima</th>
+                      <th className="py-2.5 px-3 text-right">Costo de la dosis</th>
                       <th className="py-2.5 px-4 text-right">Editar</th>
                     </tr>
                   </thead>
@@ -376,27 +377,41 @@ export const AgrochemicalsCatalogPanel: React.FC<AgrochemicalsCatalogPanelProps>
                       const pres = inferPresentation(item);
                       const eff = resolveEffectivePurchaseCost(item, supplyPurchases);
                       const min = getMinimumUnitCost(eff.unitCost, eff.unit, pres);
+                      const refDose = calculateReferenceDoseCost(item, supplyPurchases);
                       return (
                         <tr key={item.id} className="hover:bg-[#FAF8F5]/70 transition-colors">
                           <td className="py-2.5 px-4">
                             <div className="font-bold text-[#000000]">{item.name}</div>
-                            {item.purpose && (
-                              <div className="text-xs text-stone-500 line-clamp-1">
-                                {item.purpose}
+                            {item.recommendedDose && (
+                              <div className="text-[11px] text-stone-500">
+                                Dosis ref: {item.recommendedDose}
                               </div>
                             )}
                           </td>
-                          <td className="py-2.5 px-3 text-xs font-medium text-stone-700">
-                            {pres === 'polvo' ? 'Polvo' : 'Líquido'}
+                          <td className="py-2.5 px-3 text-xs text-stone-700">
+                            {item.purpose || <span className="text-stone-400">Sin objetivo registrado</span>}
                           </td>
-                          <td className="py-2.5 px-3 text-xs font-semibold text-stone-700">
-                            {eff.unit}
+                          <td className="py-2.5 px-3 text-xs font-medium text-stone-700 whitespace-nowrap">
+                            {pres === 'polvo' ? 'Polvo' : 'Líquido'} ({eff.unit})
                           </td>
-                          <td className="py-2.5 px-3 text-right font-semibold text-[#000000] tabular-nums">
+                          <td className="py-2.5 px-3 text-right font-semibold text-[#000000] tabular-nums whitespace-nowrap">
                             {formatMoneyMXN(eff.unitCost)} / {eff.unit}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-bold text-[#535B28] tabular-nums">
-                            {formatMoneyMXN(min.costPerMinUnit)} / {min.minUnit}
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                            {refDose ? (
+                              <div>
+                                <div className="font-extrabold text-[#535B28] tabular-nums">
+                                  {formatMoneyMXN(refDose.cost)}
+                                </div>
+                                <div className="text-[11px] text-stone-500 tabular-nums">
+                                  ({refDose.doseLabel} · {formatMoneyMXN(min.costPerMinUnit)}/{min.minUnit})
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="font-bold text-[#535B28] tabular-nums">
+                                {formatMoneyMXN(min.costPerMinUnit)} / {min.minUnit}
+                              </div>
+                            )}
                           </td>
                           <td className="py-2.5 px-4 text-right">
                             <button

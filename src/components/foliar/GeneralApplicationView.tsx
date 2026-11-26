@@ -27,7 +27,6 @@ import {
   getMinimumUnitCost,
   getTodayLocalISO,
   inferPresentation,
-  normalizeFoliarUnit,
   resolveEffectivePurchaseCost,
   round2,
 } from '../../utils/foliarCalculations';
@@ -424,11 +423,11 @@ export const GeneralApplicationView: React.FC = () => {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-stone-200 text-xs font-bold text-stone-600 bg-white">
-                    <th className="py-3 pl-6 pr-3 w-[270px]">Producto</th>
-                    <th className="py-3 px-3 min-w-[190px]">Objetivo</th>
-                    <th className="py-3 px-3 w-[125px] text-right">Dosis</th>
-                    <th className="py-3 px-3 w-[105px]">Unidad</th>
-                    <th className="py-3 px-3 w-[170px] text-right">Costo calculado</th>
+                    <th className="py-3 pl-6 pr-3 w-[260px]">Producto</th>
+                    <th className="py-3 px-3 min-w-[200px]">Objetivo (función del producto)</th>
+                    <th className="py-3 px-3 w-[120px] text-right">Dosis</th>
+                    <th className="py-3 px-3 w-[100px]">Unidad</th>
+                    <th className="py-3 px-3 w-[175px] text-right">Costo de la dosis</th>
                     <th className="py-3 pl-3 pr-6 w-[76px] text-right">Acción</th>
                   </tr>
                 </thead>
@@ -650,7 +649,7 @@ export const GeneralApplicationView: React.FC = () => {
 
                     <div>
                       <label className="block text-[11px] font-semibold text-stone-500 mb-1">
-                        Costo
+                        Costo de la dosis
                       </label>
                       <div className="h-11 px-2.5 rounded-xl bg-[#FAF8F5] border border-stone-200 flex items-center justify-end text-sm font-extrabold text-[#000000] tabular-nums">
                         {formatMoneyMXN(row.calculatedCost)}
@@ -763,18 +762,41 @@ export const GeneralApplicationView: React.FC = () => {
                       {rec.applicationDate}
                     </td>
                     <td className="py-3 px-3 text-xs text-stone-600">
-                      <div className="flex flex-wrap gap-x-3 gap-y-1">
+                      <div className="space-y-1.5">
                         {rec.units.map((u) => (
-                          <span key={u.unitId} className="tabular-nums">
-                            <strong className="text-stone-800">
-                              {u.unitName.replace('Unidad de Producción ', '')}
-                            </strong>
-                            : {u.rows.length} prod. ({formatMoneyMXN(u.unitTotalCost)})
-                          </span>
+                          <div key={u.unitId} className="bg-[#FAF8F5] rounded-lg px-2.5 py-1.5 border border-stone-100">
+                            <div className="flex items-center justify-between gap-2">
+                              <strong className="text-stone-800">
+                                {u.unitName.replace('Unidad de Producción ', '')} ({u.waterLiters} L)
+                              </strong>
+                              <span className="font-bold text-[#5C1125] tabular-nums">
+                                {formatMoneyMXN(u.unitTotalCost)}
+                              </span>
+                            </div>
+                            {u.rows.length > 0 && (
+                              <div className="mt-1 space-y-0.5">
+                                {u.rows.map((r) => (
+                                  <div
+                                    key={r.id}
+                                    className="flex flex-wrap items-baseline justify-between gap-x-2 text-[11px] text-stone-600"
+                                  >
+                                    <span>
+                                      <span className="font-semibold text-stone-800">{r.productName || 'Producto'}</span>
+                                      {' '}({r.dose} {r.unit})
+                                      {r.objective ? ` · Obj: ${r.objective}` : ''}
+                                    </span>
+                                    <span className="font-bold text-[#535B28] tabular-nums">
+                                      {formatMoneyMXN(r.calculatedCost)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         ))}
                       </div>
                       {rec.notes && (
-                        <div className="text-[11px] text-stone-400 mt-0.5">{rec.notes}</div>
+                        <div className="text-[11px] text-stone-400 mt-1">{rec.notes}</div>
                       )}
                     </td>
                     <td className="py-3 px-3 text-right font-semibold text-stone-700 tabular-nums whitespace-nowrap">

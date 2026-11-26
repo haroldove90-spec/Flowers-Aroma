@@ -38,6 +38,10 @@ import {
   BitacoraEntry,
   FoliarGeneralApplication,
   FoliarParchoneoEntry,
+  IrrigationApplication,
+  AppModuleId,
+  APP_MODULES_CONFIG,
+  DEFAULT_PRODUCTION_MODULES,
   ROLES,
 } from '../types/greenhouse';
 import {
@@ -112,6 +116,8 @@ import {
   mapFoliarGeneralToDb,
   mapFoliarParchoneoFromDb,
   mapFoliarParchoneoToDb,
+  mapIrrigationApplicationFromDb,
+  mapIrrigationApplicationToDb,
   mapHarvestToDb,
   mapInventoryToDb,
   mapIrrigationToDb,
@@ -188,6 +194,10 @@ interface GreenhouseContextType {
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
   canAccessRole: (role: UserRole) => boolean;
+  hasFullAccess: (user?: AppUser | null) => boolean;
+  getAllowedModulesForUser: (user?: AppUser | null) => AppModuleId[];
+  canAccessModule: (moduleId: string) => boolean;
+  getDefaultAllowedView: (user?: AppUser | null) => string;
   saveAppUser: (
     userInput: Omit<AppUser, 'id' | 'createdAt' | 'updatedAt'>,
     existingId?: string
@@ -393,6 +403,14 @@ interface GreenhouseContextType {
     existingId?: string
   ) => Promise<{ ok: boolean; entry?: FoliarParchoneoEntry; cloudSynced?: boolean; cloudError?: string }>;
   deleteFoliarParchoneo: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
+
+  // Apartado de Riego (Aspersión / Regadera / Pasillo)
+  irrigationApplications: IrrigationApplication[];
+  saveIrrigationApplication: (
+    input: Omit<IrrigationApplication, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ) => Promise<{ ok: boolean; entry?: IrrigationApplication; cloudSynced?: boolean; cloudError?: string }>;
+  deleteIrrigationApplication: (id: string) => Promise<{ ok: boolean; cloudSynced?: boolean }>;
 
   refreshFromSupabase: () => Promise<boolean>;
 
@@ -757,6 +775,20 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return [];
   });
 
+  // Apartado de Riego (Aspersión / Regadera / Pasillo)
+  const [irrigationApplications, setIrrigationApplications] = useState<IrrigationApplication[]>(() => {
+    const local = localStorage.getItem(`${STORAGE_KEY_PREFIX}irrigation_applications`);
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+
   // Inventario General Único (Consolidado Producción - Cargas de Camioneta - Remisiones Directas)
   const generalInventory = useMemo<GeneralInventoryRow[]>(() => {
     const map = new Map<string, GeneralInventoryRow>();
@@ -961,6 +993,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'bitacora_entries',
       'foliar_general_applications',
       'foliar_parchoneos',
+      'irrigation_applications',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -1018,6 +1051,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'bitacora_entries',
       'foliar_general_applications',
       'foliar_parchoneos',
+      'irrigation_applications',
     ]);
     if (onlyAromaFlowers && !ACTIVE_AROMA_TABLES.has(table)) {
       return { ok: true };
@@ -1161,6 +1195,13 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (snap.foliarParchoneos !== undefined && !pendingTables.has('foliar_parchoneos')) {
       setFoliarParchoneos(snap.foliarParchoneos);
       saveState('foliar_parchoneos', snap.foliarParchoneos);
+    }
+    if (
+      snap.irrigationApplications !== undefined &&
+      !pendingTables.has('irrigation_applications')
+    ) {
+      setIrrigationApplications(snap.irrigationApplications);
+      saveState('irrigation_applications', snap.irrigationApplications);
     }
     if (snap.modules) {
       setModules(snap.modules);
@@ -2431,18 +2472,74 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // ---------- Authentication, Permissions & User Profile Management ----------
+  const hasFullAccess = (user: AppUser | null | undefined = currentUser): boolean => {
+    if (!user) return false;
+    return (
+      user.role === 'admin' &&
+      (!Array.isArray(user.allowedModules) || user.allowedModules.length === 0)
+    );
+  };
+
+  const getAllowedModulesForUser = (
+    user: AppUser | null | undefined = currentUser
+  ): AppModuleId[] => {
+    if (!user) return [];
+    if (hasFullAccess(user)) {
+      return APP_MODULES_CONFIG.map((m) => m.id);
+    }
+    if (Array.isArray(user.allowedModules) && user.allowedModules.length > 0) {
+      return user.allowedModules;
+    }
+    return DEFAULT_PRODUCTION_MODULES;
+  };
+
+  const canAccessModule = (moduleId: string): boolean => {
+    if (!currentUser) return false;
+    if (moduleId === 'mi_perfil') return true;
+    if (hasFullAccess(currentUser)) return true;
+    return getAllowedModulesForUser(currentUser).includes(moduleId as AppModuleId);
+  };
+
+  const getDefaultAllowedView = (user: AppUser | null | undefined = currentUser): string => {
+    if (!user) return 'produccion_dia';
+    if (hasFullAccess(user)) return 'admin_panel';
+    const allowed = getAllowedModulesForUser(user);
+    return allowed[0] || 'mi_perfil';
+  };
+
   const canAccessRole = (role: UserRole): boolean => {
     if (!currentUser) return false;
     const cfg = ROLES.find((r) => r.id === role);
     if (!cfg || cfg.enabled === false) return false;
+    if (hasFullAccess(currentUser)) {
+      return role === 'admin' || role === 'produccion';
+    }
     if (currentUser.role === 'admin') {
       return role === 'admin' || role === 'produccion';
     }
     return role === 'produccion';
   };
 
+  // Auto-enter permitted module for restricted users (so Solo Bitácora / Solo Ventas never get stuck in RoleSelector)
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!hasFullAccess(currentUser)) {
+      const targetRole: UserRole = currentUser.role === 'admin' ? 'admin' : 'produccion';
+      if (!activeRole) {
+        setActiveRoleState(targetRole);
+      }
+      const allowed = getAllowedModulesForUser(currentUser);
+      if (activeView !== 'mi_perfil' && !allowed.includes(activeView as AppModuleId)) {
+        setActiveView(allowed[0] || 'mi_perfil');
+      }
+    }
+  }, [currentUser, activeRole, activeView]);
+
   const setActiveRole = (role: UserRole | null) => {
     if (role === null) {
+      if (currentUser && !hasFullAccess(currentUser)) {
+        return;
+      }
       setActiveRoleState(null);
       return;
     }
@@ -2509,8 +2606,14 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     setCurrentUserId(matchedUser.id);
     localStorage.setItem(`${STORAGE_KEY_PREFIX}session_user_id`, matchedUser.id);
-    setActiveRoleState(null);
-    setActiveView(matchedUser.role === 'admin' ? 'admin_panel' : 'produccion_dia');
+    const full = hasFullAccess(matchedUser);
+    if (full) {
+      setActiveRoleState(null);
+      setActiveView('admin_panel');
+    } else {
+      setActiveRoleState(matchedUser.role === 'admin' ? 'admin' : 'produccion');
+      setActiveView(getDefaultAllowedView(matchedUser));
+    }
     addAuditLog('Inicio de Sesión', `Usuario ${matchedUser.username} (${matchedUser.role}) ingresó al sistema`);
     return { ok: true };
   };
@@ -3583,6 +3686,76 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { ok: true, cloudSynced: res.ok };
   };
 
+  // ---------- Apartado de Riego (Aspersión / Regadera / Pasillo) ----------
+  const saveIrrigationApplication = async (
+    input: Omit<IrrigationApplication, 'id' | 'createdAt' | 'updatedAt'>,
+    existingId?: string
+  ): Promise<{
+    ok: boolean;
+    entry?: IrrigationApplication;
+    cloudSynced?: boolean;
+    cloudError?: string;
+  }> => {
+    const now = new Date().toISOString();
+    const existing = existingId
+      ? irrigationApplications.find((a) => a.id === existingId)
+      : undefined;
+
+    const entry: IrrigationApplication = {
+      id: existing?.id || `riego-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      applicationDate: input.applicationDate || new Date().toISOString().slice(0, 10),
+      moduleName: input.moduleName || 'Santa Cruz Módulo 1',
+      applicationMethod: input.applicationMethod || 'aspersion',
+      waterLiters: Math.max(0, Number(input.waterLiters || 0)),
+      rows: Array.isArray(input.rows) ? input.rows : [],
+      totalCost: Math.max(0, Number(input.totalCost || 0)),
+      notes: input.notes?.trim() || undefined,
+      createdBy: input.createdBy || existing?.createdBy || currentUser?.fullName || '',
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    setIrrigationApplications((prev) => {
+      const exists = prev.some((a) => a.id === entry.id);
+      const updated = exists
+        ? prev.map((a) => (a.id === entry.id ? entry : a))
+        : [entry, ...prev];
+      saveState('irrigation_applications', updated);
+      return updated;
+    });
+
+    const cloudRes = await pushUpsertToSupabase(
+      'irrigation_applications',
+      mapIrrigationApplicationToDb(entry)
+    );
+    if (cloudRes.ok && cloudRes.savedRow) {
+      const synced = mapIrrigationApplicationFromDb(cloudRes.savedRow);
+      setIrrigationApplications((prev) => {
+        const updated = prev.map((a) => (a.id === entry.id ? synced : a));
+        saveState('irrigation_applications', updated);
+        return updated;
+      });
+    }
+    addAuditLog(
+      'Aplicación de Riego',
+      `${entry.moduleName} • ${entry.applicationMethod.toUpperCase()} • ${entry.rows.length} prod. • $${entry.totalCost.toFixed(2)}`
+    );
+    return { ok: true, entry, cloudSynced: cloudRes.ok, cloudError: cloudRes.error };
+  };
+
+  const deleteIrrigationApplication = async (
+    id: string
+  ): Promise<{ ok: boolean; cloudSynced?: boolean }> => {
+    setIrrigationApplications((prev) => {
+      const updated = prev.filter((a) => a.id !== id);
+      saveState('irrigation_applications', updated);
+      return updated;
+    });
+    const res = await pushDeleteToSupabase('irrigation_applications', id);
+    addAuditLog('Aplicación de Riego', `Registro de riego eliminado (${id})`);
+    return { ok: true, cloudSynced: res.ok };
+  };
+
   // Demo data wipe function (as requested in the prompt)
   const clearAllDemoData = () => {
     setModules([]);
@@ -3615,6 +3788,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setBitacoraEntries([]);
     setFoliarGeneralApplications([]);
     setFoliarParchoneos([]);
+    setIrrigationApplications([]);
 
     localStorage.setItem(`${STORAGE_KEY_PREFIX}demo_cleared`, 'true');
     localStorage.setItem(`${STORAGE_KEY_PREFIX}never_show_demo`, 'true');
@@ -3653,6 +3827,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'bitacora_entries',
       'foliar_general_applications',
       'foliar_parchoneos',
+      'irrigation_applications',
     ];
     keys.forEach((k) => localStorage.removeItem(`${STORAGE_KEY_PREFIX}${k}`));
 
@@ -3765,6 +3940,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           bitacoraEntries,
           foliarGeneralApplications,
           foliarParchoneos,
+          irrigationApplications,
           modules,
           tasks,
           irrigation,
@@ -4407,7 +4583,26 @@ CREATE TABLE IF NOT EXISTS foliar_parchoneos (
 
 CREATE INDEX IF NOT EXISTS idx_foliar_parchoneos_date ON foliar_parchoneos (application_date DESC, module_name);
 
--- 22. Habilitar RLS y políticas de acceso para las 21 tablas activas de Aroma Flower
+-- 22. Permisos por módulo en Usuarios + Apartado de Riego (Aspersión / Regadera / Pasillo)
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS allowed_modules JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE TABLE IF NOT EXISTS irrigation_applications (
+    id TEXT PRIMARY KEY,
+    application_date TEXT NOT NULL,
+    module_name TEXT NOT NULL DEFAULT 'Santa Cruz Módulo 1',
+    application_method TEXT NOT NULL DEFAULT 'aspersion' CHECK (application_method IN ('aspersion', 'regadera', 'pasillo')),
+    water_liters NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_cost NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    notes TEXT DEFAULT '',
+    created_by TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_irrigation_apps_date ON irrigation_applications (application_date DESC, module_name);
+
+-- 23. Habilitar RLS y políticas de acceso para las 22 tablas activas de Aroma Flower
 DO $$
 DECLARE
   t TEXT;
@@ -4432,7 +4627,8 @@ DECLARE
     'greenhouse_applications',
     'bitacora_entries',
     'foliar_general_applications',
-    'foliar_parchoneos'
+    'foliar_parchoneos',
+    'irrigation_applications'
   ];
 BEGIN
   FOREACH t IN ARRAY tbls LOOP
@@ -4780,12 +4976,13 @@ TRUNCATE TABLE
   greenhouse_applications,
   bitacora_entries,
   foliar_general_applications,
-  foliar_parchoneos
+  foliar_parchoneos,
+  irrigation_applications
 CASCADE;
 UPDATE payroll_employees SET loan_balance = 0;
 UPDATE sales_clients SET balance = 0;
 COMMIT;
--- Las 21 tablas activas permanecen listas para operación real.
+-- Las 22 tablas activas permanecen listas para operación real.
 `;
     }
 
@@ -4856,6 +5053,7 @@ COMMIT;
       bitacoraEntries,
       foliarGeneralApplications,
       foliarParchoneos,
+      irrigationApplications,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -4898,6 +5096,7 @@ COMMIT;
       if (data.bitacoraEntries) setBitacoraEntries(data.bitacoraEntries);
       if (data.foliarGeneralApplications) setFoliarGeneralApplications(data.foliarGeneralApplications);
       if (data.foliarParchoneos) setFoliarParchoneos(data.foliarParchoneos);
+      if (data.irrigationApplications) setIrrigationApplications(data.irrigationApplications);
 
       setDemoDataCleared(false);
       addAuditLog('Restauración de Respaldo', 'Base de datos restaurada desde archivo JSON');
@@ -4923,6 +5122,10 @@ COMMIT;
         login,
         logout,
         canAccessRole,
+        hasFullAccess,
+        getAllowedModulesForUser,
+        canAccessModule,
+        getDefaultAllowedView,
         saveAppUser,
         updateCurrentProfile,
         deleteAppUser,
@@ -5012,6 +5215,9 @@ COMMIT;
         foliarParchoneos,
         saveFoliarParchoneo,
         deleteFoliarParchoneo,
+        irrigationApplications,
+        saveIrrigationApplication,
+        deleteIrrigationApplication,
         refreshFromSupabase,
         addModule,
         updateModule,

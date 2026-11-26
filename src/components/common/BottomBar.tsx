@@ -35,7 +35,18 @@ interface BottomNavItem {
 }
 
 export const BottomBar: React.FC = () => {
-  const { currentUser, activeRole, setActiveRole, activeView, setActiveView, canAccessRole } = useGreenhouse();
+  const {
+    currentUser,
+    activeRole,
+    setActiveRole,
+    activeView,
+    setActiveView,
+    canAccessRole,
+    canAccessModule,
+    hasFullAccess,
+  } = useGreenhouse();
+
+  const isFullAdmin = hasFullAccess(currentUser);
 
   const handleTap = (item: BottomNavItem) => {
     if (item.switchRole && canAccessRole(item.switchRole)) {
@@ -44,8 +55,23 @@ export const BottomBar: React.FC = () => {
     setActiveView(item.id);
   };
 
-  // Bottom navigation items according to current role
+  // Bottom navigation items according to current role & user permissions
   const getBottomItems = (): BottomNavItem[] => {
+    if (!isFullAdmin) {
+      const restrictedPool: BottomNavItem[] = [
+        { id: 'produccion_dia', label: 'Prod.', icon: PackageCheck },
+        { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
+        { id: 'aplicaciones_foliares', label: 'Foliares', icon: SprayCan },
+        { id: 'ventas_operacion', label: 'Ventas', icon: Truck },
+        { id: 'admin_insumos', label: 'Insumos', icon: Sprout },
+        { id: 'admin_pagos', label: 'Nómina', icon: Wallet },
+        { id: 'admin_proveedores', label: 'Provee.', icon: Building2 },
+        { id: 'admin_empleados', label: 'Personal', icon: Users },
+        { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
+      ];
+      return restrictedPool.filter((i) => canAccessModule(i.id)).slice(0, 6);
+    }
+
     switch (activeRole) {
       case 'admin':
         return [
@@ -63,7 +89,7 @@ export const BottomBar: React.FC = () => {
           { id: 'aplicaciones_foliares', label: 'Foliares', icon: SprayCan },
           { id: 'ventas_operacion', label: 'Remisiones', icon: Truck },
           { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
-          ...(currentUser?.role === 'admin'
+          ...(isFullAdmin
             ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]
             : []),
         ];

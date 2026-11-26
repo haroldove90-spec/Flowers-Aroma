@@ -811,7 +811,7 @@ export const WorkerPayrollWorkbench: React.FC<WorkerPayrollWorkbenchProps> = ({
               >
                 {rows.map((r) => (
                   <option key={r.employeeId} value={r.employeeId}>
-                    {r.employeeName} — {fmtMoney(r.totalNetPay)} {r.paid ? '(Pagado)' : ''}
+                    {r.employeeName}
                   </option>
                 ))}
               </select>
@@ -854,7 +854,7 @@ export const WorkerPayrollWorkbench: React.FC<WorkerPayrollWorkbenchProps> = ({
                   No se encontraron trabajadores.
                 </div>
               ) : (
-                filteredWorkerList.map(({ row, meta }) => {
+                filteredWorkerList.map(({ row }) => {
                   const isActive = row.employeeId === activeRow?.employeeId;
                   return (
                     <button
@@ -867,41 +867,18 @@ export const WorkerPayrollWorkbench: React.FC<WorkerPayrollWorkbenchProps> = ({
                           : 'bg-white hover:bg-[#FAF8F5] text-[#000000]'
                       }`}
                     >
-                      <div className="min-w-0">
-                        <p
-                          className={`text-sm font-extrabold truncate ${
-                            isActive ? 'text-white' : 'text-[#000000]'
-                          }`}
-                        >
-                          {row.employeeName}
-                        </p>
-                        <p
-                          className={`text-[11px] truncate mt-0.5 ${
-                            isActive ? 'text-[#d6be83]' : 'text-stone-500'
-                          }`}
-                        >
-                          {row.daysWorked}d · {row.paid ? 'Pagado' : 'Pendiente'}
-                          {meta?.jobTitle ? ` · ${meta.jobTitle}` : ''}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span
-                          className={`block text-sm font-black tabular-nums ${
-                            isActive ? 'text-[#C3A25D]' : 'text-[#5C1125]'
-                          }`}
-                        >
-                          {fmtMoney(row.totalNetPay)}
-                        </span>
-                        {row.loanRemainingBalance > 0 && (
-                          <span
-                            className={`block text-[10px] tabular-nums ${
-                              isActive ? 'text-stone-200' : 'text-amber-700'
-                            }`}
-                          >
-                            Prést: {fmtMoney(row.loanRemainingBalance)}
-                          </span>
-                        )}
-                      </div>
+                      <p
+                        className={`text-sm font-extrabold truncate ${
+                          isActive ? 'text-white' : 'text-[#000000]'
+                        }`}
+                      >
+                        {row.employeeName}
+                      </p>
+                      <ChevronRight
+                        className={`w-4 h-4 shrink-0 ${
+                          isActive ? 'text-[#C3A25D]' : 'text-stone-300'
+                        }`}
+                      />
                     </button>
                   );
                 })

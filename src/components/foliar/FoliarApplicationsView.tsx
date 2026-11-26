@@ -21,7 +21,7 @@ interface FoliarApplicationsViewProps {
 export const FoliarApplicationsView: React.FC<FoliarApplicationsViewProps> = ({
   embedded = false,
 }) => {
-  const { supplyItems, setActiveView } = useGreenhouse();
+  const { supplyItems, setActiveView, canAccessModule, foliarParchoneos } = useGreenhouse();
   const [subView, setSubView] = useState<FoliarSubView>('general');
   const [showCatalog, setShowCatalog] = useState(false);
 
@@ -46,7 +46,7 @@ export const FoliarApplicationsView: React.FC<FoliarApplicationsViewProps> = ({
                 Aplicaciones Foliares
               </h1>
               <p className="text-sm text-stone-600 mt-0.5">
-                Mezclas por Unidad de Producción y cálculo de Parchoneo por regla de tres vinculados al costo real en Compras.
+                Selecciona <strong>Aplicación General</strong> o <strong>Parchoneo</strong> para capturar productos, objetivo y costo de la dosis.
               </p>
             </div>
           </div>
@@ -61,7 +61,7 @@ export const FoliarApplicationsView: React.FC<FoliarApplicationsViewProps> = ({
               <span>Catálogo de Agroquímicos ({agrochemicalCount})</span>
             </button>
 
-            {embedded && (
+            {embedded && canAccessModule('aplicaciones_foliares') && (
               <button
                 type="button"
                 onClick={() => setActiveView('aplicaciones_foliares')}
@@ -75,29 +75,42 @@ export const FoliarApplicationsView: React.FC<FoliarApplicationsViewProps> = ({
           </div>
         </div>
 
-        {/* Two Internal Sub-Views Switcher */}
+        {/* Two Prominent Mode Selector Cards: Aplicación General & Parchoneo */}
         <div
           role="tablist"
-          aria-label="Sub-vistas de Aplicaciones Foliares"
-          className="mt-5 pt-4 border-t border-stone-100 flex flex-wrap items-center gap-2"
+          aria-label="Modalidad de aplicación foliar"
+          className="mt-5 pt-4 border-t border-stone-100 grid grid-cols-1 sm:grid-cols-2 gap-3"
         >
           <button
             role="tab"
             type="button"
             aria-selected={subView === 'general'}
             onClick={() => setSubView('general')}
-            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
               subView === 'general'
-                ? 'bg-[#5C1125] text-white shadow-xs'
-                : 'bg-[#FAF8F5] text-stone-700 hover:bg-stone-100 hover:text-[#000000]'
+                ? 'bg-[#5C1125] border-[#5C1125] text-white shadow-xs'
+                : 'bg-[#FAF8F5] border-stone-200 text-[#000000] hover:border-[#C3A25D]'
             }`}
           >
-            <Layers
-              className={`w-4 h-4 shrink-0 ${
-                subView === 'general' ? 'text-[#C3A25D]' : 'text-stone-500'
+            <div
+              className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                subView === 'general'
+                  ? 'bg-white/15 text-[#C3A25D]'
+                  : 'bg-white border border-stone-200 text-[#5C1125]'
               }`}
-            />
-            <span>Aplicación General</span>
+            >
+              <Layers className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-extrabold">Aplicación General</div>
+              <p
+                className={`text-xs mt-0.5 ${
+                  subView === 'general' ? 'text-[#e5d2a4]' : 'text-stone-500'
+                }`}
+              >
+                Mezclas por Unidad de Producción (Santa Cruz, Saúl, Tlapisaco), objetivo y costo de la dosis.
+              </p>
+            </div>
           </button>
 
           <button
@@ -105,18 +118,44 @@ export const FoliarApplicationsView: React.FC<FoliarApplicationsViewProps> = ({
             type="button"
             aria-selected={subView === 'parchoneo'}
             onClick={() => setSubView('parchoneo')}
-            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
               subView === 'parchoneo'
-                ? 'bg-[#5C1125] text-white shadow-xs'
-                : 'bg-[#FAF8F5] text-stone-700 hover:bg-stone-100 hover:text-[#000000]'
+                ? 'bg-[#5C1125] border-[#5C1125] text-white shadow-xs'
+                : 'bg-[#FAF8F5] border-stone-200 text-[#000000] hover:border-[#C3A25D]'
             }`}
           >
-            <Calculator
-              className={`w-4 h-4 shrink-0 ${
-                subView === 'parchoneo' ? 'text-[#C3A25D]' : 'text-stone-500'
+            <div
+              className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                subView === 'parchoneo'
+                  ? 'bg-white/15 text-[#C3A25D]'
+                  : 'bg-white border border-stone-200 text-[#535B28]'
               }`}
-            />
-            <span>Parchoneo (Regla de Tres)</span>
+            >
+              <Calculator className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-extrabold">Parchoneo (Regla de Tres)</span>
+                {foliarParchoneos.length > 0 && (
+                  <span
+                    className={`text-[11px] font-bold px-2 py-0.5 rounded-md tabular-nums ${
+                      subView === 'parchoneo'
+                        ? 'bg-white/15 text-[#C3A25D]'
+                        : 'bg-white border border-stone-200 text-stone-600'
+                    }`}
+                  >
+                    {foliarParchoneos.length} reg.
+                  </span>
+                )}
+              </div>
+              <p
+                className={`text-xs mt-0.5 ${
+                  subView === 'parchoneo' ? 'text-[#e5d2a4]' : 'text-stone-500'
+                }`}
+              >
+                Aplicación localizada por módulo y variedad con cálculo automático de dosis y costo.
+              </p>
+            </div>
           </button>
         </div>
       </div>

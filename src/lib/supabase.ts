@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
   ActiveLoan,
+  AppModuleId,
   AppUser,
   AromaFlowerSheetEntry,
   AromaProduct,
@@ -38,6 +39,7 @@ import {
   BitacoraEntry,
   FoliarGeneralApplication,
   FoliarParchoneoEntry,
+  IrrigationApplication,
 } from '../types/greenhouse';
 
 export const DEFAULT_SUPABASE_URL =
@@ -126,6 +128,7 @@ export async function testSupabaseConnection(
       client.from('bitacora_entries').select('id').limit(1),
       client.from('foliar_general_applications').select('id').limit(1),
       client.from('foliar_parchoneos').select('id').limit(1),
+      client.from('irrigation_applications').select('id').limit(1),
     ]);
     const error = checks.find((c) => c.error)?.error;
     if (!error) {
@@ -656,6 +659,7 @@ export const mapAppUserToDb = (u: AppUser) => ({
   username: u.username,
   password: u.password,
   role: u.role,
+  allowed_modules: Array.isArray(u.allowedModules) ? u.allowedModules : [],
   avatar_url: u.avatarUrl || null,
   email: u.email || '',
   phone: u.phone || '',
@@ -673,6 +677,9 @@ export const mapAppUserFromDb = (r: any): AppUser => ({
   username: r.username || '',
   password: r.password || '',
   role: r.role === 'admin' ? 'admin' : 'produccion',
+  allowedModules: Array.isArray(r.allowed_modules) && r.allowed_modules.length > 0
+    ? (r.allowed_modules as AppModuleId[])
+    : undefined,
   avatarUrl: r.avatar_url || undefined,
   email: r.email || '',
   phone: r.phone || '',
@@ -1551,6 +1558,37 @@ export const mapFoliarParchoneoFromDb = (r: any): FoliarParchoneoEntry => ({
   updatedAt: r.updated_at || undefined,
 });
 
+export const mapIrrigationApplicationToDb = (a: IrrigationApplication) => ({
+  id: a.id,
+  application_date: a.applicationDate,
+  module_name: a.moduleName || 'Santa Cruz Módulo 1',
+  application_method: a.applicationMethod || 'aspersion',
+  water_liters: Number(a.waterLiters || 0),
+  rows: a.rows || [],
+  total_cost: Number(a.totalCost || 0),
+  notes: a.notes || '',
+  created_by: a.createdBy || '',
+  created_at: a.createdAt || '',
+  updated_at: new Date().toISOString(),
+});
+
+export const mapIrrigationApplicationFromDb = (r: any): IrrigationApplication => ({
+  id: String(r.id),
+  applicationDate: r.application_date || '',
+  moduleName: r.module_name || 'Santa Cruz Módulo 1',
+  applicationMethod:
+    r.application_method === 'regadera' || r.application_method === 'pasillo'
+      ? r.application_method
+      : 'aspersion',
+  waterLiters: Number(r.water_liters || 0),
+  rows: Array.isArray(r.rows) ? r.rows : [],
+  totalCost: Number(r.total_cost || 0),
+  notes: r.notes || undefined,
+  createdBy: r.created_by || undefined,
+  createdAt: r.created_at || '',
+  updatedAt: r.updated_at || undefined,
+});
+
 // ---------- Sync Helpers ----------
 
 export async function upsertRowsToSupabase(
@@ -1568,6 +1606,16 @@ export async function upsertRowsToSupabase(
     error.message?.toLowerCase().includes('presentation')
   ) {
     const stripped = rows.map(({ presentation: _p, ...rest }) => rest);
+    const retry = await client.from(table).upsert(stripped, { onConflict: 'id' });
+    if (!retry.error) return { ok: true };
+  }
+
+  if (
+    error.code === 'PGRST204' &&
+    table === 'app_users' &&
+    error.message?.toLowerCase().includes('allowed_modules')
+  ) {
+    const stripped = rows.map(({ allowed_modules: _m, ...rest }) => rest);
     const retry = await client.from(table).upsert(stripped, { onConflict: 'id' });
     if (!retry.error) return { ok: true };
   }
@@ -1626,6 +1674,26 @@ export async function upsertSingleRecordToSupabase(
       .maybeSingle();
     if (!retry.error) {
       return { ok: true, savedRow: { ...(retry.data || rest), presentation: payload.presentation } };
+    }
+  }
+
+  // Safe fallback if optional allowed_modules column has not been added to app_users yet
+  if (
+    error.code === 'PGRST204' &&
+    table === 'app_users' &&
+    error.message?.toLowerCase().includes('allowed_modules')
+  ) {
+    const { allowed_modules: _m, ...rest } = payload;
+    const retry = await client
+      .from(table)
+      .upsert(rest, { onConflict: 'id' })
+      .select()
+      .maybeSingle();
+    if (!retry.error) {
+      return {
+        ok: true,
+        savedRow: { ...(retry.data || rest), allowed_modules: payload.allowed_modules },
+      };
     }
   }
 
@@ -1719,6 +1787,7 @@ export interface RemoteSnapshot {
   bitacoraEntries?: BitacoraEntry[];
   foliarGeneralApplications?: FoliarGeneralApplication[];
   foliarParchoneos?: FoliarParchoneoEntry[];
+  irrigationApplications?: IrrigationApplication[];
   modules?: GreenhouseModule[];
   tasks?: CulturalTask[];
   irrigation?: IrrigationLog[];
@@ -1762,6 +1831,7 @@ export async function fetchAllFromSupabase(
     bitacoraRes,
     foliarGenRes,
     foliarParRes,
+    irrigAppRes,
   ] = await Promise.all([
     client.from('app_users').select('*'),
     client.from('app_products').select('*').order('sort_order', { ascending: true }),
@@ -1794,6 +1864,10 @@ export async function fetchAllFromSupabase(
       .from('foliar_parchoneos')
       .select('*')
       .order('application_date', { ascending: false }),
+    client
+      .from('irrigation_applications')
+      .select('*')
+      .order('application_date', { ascending: false }),
   ]);
 
   const isMissingTable = (err: any) =>
@@ -1824,6 +1898,7 @@ export async function fetchAllFromSupabase(
     bitacoraRes,
     foliarGenRes,
     foliarParRes,
+    irrigAppRes,
   ];
 
   const mappedBase = {
@@ -1853,6 +1928,10 @@ export async function fetchAllFromSupabase(
     foliarParchoneos:
       !foliarParRes.error && foliarParRes.data
         ? foliarParRes.data.map(mapFoliarParchoneoFromDb)
+        : undefined,
+    irrigationApplications:
+      !irrigAppRes.error && irrigAppRes.data
+        ? irrigAppRes.data.map(mapIrrigationApplicationFromDb)
         : undefined,
   };
 
@@ -1955,6 +2034,7 @@ export interface LocalStateSnapshot {
   bitacoraEntries: BitacoraEntry[];
   foliarGeneralApplications: FoliarGeneralApplication[];
   foliarParchoneos: FoliarParchoneoEntry[];
+  irrigationApplications: IrrigationApplication[];
   modules: GreenhouseModule[];
   tasks: CulturalTask[];
   irrigation: IrrigationLog[];
@@ -1999,6 +2079,7 @@ export async function pushAllLocalToSupabase(
     { table: 'bitacora_entries', rows: state.bitacoraEntries.map(mapBitacoraEntryToDb) },
     { table: 'foliar_general_applications', rows: state.foliarGeneralApplications.map(mapFoliarGeneralToDb) },
     { table: 'foliar_parchoneos', rows: state.foliarParchoneos.map(mapFoliarParchoneoToDb) },
+    { table: 'irrigation_applications', rows: state.irrigationApplications.map(mapIrrigationApplicationToDb) },
   ];
 
   const batches = onlyAromaFlowers

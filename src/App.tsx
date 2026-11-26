@@ -30,7 +30,16 @@ import { ProfileView } from './components/profile/ProfileView';
 import { ROLES } from './types/greenhouse';
 
 const MainAppLayout: React.FC = () => {
-  const { currentUser, activeRole, activeView, isOnline, canAccessRole } = useGreenhouse();
+  const {
+    currentUser,
+    activeRole,
+    activeView,
+    isOnline,
+    canAccessRole,
+    canAccessModule,
+    hasFullAccess,
+    getDefaultAllowedView,
+  } = useGreenhouse();
   const activeRoleConfig = ROLES.find((r) => r.id === activeRole);
 
   // 1. Require authenticated user via LoginView
@@ -38,73 +47,65 @@ const MainAppLayout: React.FC = () => {
     return <LoginView />;
   }
 
-  // 2. If no active role is selected or the role is disabled/unauthorized, show Role Selector
-  if (!activeRole || activeRoleConfig?.enabled === false || !canAccessRole(activeRole)) {
+  // 2. Show Role Selector ONLY for full-access users who haven't chosen a role yet
+  if (
+    hasFullAccess(currentUser) &&
+    (!activeRole || activeRoleConfig?.enabled === false || !canAccessRole(activeRole))
+  ) {
     return <RoleSelector />;
   }
 
-  // 3. Render current active role & module view
-  const renderRoleView = () => {
-    if (activeView === 'mi_perfil') {
-      return <ProfileView />;
-    }
+  // 3. Enforce per-module permission strictly for every view
+  const effectiveView = canAccessModule(activeView)
+    ? activeView
+    : getDefaultAllowedView(currentUser);
 
-    if (activeView === 'workflow') {
-      return <WorkflowView />;
+  const renderModuleById = (viewId: string) => {
+    switch (viewId) {
+      case 'mi_perfil':
+        return <ProfileView />;
+      case 'workflow':
+        return <WorkflowView />;
+      case 'admin_panel':
+        return <AdminRoleView />;
+      case 'admin_empleados':
+        return <EmployeesView />;
+      case 'admin_pagos':
+        return <PaymentsView />;
+      case 'admin_incidencias':
+        return <EmployeeIncidentsView />;
+      case 'admin_proveedores':
+        return <SuppliersView />;
+      case 'admin_insumos':
+        return <SuppliesAndAppsView />;
+      case 'admin_costos':
+        return <CostControlView />;
+      case 'admin_productos':
+        return <AdminProductsView />;
+      case 'produccion_dia':
+        return <DailyProductionView />;
+      case 'bitacora':
+        return <BitacoraView />;
+      case 'aplicaciones_foliares':
+        return <FoliarApplicationsView />;
+      case 'ventas_operacion':
+        return <SalesOperationsView />;
+      case 'resumen_ventas':
+        return <DailySalesView />;
+      default:
+        return null;
     }
+  };
+
+  // 4. Render current active role & authorized module view
+  const renderRoleView = () => {
+    const directView = renderModuleById(effectiveView);
+    if (directView) return directView;
 
     switch (activeRole) {
       case 'admin':
-        if (activeView === 'admin_empleados') {
-          return <EmployeesView />;
-        }
-        if (activeView === 'admin_pagos') {
-          return <PaymentsView />;
-        }
-        if (activeView === 'admin_incidencias') {
-          return <EmployeeIncidentsView />;
-        }
-        if (activeView === 'admin_proveedores') {
-          return <SuppliersView />;
-        }
-        if (activeView === 'admin_insumos') {
-          return <SuppliesAndAppsView />;
-        }
-        if (activeView === 'admin_costos') {
-          return <CostControlView />;
-        }
-        if (activeView === 'admin_productos') {
-          return <AdminProductsView />;
-        }
-        if (activeView === 'produccion_dia') {
-          return <DailyProductionView />;
-        }
-        if (activeView === 'bitacora') {
-          return <BitacoraView />;
-        }
-        if (activeView === 'aplicaciones_foliares') {
-          return <FoliarApplicationsView />;
-        }
-        if (activeView === 'ventas_operacion') {
-          return <SalesOperationsView />;
-        }
-        if (activeView === 'resumen_ventas') {
-          return <DailySalesView />;
-        }
         return <AdminRoleView />;
       case 'produccion':
-        if (activeView === 'bitacora') {
-          return <BitacoraView />;
-        }
-        if (activeView === 'aplicaciones_foliares') {
-          return <FoliarApplicationsView />;
-        }
-        if (activeView === 'ventas_operacion') {
-          return <SalesOperationsView />;
-        }
-        if (activeView === 'resumen_ventas') {
-          return <DailySalesView />;
-        }
         return <DailyProductionView />;
       case 'aroma_flowers':
         return <AromaFlowersRoleView />;
@@ -121,7 +122,7 @@ const MainAppLayout: React.FC = () => {
       case 'sistema':
         return <SystemView />;
       default:
-        return <DailyProductionView />;
+        return <ProfileView />;
     }
   };
 

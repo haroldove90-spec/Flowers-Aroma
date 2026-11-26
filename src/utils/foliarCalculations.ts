@@ -196,3 +196,27 @@ export function getTodayLocalISO(): string {
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/**
+ * Estima el costo de la dosis de referencia escrita en el catálogo
+ * (ej. "50 ml por 200L" o "250 g por 200L"). Si no incluye cantidad,
+ * devuelve null para mostrar el costo por unidad mínima.
+ */
+export function calculateReferenceDoseCost(
+  item: SupplyItem,
+  purchases: SupplyPurchase[]
+): { doseLabel: string; cost: number } | null {
+  const raw = (item.recommendedDose || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/(\d+(?:[.,]\d+)?)\s*(ml|l|lt|lts|g|gr|grs|kg|kgs)\b/i);
+  if (!match) return null;
+  const qty = parseFloat(match[1].replace(',', '.'));
+  if (!Number.isFinite(qty) || qty <= 0) return null;
+  const unit = normalizeFoliarUnit(match[2]);
+  const { cost } = calculateDoseCost(qty, unit, item, purchases);
+  return {
+    doseLabel: `${qty} ${unit}`,
+    cost,
+  };
+}
+

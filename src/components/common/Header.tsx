@@ -21,15 +21,19 @@ export const Header: React.FC = () => {
     setActiveRole,
     setActiveView,
     canAccessRole,
+    hasFullAccess,
+    getDefaultAllowedView,
     logout,
     isOnline,
     demoDataCleared,
   } = useGreenhouse();
 
+  const isFullAdmin = hasFullAccess(currentUser);
+
   const [showDataModal, setShowDataModal] = useState(false);
 
   const handleSwitchRole = (role: UserRole) => {
-    if (!canAccessRole(role)) return;
+    if (!isFullAdmin || !canAccessRole(role)) return;
     setActiveRole(role);
     if (role === 'admin') {
       setActiveView('admin_panel');
@@ -43,6 +47,10 @@ export const Header: React.FC = () => {
   };
 
   const handleHomeLogoClick = () => {
+    if (!isFullAdmin) {
+      setActiveView(getDefaultAllowedView(currentUser));
+      return;
+    }
     if (activeRole === 'admin') {
       setActiveView('admin_panel');
     } else if (activeRole === 'produccion') {
@@ -86,8 +94,8 @@ export const Header: React.FC = () => {
 
           {/* Right Action Section */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
-            {/* Quick Role Switcher for Admin (Admin | Producción) */}
-            {currentUser?.role === 'admin' && (
+            {/* Quick Role Switcher for Full Admin only (Admin | Producción) */}
+            {isFullAdmin && (
               <div className="hidden md:flex items-center bg-[#FAF8F5] p-1 rounded-xl border border-stone-200 gap-1">
                 <button
                   type="button"
@@ -129,8 +137,8 @@ export const Header: React.FC = () => {
               <span className="hidden xl:inline">{isOnline ? 'En Línea' : 'Offline'}</span>
             </div>
 
-            {/* Data Management / Database Trigger (Admin only) */}
-            {currentUser?.role === 'admin' && (
+            {/* Data Management / Database Trigger (Full Admin only) */}
+            {isFullAdmin && (
               <button
                 onClick={() => setShowDataModal(true)}
                 className={`relative flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition cursor-pointer ${
@@ -176,16 +184,18 @@ export const Header: React.FC = () => {
               </button>
             )}
 
-            {/* Switch Role selector button */}
-            <button
-              type="button"
-              onClick={() => setActiveRole(null)}
-              title="Cambiar de Rol"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-[#535B28] bg-[#f7f8f2] hover:bg-[#ecf0dc] border border-[#dce4bf] active:scale-95 transition cursor-pointer"
-            >
-              <ArrowLeftRight className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">Roles</span>
-            </button>
+            {/* Switch Role selector button (Full Admin only) */}
+            {isFullAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveRole(null)}
+                title="Cambiar de Rol"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-[#535B28] bg-[#f7f8f2] hover:bg-[#ecf0dc] border border-[#dce4bf] active:scale-95 transition cursor-pointer"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">Roles</span>
+              </button>
+            )}
 
             {/* Full Logout Button */}
             <button

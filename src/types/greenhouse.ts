@@ -12,12 +12,63 @@ export type UserRole =
 
 export type AppUserRole = 'admin' | 'produccion';
 
+export type AppModuleId =
+  | 'admin_panel'
+  | 'produccion_dia'
+  | 'bitacora'
+  | 'aplicaciones_foliares'
+  | 'ventas_operacion'
+  | 'admin_insumos'
+  | 'admin_costos'
+  | 'admin_pagos'
+  | 'admin_incidencias'
+  | 'admin_proveedores'
+  | 'admin_empleados'
+  | 'admin_productos'
+  | 'resumen_ventas';
+
+export interface AppModuleDefinition {
+  id: AppModuleId;
+  label: string;
+  shortLabel: string;
+  group: 'operacion' | 'administracion';
+}
+
+export const APP_MODULES_CONFIG: AppModuleDefinition[] = [
+  { id: 'produccion_dia', label: 'Producción e Inventario', shortLabel: 'Producción', group: 'operacion' },
+  { id: 'bitacora', label: 'Bitácora (Labores, Foliares, Riego, Monitoreo)', shortLabel: 'Bitácora', group: 'operacion' },
+  { id: 'aplicaciones_foliares', label: 'Aplicaciones Foliares (General y Parchoneo)', shortLabel: 'Foliares', group: 'operacion' },
+  { id: 'ventas_operacion', label: 'Ventas, Punto de Venta y Remisiones', shortLabel: 'Ventas / PdV', group: 'operacion' },
+  { id: 'admin_panel', label: 'Panel Admin y Usuarios', shortLabel: 'Panel Admin', group: 'administracion' },
+  { id: 'admin_pagos', label: 'Pago de Nómina', shortLabel: 'Nómina', group: 'administracion' },
+  { id: 'admin_incidencias', label: 'Préstamos, Descuentos y Comisiones', shortLabel: 'Préstamos y Desc.', group: 'administracion' },
+  { id: 'admin_proveedores', label: 'Proveedores y Cuentas por Pagar', shortLabel: 'Proveedores', group: 'administracion' },
+  { id: 'admin_insumos', label: 'Insumos y Compras', shortLabel: 'Insumos', group: 'administracion' },
+  { id: 'admin_costos', label: 'Control de Costos y Utilidad', shortLabel: 'Costos', group: 'administracion' },
+  { id: 'admin_empleados', label: 'Empleados', shortLabel: 'Empleados', group: 'administracion' },
+  { id: 'admin_productos', label: 'Catálogo de Productos', shortLabel: 'Productos', group: 'administracion' },
+  { id: 'resumen_ventas', label: 'Resumen Diario (Histórico)', shortLabel: 'Histórico', group: 'administracion' },
+];
+
+export const DEFAULT_PRODUCTION_MODULES: AppModuleId[] = [
+  'produccion_dia',
+  'bitacora',
+  'aplicaciones_foliares',
+  'ventas_operacion',
+];
+
 export interface AppUser {
   id: string;
   fullName: string;
   username: string;
   password: string;
   role: AppUserRole;
+  /**
+   * Permisos granulares por módulo.
+   * - Si role === 'admin' y allowedModules está vacío o indefinido => Acceso Total a todos los módulos.
+   * - Si allowedModules tiene elementos => El usuario solo puede entrar a los módulos listados.
+   */
+  allowedModules?: AppModuleId[];
   avatarUrl?: string;
   email?: string;
   phone?: string;
@@ -1042,5 +1093,56 @@ export interface FoliarParchoneoEntry {
   createdAt: string;
   updatedAt?: string;
 }
+
+// ==================== APARTADO DE RIEGO (ASPERSIÓN / REGADERA / PASILLO) ====================
+
+export type IrrigationApplicationMethod = 'aspersion' | 'regadera' | 'pasillo';
+
+export const IRRIGATION_APPLICATION_METHODS: Array<{
+  id: IrrigationApplicationMethod;
+  label: string;
+  description: string;
+}> = [
+  { id: 'aspersion', label: 'Aspersión', description: 'Aplicación por sistema de aspersión' },
+  { id: 'regadera', label: 'Regadera', description: 'Aplicación dirigida con regadera / manguera' },
+  { id: 'pasillo', label: 'Pasillo', description: 'Aplicación o desinfección en pasillos' },
+];
+
+export const IRRIGATION_OBJECTIVE_SUGGESTIONS = [
+  'Fertirrigación / Nutrición',
+  'Enraizamiento',
+  'Control preventivo de raíz (Drench)',
+  'Ajuste de pH / Acidificación',
+  'Lavado de sales',
+  'Bioestimulante radicular',
+  'Humectante / Surfactante de suelo',
+  'Desinfección de pasillo',
+  'Control de hongos de suelo',
+] as const;
+
+export interface IrrigationProductRow {
+  id: string;
+  productId: string;
+  productName: string;
+  objective: string;
+  dose: number;
+  unit: FoliarDoseUnit;
+  calculatedCost: number;
+}
+
+export interface IrrigationApplication {
+  id: string;
+  applicationDate: string; // YYYY-MM-DD
+  moduleName: string;
+  applicationMethod: IrrigationApplicationMethod;
+  waterLiters: number;
+  rows: IrrigationProductRow[];
+  totalCost: number;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 
 
