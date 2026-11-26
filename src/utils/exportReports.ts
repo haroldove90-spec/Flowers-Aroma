@@ -20,6 +20,7 @@ import {
   SupplyItem,
   SupplyPurchase,
   TruckLoad,
+  getUserRoleDisplayInfo,
 } from '../types/greenhouse';
 import { GeneralInventoryRow } from '../context/GreenhouseContext';
 
@@ -389,7 +390,7 @@ export function exportAllAdminRecordsExcel(
     ...appUsers.map((u) => [
       u.fullName,
       u.username,
-      u.role === 'admin' ? 'Admin' : 'Producción',
+      getUserRoleDisplayInfo(u).label,
       u.email || '',
       u.phone || '',
       u.jobTitle || '',
@@ -648,7 +649,7 @@ export function exportAllAdminRecordsPdf(
     body: appUsers.map((u) => [
       u.fullName,
       `@${u.username}`,
-      u.role === 'admin' ? 'Admin' : 'Producción',
+      getUserRoleDisplayInfo(u).label,
       u.email || '—',
       u.phone || '—',
       u.active !== false ? 'Activo' : 'Inactivo',

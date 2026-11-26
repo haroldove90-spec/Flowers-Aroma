@@ -23,6 +23,7 @@ import {
   Truck,
   ClipboardList,
   SprayCan,
+  Store,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { UserRole } from '../../types/greenhouse';
@@ -59,10 +60,12 @@ export const BottomBar: React.FC = () => {
   const getBottomItems = (): BottomNavItem[] => {
     if (!isFullAdmin) {
       const restrictedPool: BottomNavItem[] = [
-        { id: 'produccion_dia', label: 'Prod.', icon: PackageCheck },
+        { id: 'pos_caja', label: 'POS', icon: Store },
+        { id: 'ventas_operacion', label: 'Ventas', icon: Truck },
+        { id: 'resumen_ventas', label: 'Histórico', icon: TrendingUp },
+        { id: 'produccion_dia', label: 'Inventario', icon: PackageCheck },
         { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
         { id: 'aplicaciones_foliares', label: 'Foliares', icon: SprayCan },
-        { id: 'ventas_operacion', label: 'Ventas', icon: Truck },
         { id: 'admin_insumos', label: 'Insumos', icon: Sprout },
         { id: 'admin_pagos', label: 'Nómina', icon: Wallet },
         { id: 'admin_proveedores', label: 'Provee.', icon: Building2 },
@@ -76,11 +79,30 @@ export const BottomBar: React.FC = () => {
       case 'admin':
         return [
           { id: 'admin_panel', label: 'Admin', icon: ShieldCheck },
+          { id: 'pos_caja', label: 'POS', icon: Store },
           { id: 'produccion_dia', label: 'Prod.', icon: PackageCheck },
           { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
           { id: 'ventas_operacion', label: 'Ventas', icon: Truck },
-          { id: 'admin_insumos', label: 'Insumos', icon: Sprout },
           { id: 'admin_pagos', label: 'Nómina', icon: Wallet },
+        ];
+      case 'ventas':
+        return [
+          { id: 'pos_caja', label: 'POS', icon: Store },
+          { id: 'ventas_operacion', label: 'Ventas', icon: Truck },
+          { id: 'resumen_ventas', label: 'Histórico', icon: TrendingUp },
+          { id: 'produccion_dia', label: 'Inventario', icon: PackageCheck },
+          ...(isFullAdmin
+            ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]
+            : [{ id: 'mi_perfil', label: 'Perfil', icon: UserCog }]),
+        ];
+      case 'bitacora':
+        return [
+          { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
+          { id: 'aplicaciones_foliares', label: 'Foliares', icon: SprayCan },
+          { id: 'mi_perfil', label: 'Perfil', icon: UserCog },
+          ...(isFullAdmin
+            ? [{ id: 'admin_panel', label: 'Admin', icon: ShieldCheck, switchRole: 'admin' as UserRole }]
+            : []),
         ];
       case 'produccion':
         return [
@@ -130,13 +152,6 @@ export const BottomBar: React.FC = () => {
           { id: 'clasificacion', label: 'Empaque', icon: Boxes },
           { id: 'merma', label: 'Merma', icon: AlertOctagon },
           { id: 'camara', label: 'Cámara', icon: ThermometerSnowflake },
-          { id: 'workflow', label: 'Flujo', icon: GitBranch },
-        ];
-      case 'ventas':
-        return [
-          { id: 'principal', label: 'Pedidos', icon: TrendingUp },
-          { id: 'clientes', label: 'Clientes', icon: Users },
-          { id: 'cobranza', label: 'Cobranza', icon: Wallet },
           { id: 'workflow', label: 'Flujo', icon: GitBranch },
         ];
       case 'sistema':

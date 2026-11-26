@@ -5,7 +5,8 @@ import {
   Wifi,
   WifiOff,
   ShieldCheck,
-  PackageCheck,
+  TrendingUp,
+  ClipboardList,
   ArrowLeftRight,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
@@ -37,6 +38,10 @@ export const Header: React.FC = () => {
     setActiveRole(role);
     if (role === 'admin') {
       setActiveView('admin_panel');
+    } else if (role === 'ventas') {
+      setActiveView('ventas_operacion');
+    } else if (role === 'bitacora') {
+      setActiveView('bitacora');
     } else if (role === 'produccion') {
       setActiveView('produccion_dia');
     } else if (role === 'aroma_flowers') {
@@ -53,6 +58,10 @@ export const Header: React.FC = () => {
     }
     if (activeRole === 'admin') {
       setActiveView('admin_panel');
+    } else if (activeRole === 'ventas') {
+      setActiveView('ventas_operacion');
+    } else if (activeRole === 'bitacora') {
+      setActiveView('bitacora');
     } else if (activeRole === 'produccion') {
       setActiveView('produccion_dia');
     } else if (activeRole === 'aroma_flowers') {
@@ -94,7 +103,7 @@ export const Header: React.FC = () => {
 
           {/* Right Action Section */}
           <div className="flex items-center gap-1.5 sm:gap-2.5">
-            {/* Quick Role Switcher for Full Admin only (Admin | Producción) */}
+            {/* Quick Role Switcher for Full Admin only (Admin | Ventas | Bitácora) */}
             {isFullAdmin && (
               <div className="hidden md:flex items-center bg-[#FAF8F5] p-1 rounded-xl border border-stone-200 gap-1">
                 <button
@@ -111,15 +120,27 @@ export const Header: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleSwitchRole('produccion')}
+                  onClick={() => handleSwitchRole('ventas')}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                    activeRole === 'produccion'
+                    activeRole === 'ventas'
+                      ? 'bg-[#C3A25D] text-[#000000] shadow-xs'
+                      : 'text-stone-600 hover:text-[#8a6d2b]'
+                  }`}
+                >
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span>Ventas</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSwitchRole('bitacora')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                    activeRole === 'bitacora'
                       ? 'bg-[#535B28] text-white shadow-xs'
                       : 'text-stone-600 hover:text-[#535B28]'
                   }`}
                 >
-                  <PackageCheck className="w-3.5 h-3.5" />
-                  <span>Producción</span>
+                  <ClipboardList className="w-3.5 h-3.5" />
+                  <span>Bitácora</span>
                 </button>
               </div>
             )}

@@ -44,6 +44,7 @@ import {
   APP_MODULES_CONFIG,
   DEFAULT_PRODUCTION_MODULES,
   ROLES,
+  getUserRoleDisplayInfo,
 } from '../types/greenhouse';
 import {
   INITIAL_MODULES,
@@ -1009,6 +1010,8 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const onlyAromaFlowers = ROLES.every(
     (r) =>
       r.id === 'admin' ||
+      r.id === 'ventas' ||
+      r.id === 'bitacora' ||
       r.id === 'produccion' ||
       r.enabled === false
   );
@@ -1716,6 +1719,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
     const existing = existingId ? aromaProducts.find((p) => p.id === existingId) : undefined;
     const saved: AromaProduct = {
+      ...existing,
       ...productInput,
       name: cleanName,
       id: existingId || `prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1732,11 +1736,35 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return sorted;
     });
 
-    const cloudRes = await pushUpsertToSupabase('app_products', mapAromaProductToDb(saved));
+    let cloudRes = await pushUpsertToSupabase('app_products', mapAromaProductToDb(saved));
+    if (
+      !cloudRes.ok &&
+      cloudRes.error &&
+      /column .* does not exist|image_url|price_lar|price_med|price_chi/i.test(cloudRes.error)
+    ) {
+      // Fallback safely to base columns if user hasn't run the POS ALTER TABLE yet
+      const basePayload = {
+        id: saved.id,
+        name: saved.name,
+        capture_mode: saved.captureMode,
+        sort_order: Number(saved.sortOrder || 0),
+        active: saved.active !== false,
+        created_at: saved.createdAt || '',
+        updated_at: new Date().toISOString(),
+      };
+      cloudRes = await pushUpsertToSupabase('app_products', basePayload);
+    }
     if (cloudRes.ok && cloudRes.savedRow) {
       const synced = mapAromaProductFromDb(cloudRes.savedRow);
+      const merged: AromaProduct = {
+        ...synced,
+        imageUrl: synced.imageUrl ?? saved.imageUrl,
+        priceLar: synced.priceLar ?? saved.priceLar,
+        priceMed: synced.priceMed ?? saved.priceMed,
+        priceChi: synced.priceChi ?? saved.priceChi,
+      };
       setAromaProducts((prev) => {
-        const updated = prev.map((p) => (p.id === saved.id ? synced : p));
+        const updated = prev.map((p) => (p.id === saved.id ? merged : p));
         const sorted = [...updated].sort((a, b) => a.sortOrder - b.sortOrder);
         saveState('app_products', sorted);
         return sorted;
@@ -2565,25 +2593,34 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return allowed[0] || 'mi_perfil';
   };
 
+  const resolveUserWorkspaceRole = (user: AppUser): UserRole => {
+    const info = getUserRoleDisplayInfo(user);
+    if (info.roleId === 'admin') return 'admin';
+    if (info.roleId === 'bitacora') return 'bitacora';
+    if (info.roleId === 'ventas') return 'ventas';
+    const allowed = getAllowedModulesForUser(user);
+    if (allowed.includes('bitacora') && !allowed.includes('ventas_operacion')) {
+      return 'bitacora';
+    }
+    return 'ventas';
+  };
+
   const canAccessRole = (role: UserRole): boolean => {
     if (!currentUser) return false;
     const cfg = ROLES.find((r) => r.id === role);
     if (!cfg || cfg.enabled === false) return false;
     if (hasFullAccess(currentUser)) {
-      return role === 'admin' || role === 'produccion';
+      return role === 'admin' || role === 'ventas' || role === 'bitacora';
     }
-    if (currentUser.role === 'admin') {
-      return role === 'admin' || role === 'produccion';
-    }
-    return role === 'produccion';
+    return role === resolveUserWorkspaceRole(currentUser);
   };
 
-  // Auto-enter permitted module for restricted users (so Solo Bitácora / Solo Ventas never get stuck in RoleSelector)
+  // Auto-enter permitted module for restricted users (so Rol Bitácora / Rol Ventas never get stuck in RoleSelector)
   useEffect(() => {
     if (!currentUser) return;
     if (!hasFullAccess(currentUser)) {
-      const targetRole: UserRole = currentUser.role === 'admin' ? 'admin' : 'produccion';
-      if (!activeRole) {
+      const targetRole: UserRole = resolveUserWorkspaceRole(currentUser);
+      if (activeRole !== targetRole) {
         setActiveRoleState(targetRole);
       }
       const allowed = getAllowedModulesForUser(currentUser);
@@ -2602,7 +2639,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return;
     }
     if (!currentUser) return;
-    if (role === 'admin' && currentUser.role !== 'admin') return;
+    if (!hasFullAccess(currentUser) && role !== resolveUserWorkspaceRole(currentUser)) return;
     setActiveRoleState(role);
   };
 
@@ -2669,7 +2706,7 @@ export const GreenhouseProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setActiveRoleState(null);
       setActiveView('admin_panel');
     } else {
-      setActiveRoleState(matchedUser.role === 'admin' ? 'admin' : 'produccion');
+      setActiveRoleState(resolveUserWorkspaceRole(matchedUser));
       setActiveView(getDefaultAllowedView(matchedUser));
     }
     addAuditLog('Inicio de Sesión', `Usuario ${matchedUser.username} (${matchedUser.role}) ingresó al sistema`);
@@ -4159,16 +4196,25 @@ VALUES
   ('usr-david-prod', 'David', 'david', 'Chevropar#1970', 'produccion', 'Chofer / Vendedor / Producción', 'Producción & Reparto', 'Cuenta operativa de producción y reparto.', TRUE, '2026-11-18 05:00')
 ON CONFLICT DO NOTHING;
 
--- 3. Catálogo de Productos / Variedades
+-- 2. Catálogo de Productos / Variedades (incluye fotos y precios POS por calibre)
 CREATE TABLE IF NOT EXISTS app_products (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     capture_mode TEXT NOT NULL DEFAULT 'lar_med_chi' CHECK (capture_mode IN ('lar_med_chi', 'direct_total')),
     sort_order INT NOT NULL DEFAULT 0,
     active BOOLEAN NOT NULL DEFAULT TRUE,
+    image_url TEXT,
+    price_lar NUMERIC(10, 2),
+    price_med NUMERIC(10, 2),
+    price_chi NUMERIC(10, 2),
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE app_products ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE app_products ADD COLUMN IF NOT EXISTS price_lar NUMERIC(10, 2);
+ALTER TABLE app_products ADD COLUMN IF NOT EXISTS price_med NUMERIC(10, 2);
+ALTER TABLE app_products ADD COLUMN IF NOT EXISTS price_chi NUMERIC(10, 2);
 
 CREATE INDEX IF NOT EXISTS idx_app_products_sort ON app_products (sort_order ASC, name ASC);
 

@@ -9,7 +9,6 @@ import { DirectorView } from './components/director/DirectorView';
 import { OperationsView } from './components/operations/OperationsView';
 import { AgronomyView } from './components/agronomy/AgronomyView';
 import { HarvestView } from './components/harvest/HarvestView';
-import { SalesView } from './components/sales/SalesView';
 import { SystemView } from './components/system/SystemView';
 import { AromaFlowersRoleView } from './components/aroma_flowers/AromaFlowersRoleView';
 import { LoginView } from './components/auth/LoginView';
@@ -27,6 +26,7 @@ import { SalesOperationsView } from './components/sales/SalesOperationsView';
 import { BitacoraView } from './components/bitacora/BitacoraView';
 import { FoliarApplicationsView } from './components/foliar/FoliarApplicationsView';
 import { ProfileView } from './components/profile/ProfileView';
+import { PosView } from './components/pos/PosView';
 import { ROLES } from './types/greenhouse';
 
 const MainAppLayout: React.FC = () => {
@@ -60,6 +60,11 @@ const MainAppLayout: React.FC = () => {
     ? activeView
     : getDefaultAllowedView(currentUser);
 
+  // Full-screen POS mode (hides global Header, Sidebar & BottomBar)
+  if (effectiveView === 'pos_caja') {
+    return <PosView />;
+  }
+
   const renderModuleById = (viewId: string) => {
     switch (viewId) {
       case 'mi_perfil':
@@ -88,6 +93,8 @@ const MainAppLayout: React.FC = () => {
         return <BitacoraView />;
       case 'aplicaciones_foliares':
         return <FoliarApplicationsView />;
+      case 'pos_caja':
+        return <PosView />;
       case 'ventas_operacion':
         return <SalesOperationsView />;
       case 'resumen_ventas':
@@ -105,6 +112,10 @@ const MainAppLayout: React.FC = () => {
     switch (activeRole) {
       case 'admin':
         return <AdminRoleView />;
+      case 'ventas':
+        return <SalesOperationsView />;
+      case 'bitacora':
+        return <BitacoraView />;
       case 'produccion':
         return <DailyProductionView />;
       case 'aroma_flowers':
@@ -117,8 +128,6 @@ const MainAppLayout: React.FC = () => {
         return <AgronomyView />;
       case 'cosecha':
         return <HarvestView />;
-      case 'ventas':
-        return <SalesView />;
       case 'sistema':
         return <SystemView />;
       default:

@@ -64,3 +64,26 @@ input[type='number'] {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(92, 17, 37, 0.5);
 }
+
+/* Thermal 80mm POS receipt printing */
+.pos-thermal-print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 2mm;
+  }
+  .pos-hide-on-print {
+    display: none !important;
+  }
+  .pos-thermal-print-only {
+    display: block !important;
+    width: 76mm;
+    margin: 0 auto;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+}
+

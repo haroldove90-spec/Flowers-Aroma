@@ -11,6 +11,7 @@ import {
   PackageCheck,
   UserCog,
   LogOut,
+  ClipboardList,
 } from 'lucide-react';
 import { ROLES, UserRole } from '../../types/greenhouse';
 import { useGreenhouse } from '../../context/GreenhouseContext';
@@ -18,6 +19,8 @@ import { PWAHomeInstallBanner } from '../common/PWAInstallButton';
 
 const ROLE_ICON_MAP: Record<UserRole, React.ComponentType<{ className?: string }>> = {
   admin: ShieldCheck,
+  ventas: TrendingUp,
+  bitacora: ClipboardList,
   produccion: PackageCheck,
   perfil: UserCog,
   aroma_flowers: PackageCheck,
@@ -25,7 +28,6 @@ const ROLE_ICON_MAP: Record<UserRole, React.ComponentType<{ className?: string }
   operaciones: Settings,
   agronomo: Sprout,
   cosecha: Flower2,
-  ventas: TrendingUp,
   sistema: Tablet,
 };
 
@@ -39,6 +41,10 @@ export const RoleSelector: React.FC = () => {
     setActiveRole(roleId);
     if (roleId === 'admin') {
       setActiveView('admin_panel');
+    } else if (roleId === 'ventas') {
+      setActiveView('ventas_operacion');
+    } else if (roleId === 'bitacora') {
+      setActiveView('bitacora');
     } else if (roleId === 'produccion') {
       setActiveView('produccion_dia');
     } else if (roleId === 'aroma_flowers') {
@@ -77,7 +83,7 @@ export const RoleSelector: React.FC = () => {
           </div>
           <p className="mt-2 text-xs sm:text-sm text-stone-600 max-w-md">
             {currentUser?.role === 'admin'
-              ? 'Tu cuenta Admin tiene acceso completo a Administración, Producción y edición de Perfil.'
+              ? 'Tu cuenta Admin tiene acceso completo a los 3 roles: Admin, Ventas y Bitácora.'
               : 'Selecciona el área de trabajo a la que deseas ingresar.'}
           </p>
         </div>

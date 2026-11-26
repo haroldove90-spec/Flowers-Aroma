@@ -14,9 +14,9 @@ import {
   User,
   ShieldCheck,
   ArrowRight,
-  PackageCheck,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
+import { getUserRoleDisplayInfo } from '../../types/greenhouse';
 
 const compressAvatarImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -229,7 +229,14 @@ export const ProfileView: React.FC = () => {
           </div>
           <div>
             <span className="text-[11px] font-bold uppercase tracking-widest text-[#C3A25D]">
-              Módulo Perfil &bull; {activeRole === 'admin' ? 'Rol Admin' : 'Rol Producción'}
+              Módulo Perfil &bull;{' '}
+              {activeRole === 'admin'
+                ? 'Rol Admin'
+                : activeRole === 'ventas'
+                ? 'Rol Ventas'
+                : activeRole === 'bitacora'
+                ? 'Rol Bitácora'
+                : getUserRoleDisplayInfo(currentUser).label}
             </span>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
               Mi Perfil y Credenciales
@@ -241,7 +248,7 @@ export const ProfileView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {currentUser.role === 'admin' && (
+          {getUserRoleDisplayInfo(currentUser).roleId === 'admin' && (
             <button
               type="button"
               onClick={() => {
@@ -255,14 +262,6 @@ export const ProfileView: React.FC = () => {
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setActiveView('produccion_dia')}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#535B28] text-white text-xs font-bold hover:bg-[#3b411c] transition cursor-pointer border border-white/15"
-          >
-            <PackageCheck className="w-4 h-4 text-[#C3A25D]" />
-            <span>Producción e Inventario</span>
-          </button>
         </div>
       </div>
 
@@ -318,13 +317,15 @@ export const ProfileView: React.FC = () => {
             <p className="text-xs font-semibold text-stone-500">@{username || currentUser.username}</p>
             <span
               className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-bold ${
-                currentUser.role === 'admin'
+                getUserRoleDisplayInfo(currentUser).roleId === 'admin'
                   ? 'bg-[#fbf2f4] text-[#5C1125] border border-[#ebccd4]'
+                  : getUserRoleDisplayInfo(currentUser).roleId === 'ventas'
+                  ? 'bg-[#fcfaf4] text-[#8a6d2b] border border-[#C3A25D]/60'
                   : 'bg-[#f7f8f2] text-[#535B28] border border-[#dce4bf]'
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
-              {currentUser.role === 'admin' ? 'Rol: Admin (Acceso Total)' : 'Rol: Producción'}
+              {getUserRoleDisplayInfo(currentUser).label}
             </span>
           </div>
 

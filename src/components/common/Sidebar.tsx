@@ -33,9 +33,10 @@ import {
   Calculator,
   ClipboardList,
   SprayCan,
+  Store,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
-import { UserRole } from '../../types/greenhouse';
+import { UserRole, getUserRoleDisplayInfo } from '../../types/greenhouse';
 
 const AROMA_MODULE_ITEMS = [
   { id: 'fi_general', label: '1. FI-General', icon: FileSpreadsheet },
@@ -69,6 +70,10 @@ export const Sidebar: React.FC = () => {
     setActiveRole(role);
     if (role === 'admin') {
       setActiveView('admin_panel');
+    } else if (role === 'ventas') {
+      setActiveView('ventas_operacion');
+    } else if (role === 'bitacora') {
+      setActiveView('bitacora');
     } else if (role === 'produccion') {
       setActiveView('produccion_dia');
     } else if (role === 'aroma_flowers') {
@@ -82,6 +87,7 @@ export const Sidebar: React.FC = () => {
   const getRoleSpecificMenuItems = () => {
     const allMainModules = [
       { id: 'admin_panel', label: 'Panel Admin & Usuarios', icon: ShieldCheck },
+      { id: 'pos_caja', label: 'POS (Punto de Venta)', icon: Store },
       { id: 'produccion_dia', label: 'Producción e Inventario', icon: Layers },
       { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
       { id: 'aplicaciones_foliares', label: 'Aplicaciones Foliares', icon: SprayCan },
@@ -104,6 +110,20 @@ export const Sidebar: React.FC = () => {
     switch (activeRole) {
       case 'admin':
         return allMainModules;
+      case 'ventas':
+        return [
+          { id: 'pos_caja', label: 'POS (Punto de Venta)', icon: Store },
+          { id: 'ventas_operacion', label: 'Ventas, Remisiones y Cobranza', icon: Truck },
+          { id: 'resumen_ventas', label: 'Resumen Diario (Histórico)', icon: TrendingUp },
+          { id: 'produccion_dia', label: 'Producción e Inventario', icon: PackageCheck },
+          { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
+        ].filter((item) => canAccessModule(item.id));
+      case 'bitacora':
+        return [
+          { id: 'bitacora', label: 'Bitácora', icon: ClipboardList },
+          { id: 'aplicaciones_foliares', label: 'Aplicaciones Foliares', icon: SprayCan },
+          { id: 'mi_perfil', label: 'Mi Perfil', icon: UserCog },
+        ].filter((item) => canAccessModule(item.id));
       case 'produccion':
         return [
           { id: 'produccion_dia', label: 'Producción e Inventario', icon: PackageCheck },
@@ -142,13 +162,6 @@ export const Sidebar: React.FC = () => {
           { id: 'merma', label: 'Control de Merma & Descarte', icon: AlertOctagon },
           { id: 'camara', label: 'Cámara Fría & Trazabilidad', icon: ThermometerSnowflake },
         ];
-      case 'ventas':
-        return [
-          { id: 'principal', label: 'Pedidos & Facturación', icon: TrendingUp },
-          { id: 'clientes', label: 'Clientes & Canales', icon: Users },
-          { id: 'cobranza', label: 'Cobranza & Cartera', icon: Wallet },
-          { id: 'temporadas', label: 'Temporadas Especiales', icon: Calendar },
-        ];
       case 'sistema':
         return [
           { id: 'principal', label: 'Consola Táctil Campo', icon: Tablet },
@@ -176,8 +189,10 @@ export const Sidebar: React.FC = () => {
             {isFullAdmin
               ? activeRole === 'admin'
                 ? 'Rol Admin'
-                : 'Rol Producción'
-              : 'Módulos Asignados'}
+                : activeRole === 'ventas'
+                ? 'Rol Ventas'
+                : 'Rol Bitácora'
+              : getUserRoleDisplayInfo(currentUser).label}
           </span>
         )}
         <button
@@ -234,15 +249,27 @@ export const Sidebar: React.FC = () => {
               </button>
             )}
 
-            {activeRole !== 'produccion' && (
+            {activeRole !== 'ventas' && (
               <button
                 type="button"
-                onClick={() => handleSwitchRole('produccion')}
+                onClick={() => handleSwitchRole('ventas')}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
-                title="Ir a Rol Producción"
+                title="Ir a Rol Ventas"
               >
-                <PackageCheck className="w-5 h-5 shrink-0 text-[#535B28]" />
-                {!collapsed && <span className="truncate text-left">Cambiar a Producción</span>}
+                <TrendingUp className="w-5 h-5 shrink-0 text-[#C3A25D]" />
+                {!collapsed && <span className="truncate text-left">Cambiar a Ventas</span>}
+              </button>
+            )}
+
+            {activeRole !== 'bitacora' && (
+              <button
+                type="button"
+                onClick={() => handleSwitchRole('bitacora')}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-stone-300 hover:bg-stone-900 hover:text-white transition cursor-pointer"
+                title="Ir a Rol Bitácora"
+              >
+                <ClipboardList className="w-5 h-5 shrink-0 text-[#535B28]" />
+                {!collapsed && <span className="truncate text-left">Cambiar a Bitácora</span>}
               </button>
             )}
           </div>

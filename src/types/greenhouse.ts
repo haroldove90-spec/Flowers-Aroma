@@ -1,12 +1,13 @@
 export type UserRole =
   | 'admin'
+  | 'ventas'
+  | 'bitacora'
   | 'produccion'
   | 'perfil'
   | 'director'
   | 'operaciones'
   | 'agronomo'
   | 'cosecha'
-  | 'ventas'
   | 'sistema'
   | 'aroma_flowers';
 
@@ -14,6 +15,7 @@ export type AppUserRole = 'admin' | 'produccion';
 
 export type AppModuleId =
   | 'admin_panel'
+  | 'pos_caja'
   | 'produccion_dia'
   | 'bitacora'
   | 'aplicaciones_foliares'
@@ -35,10 +37,11 @@ export interface AppModuleDefinition {
 }
 
 export const APP_MODULES_CONFIG: AppModuleDefinition[] = [
+  { id: 'pos_caja', label: 'POS • Punto de Venta (Pantalla Completa)', shortLabel: 'POS', group: 'operacion' },
+  { id: 'ventas_operacion', label: 'Ventas, Remisiones y Cobranza', shortLabel: 'Ventas / Remisiones', group: 'operacion' },
   { id: 'produccion_dia', label: 'Producción e Inventario', shortLabel: 'Producción', group: 'operacion' },
   { id: 'bitacora', label: 'Bitácora (Labores, Foliares, Riego, Monitoreo)', shortLabel: 'Bitácora', group: 'operacion' },
   { id: 'aplicaciones_foliares', label: 'Aplicaciones Foliares (General y Parchoneo)', shortLabel: 'Foliares', group: 'operacion' },
-  { id: 'ventas_operacion', label: 'Ventas, Punto de Venta y Remisiones', shortLabel: 'Ventas / PdV', group: 'operacion' },
   { id: 'admin_panel', label: 'Panel Admin y Usuarios', shortLabel: 'Panel Admin', group: 'administracion' },
   { id: 'admin_pagos', label: 'Pago de Nómina', shortLabel: 'Nómina', group: 'administracion' },
   { id: 'admin_incidencias', label: 'Préstamos, Descuentos y Comisiones', shortLabel: 'Préstamos y Desc.', group: 'administracion' },
@@ -50,12 +53,67 @@ export const APP_MODULES_CONFIG: AppModuleDefinition[] = [
   { id: 'resumen_ventas', label: 'Resumen Diario (Histórico)', shortLabel: 'Histórico', group: 'administracion' },
 ];
 
+export const ROLE_VENTAS_MODULES: AppModuleId[] = [
+  'pos_caja',
+  'ventas_operacion',
+  'resumen_ventas',
+  'produccion_dia',
+];
+
+export const ROLE_POS_ONLY_MODULES: AppModuleId[] = ['pos_caja'];
+
+export const ROLE_BITACORA_MODULES: AppModuleId[] = [
+  'bitacora',
+  'aplicaciones_foliares',
+];
+
 export const DEFAULT_PRODUCTION_MODULES: AppModuleId[] = [
   'produccion_dia',
   'bitacora',
   'aplicaciones_foliares',
   'ventas_operacion',
+  'pos_caja',
 ];
+
+export type EffectiveRoleId = 'admin' | 'ventas' | 'bitacora' | 'personalizado';
+
+export const getUserRoleDisplayInfo = (
+  user: AppUser | null | undefined
+): { roleId: EffectiveRoleId; label: string; shortLabel: string } => {
+  if (!user) {
+    return { roleId: 'personalizado', label: 'Sin rol', shortLabel: 'Usuario' };
+  }
+  const mods = Array.isArray(user.allowedModules) ? user.allowedModules : [];
+  if (user.role === 'admin' && mods.length === 0) {
+    return { roleId: 'admin', label: 'Admin (Acceso Total)', shortLabel: 'Admin' };
+  }
+  const effectiveMods = mods.length > 0 ? mods : DEFAULT_PRODUCTION_MODULES;
+  const isOnlyBitacora =
+    effectiveMods.length > 0 &&
+    effectiveMods.every((m) => m === 'bitacora' || m === 'aplicaciones_foliares');
+  if (isOnlyBitacora) {
+    return { roleId: 'bitacora', label: 'Rol Bitácora', shortLabel: 'Bitácora' };
+  }
+  const isOnlyPos =
+    effectiveMods.length === 1 && effectiveMods[0] === 'pos_caja';
+  if (isOnlyPos) {
+    return { roleId: 'ventas', label: 'Solo POS (Caja)', shortLabel: 'POS' };
+  }
+  const isOnlyVentas =
+    effectiveMods.length > 0 &&
+    (effectiveMods.includes('ventas_operacion') || effectiveMods.includes('pos_caja')) &&
+    effectiveMods.every(
+      (m) =>
+        m === 'pos_caja' ||
+        m === 'ventas_operacion' ||
+        m === 'resumen_ventas' ||
+        m === 'produccion_dia'
+    );
+  if (isOnlyVentas) {
+    return { roleId: 'ventas', label: 'Rol Ventas', shortLabel: 'Ventas' };
+  }
+  return { roleId: 'personalizado', label: 'Acceso Personalizado', shortLabel: 'Personalizado' };
+};
 
 export interface AppUser {
   id: string;
@@ -95,25 +153,43 @@ export const ROLES: RoleConfig[] = [
     id: 'admin',
     title: 'Admin',
     shortTitle: 'Admin',
-    badge: 'Acceso Total • Admin y Producción',
+    badge: 'Acceso Total • Todos los Módulos y Roles',
     color: 'wine',
     iconName: 'ShieldCheck',
+    enabled: true,
+  },
+  {
+    id: 'ventas',
+    title: 'Ventas',
+    shortTitle: 'Ventas',
+    badge: 'Punto de Venta, Remisiones, Cobranza e Inventario',
+    color: 'gold',
+    iconName: 'TrendingUp',
+    enabled: true,
+  },
+  {
+    id: 'bitacora',
+    title: 'Bitácora',
+    shortTitle: 'Bitácora',
+    badge: 'Labores, Foliares, Riego y Monitoreo en Croquis',
+    color: 'olive',
+    iconName: 'ClipboardList',
     enabled: true,
   },
   {
     id: 'produccion',
     title: 'Producción',
     shortTitle: 'Producción',
-    badge: 'Producción del Día, Inventario, Ventas y Perfil',
+    badge: 'Integrado en Admin y Ventas',
     color: 'olive',
     iconName: 'PackageCheck',
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'perfil',
     title: 'Perfil',
     shortTitle: 'Perfil',
-    badge: 'Módulo Integrado en Admin y Producción',
+    badge: 'Módulo Integrado en Todos los Roles',
     color: 'gold',
     iconName: 'UserCog',
     enabled: false,
@@ -220,6 +296,10 @@ export interface AromaProduct {
   captureMode: ProductCaptureMode;
   sortOrder: number;
   active: boolean;
+  imageUrl?: string;
+  priceLar?: number;
+  priceMed?: number;
+  priceChi?: number;
   createdAt: string;
   updatedAt?: string;
 }

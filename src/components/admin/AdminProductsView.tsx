@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Boxes,
   PlusCircle,
@@ -11,6 +11,9 @@ import {
   Layers,
   FileSpreadsheet,
   FileText,
+  Camera,
+  RotateCcw,
+  Store,
 } from 'lucide-react';
 import { useGreenhouse } from '../../context/GreenhouseContext';
 import { AromaProduct, ProductCaptureMode } from '../../types/greenhouse';
@@ -19,6 +22,10 @@ import {
   exportProductsCatalogExcel,
   exportProductsCatalogPdf,
 } from '../../utils/exportReports';
+import {
+  getPosProductMeta,
+  compressProductImage,
+} from '../../data/posProductImages';
 
 export const AdminProductsView: React.FC = () => {
   const {
@@ -35,6 +42,11 @@ export const AdminProductsView: React.FC = () => {
     String(aromaProducts.length + 1)
   );
   const [active, setActive] = useState(true);
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [priceLarText, setPriceLarText] = useState<string>('');
+  const [priceMedText, setPriceMedText] = useState<string>('');
+  const [priceChiText, setPriceChiText] = useState<string>('');
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [feedback, setFeedback] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -51,16 +63,39 @@ export const AdminProductsView: React.FC = () => {
     setCaptureMode('lar_med_chi');
     setSortOrderText(String(aromaProducts.length + 1));
     setActive(true);
+    setImageUrl('');
+    setPriceLarText('');
+    setPriceMedText('');
+    setPriceChiText('');
     setErrorMsg(null);
   };
 
   const handleEdit = (p: AromaProduct) => {
+    const meta = getPosProductMeta(p);
     setEditingId(p.id);
     setName(p.name);
     setCaptureMode(p.captureMode);
     setSortOrderText(String(p.sortOrder));
     setActive(p.active !== false);
+    setImageUrl(p.imageUrl || '');
+    setPriceLarText(String(p.priceLar || meta.priceLar));
+    setPriceMedText(String(p.priceMed || meta.priceMed));
+    setPriceChiText(String(p.priceChi || meta.priceChi));
     setErrorMsg(null);
+  };
+
+  const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressProductImage(file);
+      setImageUrl(compressed);
+      setErrorMsg(null);
+    } catch {
+      setErrorMsg('No se pudo cargar la imagen. Intenta con un archivo JPG o PNG.');
+    } finally {
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
   };
 
   const [isSavingProduct, setIsSavingProduct] = useState(false);
@@ -72,6 +107,9 @@ export const AdminProductsView: React.FC = () => {
 
     const parsedOrder = parseInt(sortOrderText.replace(/[^0-9]/g, ''), 10);
     const sortOrder = Number.isFinite(parsedOrder) && parsedOrder > 0 ? parsedOrder : aromaProducts.length + 1;
+    const pLar = parseFloat(priceLarText);
+    const pMed = parseFloat(priceMedText);
+    const pChi = parseFloat(priceChiText);
 
     setIsSavingProduct(true);
     const res = await saveAromaProduct(
@@ -80,6 +118,10 @@ export const AdminProductsView: React.FC = () => {
         captureMode,
         sortOrder,
         active,
+        imageUrl: imageUrl || '',
+        priceLar: Number.isFinite(pLar) && pLar > 0 ? pLar : undefined,
+        priceMed: Number.isFinite(pMed) && pMed > 0 ? pMed : undefined,
+        priceChi: Number.isFinite(pChi) && pChi > 0 ? pChi : undefined,
       },
       editingId || undefined
     );
@@ -93,7 +135,7 @@ export const AdminProductsView: React.FC = () => {
     if (res.cloudSynced) {
       setFeedback(
         editingId
-          ? `Producto "${name.trim().toUpperCase()}" actualizado en Supabase y sincronizado con Producción.`
+          ? `Producto "${name.trim().toUpperCase()}" actualizado en Supabase y sincronizado con POS y Producción.`
           : `Producto "${name.trim().toUpperCase()}" agregado en Supabase.`
       );
     } else {
@@ -151,15 +193,25 @@ export const AdminProductsView: React.FC = () => {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveView('produccion_dia')}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer self-start lg:self-auto"
-        >
-          <Layers className="w-4 h-4 text-[#C3A25D]" />
-          <span>Ver Producción e Inventario</span>
-          <ArrowRight className="w-4 h-4" />
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+          <button
+            type="button"
+            onClick={() => setActiveView('pos_caja')}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#C3A25D] hover:bg-[#d6be83] text-[#000000] text-xs sm:text-sm font-black transition cursor-pointer"
+          >
+            <Store className="w-4 h-4" />
+            <span>Abrir POS</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('produccion_dia')}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs sm:text-sm font-bold border border-[#C3A25D]/40 transition cursor-pointer"
+          >
+            <Layers className="w-4 h-4 text-[#C3A25D]" />
+            <span>Ver Producción e Inventario</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -230,7 +282,7 @@ export const AdminProductsView: React.FC = () => {
 
           <div>
             <label className="block text-xs font-bold text-stone-700 mb-1">
-              Orden en Lista
+              Orden en Lista / POS
             </label>
             <input
               type="text"
@@ -243,6 +295,99 @@ export const AdminProductsView: React.FC = () => {
             />
           </div>
 
+          {/* Photo Upload for POS */}
+          <div className="space-y-2 pt-1 border-t border-stone-100">
+            <label className="block text-xs font-bold text-stone-700">
+              Fotografía del Producto (POS)
+            </label>
+            <div className="flex items-center gap-3">
+              <img
+                src={
+                  imageUrl ||
+                  getPosProductMeta({ name: name || 'COMBINADOS', imageUrl: '' }).imageSrc
+                }
+                alt={name || 'Vista previa'}
+                referrerPolicy="no-referrer"
+                className="w-20 h-16 rounded-xl object-cover border border-[#C3A25D]/50 bg-[#f8f2e2] shrink-0"
+              />
+              <div className="flex-1 space-y-1.5">
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoFileChange}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#535B28] hover:bg-[#3b411c] text-white text-xs font-bold transition cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5 text-[#C3A25D]" />
+                  <span>Subir Foto Propia</span>
+                </button>
+                {imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setImageUrl('')}
+                    className="w-full flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 text-[11px] font-bold transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Usar foto de estudio</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Precios Sugeridos POS */}
+          <div className="space-y-1.5 pt-1 border-t border-stone-100">
+            <label className="block text-xs font-bold text-stone-700">
+              Precios Sugeridos POS (MXN por paquete)
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <span className="block text-[10px] font-bold text-stone-500 mb-0.5">
+                  Largo (LAR)
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={priceLarText}
+                  onChange={(e) => setPriceLarText(e.target.value.replace(/[^0-9.]/g, ''))}
+                  placeholder="180"
+                  className="w-full px-2.5 py-1.5 border border-stone-300 rounded-xl text-xs font-bold tabular-nums text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
+                />
+              </div>
+              <div>
+                <span className="block text-[10px] font-bold text-stone-500 mb-0.5">
+                  Mediano (MED)
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={priceMedText}
+                  onChange={(e) => setPriceMedText(e.target.value.replace(/[^0-9.]/g, ''))}
+                  placeholder="150"
+                  className="w-full px-2.5 py-1.5 border border-stone-300 rounded-xl text-xs font-bold tabular-nums text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
+                />
+              </div>
+              <div>
+                <span className="block text-[10px] font-bold text-stone-500 mb-0.5">
+                  Chico (CHI)
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={priceChiText}
+                  onChange={(e) => setPriceChiText(e.target.value.replace(/[^0-9.]/g, ''))}
+                  placeholder="120"
+                  className="w-full px-2.5 py-1.5 border border-stone-300 rounded-xl text-xs font-bold tabular-nums text-[#000000] focus:ring-2 focus:ring-[#5C1125]"
+                />
+              </div>
+            </div>
+          </div>
+
           <label className="flex items-center gap-2 text-xs font-semibold text-stone-700 cursor-pointer">
             <input
               type="checkbox"
@@ -250,7 +395,7 @@ export const AdminProductsView: React.FC = () => {
               onChange={(e) => setActive(e.target.checked)}
               className="rounded border-stone-300 text-[#5C1125] focus:ring-[#5C1125]"
             />
-            <span>Producto activo (visible para empleados)</span>
+            <span>Producto activo (visible para empleados y POS)</span>
           </label>
 
           <button
@@ -307,15 +452,23 @@ export const AdminProductsView: React.FC = () => {
           </div>
 
           <div className="divide-y divide-stone-100">
-            {sortedProducts.map((prod) => (
+            {sortedProducts.map((prod) => {
+              const meta = getPosProductMeta(prod);
+              return (
               <div
                 key={prod.id}
                 className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#FAF8F5]/70 transition"
               >
                 <div className="flex items-center gap-3">
-                  <span className="w-7 h-7 rounded-lg bg-[#5C1125]/10 text-[#5C1125] font-extrabold text-xs flex items-center justify-center shrink-0">
+                  <span className="w-7 h-7 rounded-lg bg-[#5C1125]/10 text-[#5C1125] font-extrabold text-xs flex items-center justify-center shrink-0 tabular-nums">
                     {prod.sortOrder}
                   </span>
+                  <img
+                    src={meta.imageSrc}
+                    alt={prod.name}
+                    referrerPolicy="no-referrer"
+                    className="w-12 h-9 rounded-lg object-cover border border-[#C3A25D]/45 shrink-0 bg-[#f8f2e2]"
+                  />
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-extrabold text-[#000000]">{prod.name}</span>
@@ -334,6 +487,11 @@ export const AdminProductsView: React.FC = () => {
                         </span>
                       )}
                     </div>
+                    <p className="text-[11px] text-stone-500 mt-0.5 tabular-nums">
+                      {prod.captureMode === 'direct_total'
+                        ? `POS: $${meta.priceLar}`
+                        : `POS · LAR $${meta.priceLar} · MED $${meta.priceMed} · CHI $${meta.priceChi}`}
+                    </p>
                   </div>
                 </div>
 
@@ -389,7 +547,8 @@ export const AdminProductsView: React.FC = () => {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

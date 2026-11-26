@@ -699,6 +699,10 @@ export const mapAromaProductToDb = (p: AromaProduct) => ({
   capture_mode: p.captureMode,
   sort_order: Number(p.sortOrder || 0),
   active: p.active !== false,
+  image_url: p.imageUrl || null,
+  price_lar: p.priceLar !== undefined && p.priceLar !== null ? Number(p.priceLar) : null,
+  price_med: p.priceMed !== undefined && p.priceMed !== null ? Number(p.priceMed) : null,
+  price_chi: p.priceChi !== undefined && p.priceChi !== null ? Number(p.priceChi) : null,
   created_at: p.createdAt || '',
   updated_at: new Date().toISOString(),
 });
@@ -709,6 +713,10 @@ export const mapAromaProductFromDb = (r: any): AromaProduct => ({
   captureMode: r.capture_mode === 'direct_total' ? 'direct_total' : 'lar_med_chi',
   sortOrder: Number(r.sort_order || 0),
   active: r.active !== false,
+  imageUrl: r.image_url || undefined,
+  priceLar: r.price_lar !== undefined && r.price_lar !== null ? Number(r.price_lar) : undefined,
+  priceMed: r.price_med !== undefined && r.price_med !== null ? Number(r.price_med) : undefined,
+  priceChi: r.price_chi !== undefined && r.price_chi !== null ? Number(r.price_chi) : undefined,
   createdAt: r.created_at || '',
   updatedAt: r.updated_at || undefined,
 });
