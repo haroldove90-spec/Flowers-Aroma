@@ -709,7 +709,7 @@ export const PosView: React.FC = () => {
   return (
     <>
       {/* MAIN INTERACTIVE FULL-SCREEN POS WORKSPACE */}
-      <div className="pos-hide-on-print h-screen w-screen overflow-hidden flex flex-col bg-[#FAF8F5] text-[#000000] select-none">
+      <div className="pos-hide-on-print h-dvh w-full max-w-full overflow-hidden flex flex-col bg-[#FAF8F5] text-[#000000] select-none">
         {/* Toast feedback */}
         {toast && (
           <div
@@ -729,7 +729,7 @@ export const PosView: React.FC = () => {
         )}
 
         {/* TOP BAR */}
-        <header className="shrink-0 bg-white border-b border-[#C3A25D]/40 px-3 sm:px-5 py-2 flex items-center justify-between gap-2 shadow-2xs">
+        <header className="shrink-0 bg-white border-b border-[#C3A25D]/40 px-3 sm:px-4 py-1.5 flex items-center justify-between gap-2 shadow-2xs">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {returnViewId && (
               <button
@@ -1112,13 +1112,13 @@ export const PosView: React.FC = () => {
           <aside
             className={`${
               mobilePanel === 'catalog' ? 'hidden lg:flex' : 'flex'
-            } w-full lg:w-[390px] xl:w-[420px] shrink-0 bg-white border-t lg:border-t-0 lg:border-l border-[#C3A25D]/45 flex-col h-full overflow-hidden shadow-lg`}
+            } w-full lg:w-[375px] xl:w-[405px] shrink-0 bg-white border-t lg:border-t-0 lg:border-l border-[#C3A25D]/45 flex-col h-full min-h-0 overflow-y-auto shadow-lg`}
           >
             {/* Ticket Header */}
-            <div className="shrink-0 px-4 pt-3 pb-2 border-b border-stone-100 flex items-center justify-between gap-2">
+            <div className="shrink-0 px-3.5 py-2 border-b border-stone-100 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-[#5C1125]" />
-                <h2 className="text-sm font-black tracking-tight text-[#000000]">
+                <h2 className="text-xs sm:text-sm font-black tracking-tight text-[#000000]">
                   TICKET DE VENTA
                 </h2>
                 <span className="px-2 py-0.5 rounded-md bg-[#f8f2e2] text-[#8a6d2b] text-[11px] font-extrabold tabular-nums border border-[#C3A25D]/40">
@@ -1138,9 +1138,9 @@ export const PosView: React.FC = () => {
               )}
             </div>
 
-            {/* Client Selector */}
-            <div className="shrink-0 px-4 py-2 border-b border-stone-100 space-y-1.5">
-              <div className="flex items-center gap-1.5">
+            {/* Client Selector (single compact row) */}
+            <div className="shrink-0 px-3.5 py-1.5 border-b border-stone-100">
+              <div className={`grid gap-1.5 ${selectedClientId ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 <select
                   value={selectedClientId}
                   onChange={(e) => {
@@ -1148,32 +1148,32 @@ export const PosView: React.FC = () => {
                     if (e.target.value) setCustomClientName('');
                   }}
                   aria-label="Cliente registrado"
-                  className="flex-1 px-2.5 py-1.5 rounded-xl bg-[#FAF8F5] border border-stone-200 text-xs font-bold text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125] cursor-pointer"
+                  className="w-full px-2 py-1.5 rounded-lg bg-[#FAF8F5] border border-stone-200 text-xs font-bold text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125] cursor-pointer truncate"
                 >
-                  <option value="">Público General (o escribe abajo)</option>
+                  <option value="">Público General</option>
                   {salesClients.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
-                      {c.balance > 0 ? ` (Saldo: ${fmtMoney(c.balance)})` : ''}
+                      {c.balance > 0 ? ` (${fmtMoney(c.balance)})` : ''}
                     </option>
                   ))}
                 </select>
+                {!selectedClientId && (
+                  <input
+                    type="text"
+                    value={customClientName}
+                    onChange={(e) => setCustomClientName(e.target.value)}
+                    placeholder="Cliente (Opcional)..."
+                    className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-200 text-xs font-semibold text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]"
+                  />
+                )}
               </div>
-              {!selectedClientId && (
-                <input
-                  type="text"
-                  value={customClientName}
-                  onChange={(e) => setCustomClientName(e.target.value)}
-                  placeholder="Nombre del cliente (Opcional)..."
-                  className="w-full px-3 py-1.5 rounded-xl bg-white border border-stone-200 text-xs font-semibold text-[#000000] focus:outline-none focus:ring-2 focus:ring-[#5C1125]"
-                />
-              )}
             </div>
 
             {/* Scrollable Cart Items */}
-            <div className="flex-1 min-h-[85px] overflow-y-auto px-4 py-2 space-y-2 bg-[#FAF8F5]/50">
+            <div className="flex-1 min-h-[60px] overflow-y-auto px-3.5 py-1.5 space-y-1.5 bg-[#FAF8F5]/50">
               {cart.length === 0 ? (
-                <div className="h-full min-h-[76px] flex items-center justify-center rounded-xl border border-dashed border-[#C3A25D]/60 bg-[#fcfaf4] text-xs font-semibold text-[#8a6d2b] px-3 text-center">
+                <div className="h-full min-h-[52px] flex items-center justify-center rounded-xl border border-dashed border-[#C3A25D]/60 bg-[#fcfaf4] text-xs font-semibold text-[#8a6d2b] px-3 text-center">
                   Ticket vacío &bull; Toca productos a la izquierda
                 </div>
               ) : (
@@ -1256,22 +1256,22 @@ export const PosView: React.FC = () => {
             </div>
 
             {/* PERMANENT CHECKOUT & TOUCH CALCULATOR DOCK */}
-            <div className="shrink-0 px-4 pt-2.5 pb-3 border-t border-[#C3A25D]/40 bg-white space-y-2.5">
+            <div className="shrink-0 px-3.5 pt-2 pb-2.5 border-t border-[#C3A25D]/40 bg-white space-y-1.5">
               {/* Total Highlight Box */}
-              <div className="rounded-xl bg-[#f8f2e2] border-2 border-[#C3A25D] px-3.5 py-2 flex items-center justify-between gap-2">
+              <div className="rounded-xl bg-[#f8f2e2] border-2 border-[#C3A25D] px-3 py-1.5 flex items-center justify-between gap-2">
                 <div className="leading-tight">
                   <span className="block text-[10px] font-black uppercase tracking-wider text-[#5C1125]">
                     TOTAL A COBRAR:
                   </span>
-                  <span className="text-[11px] font-bold text-stone-700 tabular-nums">
+                  <span className="text-[10px] font-bold text-stone-700 tabular-nums">
                     {ticketTotalPackages} paquete(s) en ticket
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-2xl font-black text-[#5C1125] tabular-nums">
+                  <span className="text-xl font-black text-[#5C1125] tabular-nums">
                     {fmtMoney(ticketTotal)}
                   </span>
-                  <span className="text-[11px] font-extrabold text-[#8a6d2b] ml-1">
+                  <span className="text-[10px] font-extrabold text-[#8a6d2b] ml-1">
                     MXN
                   </span>
                 </div>
@@ -1282,7 +1282,7 @@ export const PosView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('contado')}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap ${
                     paymentMethod === 'contado'
                       ? 'bg-[#5C1125] text-white border-[#5C1125] shadow-xs'
                       : 'bg-white text-stone-700 border-stone-200 hover:border-[#C3A25D]'
@@ -1294,7 +1294,7 @@ export const PosView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('deposito')}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap ${
                     paymentMethod === 'deposito'
                       ? 'bg-[#5C1125] text-white border-[#5C1125] shadow-xs'
                       : 'bg-white text-stone-700 border-stone-200 hover:border-[#C3A25D]'
@@ -1306,7 +1306,7 @@ export const PosView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setPaymentMethod('credito')}
-                  className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap ${
+                  className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-extrabold border transition cursor-pointer whitespace-nowrap ${
                     paymentMethod === 'credito'
                       ? 'bg-[#535B28] text-white border-[#535B28] shadow-xs'
                       : 'bg-white text-stone-700 border-stone-200 hover:border-[#C3A25D]'
@@ -1332,7 +1332,7 @@ export const PosView: React.FC = () => {
                     Exacto ({fmtMoney(ticketTotal)})
                   </button>
                 </div>
-                <div className="grid grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-5 gap-1">
                   {QUICK_BILLS.map((bill) => (
                     <button
                       key={bill}
@@ -1341,7 +1341,7 @@ export const PosView: React.FC = () => {
                         setPaymentMethod('contado');
                         setCashInput(String(bill));
                       }}
-                      className="py-1.5 rounded-xl bg-[#FAF8F5] hover:bg-[#f8f2e2] border border-[#C3A25D]/50 text-[#000000] text-xs font-extrabold tabular-nums transition cursor-pointer"
+                      className="py-1 rounded-lg bg-[#FAF8F5] hover:bg-[#f8f2e2] border border-[#C3A25D]/50 text-[#000000] text-[11px] font-extrabold tabular-nums transition cursor-pointer"
                     >
                       ${bill}
                     </button>
@@ -1350,16 +1350,16 @@ export const PosView: React.FC = () => {
               </div>
 
               {/* Received & Change Display */}
-              <div className="rounded-xl border-2 border-[#C3A25D]/60 bg-[#FAF8F5] px-3 py-2 flex items-center justify-between gap-2">
+              <div className="rounded-xl border-2 border-[#C3A25D]/60 bg-[#FAF8F5] px-3 py-1.5 flex items-center justify-between gap-2">
                 <div>
-                  <span className="block text-[10px] font-extrabold uppercase text-stone-500">
+                  <span className="block text-[9px] font-extrabold uppercase text-stone-500">
                     {paymentMethod === 'contado'
                       ? 'EFECTIVO RECIBIDO'
                       : paymentMethod === 'deposito'
                       ? 'PAGO TARJETA / SPEI'
                       : 'CARGO A CRÉDITO'}
                   </span>
-                  <span className="text-lg font-black text-[#000000] tabular-nums">
+                  <span className="text-base font-black text-[#000000] tabular-nums">
                     {paymentMethod === 'contado'
                       ? fmtMoney(cashReceivedNum)
                       : fmtMoney(ticketTotal)}
@@ -1367,7 +1367,7 @@ export const PosView: React.FC = () => {
                 </div>
 
                 <div className="text-right">
-                  <span className="block text-[10px] font-extrabold uppercase text-stone-500">
+                  <span className="block text-[9px] font-extrabold uppercase text-stone-500">
                     {paymentMethod === 'contado'
                       ? changeDue >= 0
                         ? 'CAMBIO A ENTREGAR'
@@ -1377,7 +1377,7 @@ export const PosView: React.FC = () => {
                       : 'ESTADO'}
                   </span>
                   <span
-                    className={`text-lg font-black tabular-nums ${
+                    className={`text-base font-black tabular-nums ${
                       paymentMethod === 'contado'
                         ? changeDue >= 0
                           ? 'text-[#535B28]'
@@ -1397,14 +1397,14 @@ export const PosView: React.FC = () => {
               </div>
 
               {/* Permanent 4x3 Touch Numeric Keypad */}
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-3 gap-1">
                 {['7', '8', '9', '4', '5', '6', '1', '2', '3', 'C', '0', '.'].map(
                   (key) => (
                     <button
                       key={key}
                       type="button"
                       onClick={() => handleKeypadPress(key)}
-                      className={`py-2.5 rounded-xl text-base font-black tabular-nums transition active:scale-95 cursor-pointer border ${
+                      className={`py-1.5 rounded-lg text-sm font-black tabular-nums transition active:scale-95 cursor-pointer border ${
                         key === 'C'
                           ? 'bg-[#000000] hover:bg-stone-800 text-white border-[#000000]'
                           : 'bg-white hover:bg-[#FAF8F5] text-[#000000] border-stone-200 shadow-2xs'
@@ -1417,7 +1417,7 @@ export const PosView: React.FC = () => {
               </div>
 
               {/* Auto-print 80mm Checkbox */}
-              <label className="flex items-center gap-2 text-xs font-semibold text-stone-700 cursor-pointer pt-0.5">
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-stone-700 cursor-pointer pt-0.5">
                 <input
                   type="checkbox"
                   checked={autoPrint80mm}
@@ -1432,7 +1432,7 @@ export const PosView: React.FC = () => {
                 type="button"
                 onClick={handleCheckout}
                 disabled={cart.length === 0 || isCheckingOut}
-                className="w-full py-3 px-4 rounded-xl bg-[#5C1125] hover:bg-[#3f0918] disabled:bg-stone-300 disabled:text-stone-500 text-white font-black text-sm tracking-wide flex items-center justify-center gap-2 shadow-md transition cursor-pointer disabled:cursor-not-allowed tabular-nums"
+                className="w-full py-2.5 px-4 rounded-xl bg-[#5C1125] hover:bg-[#3f0918] disabled:bg-stone-300 disabled:text-stone-500 text-white font-black text-xs sm:text-sm tracking-wide flex items-center justify-center gap-2 shadow-md transition cursor-pointer disabled:cursor-not-allowed tabular-nums"
               >
                 <Printer className="w-4 h-4 text-[#C3A25D]" />
                 <span>
